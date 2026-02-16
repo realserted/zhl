@@ -128,9 +128,11 @@ export default function SettingsPage() {
                   </td>
                   <td className="px-4 py-3">
                     <select className="border border-input rounded px-2 py-1 bg-background text-foreground text-xs">
-                      <option>View...</option>
+                      <option>View Only</option>
+                      <option>Suggest Change</option>
+                      <option>View Suggested Change</option>
+                      <option>Approve Changes</option>
                       <option>Edit</option>
-                      <option>Admin</option>
                     </select>
                   </td>
                   <td className="px-4 py-3">
@@ -147,16 +149,24 @@ export default function SettingsPage() {
                   </td>
                   <td className="px-4 py-3">
                     <select className="border border-input rounded px-2 py-1 bg-background text-foreground text-xs">
-                      <option>Tran...</option>
-                      <option>Transfer</option>
-                      <option>Manage</option>
+                      <option>Project Owner</option>
+                      <option>Transfer Ownership (Only 1 owner on each project)</option>
+                      <option>Project Manager (can change all permissions on a project)</option>
+                      <option>Property Manager (coming soon)</option>
+                      <option>Limited Partner (no view perms, only receives emailed reports)</option>
+                      <option>Accountant (views financial records only)</option>
                     </select>
                   </td>
                   <td className="px-4 py-3">
                     <select className="border border-input rounded px-2 py-1 bg-background text-foreground text-xs">
+                      <option>Administrative</option>
+                      <option>Capex</option>
+                      <option>Financial</option>
+                      <option>Legal</option>
+                      <option>Management</option>
                       <option>Misc</option>
-                      <option>Admin</option>
-                      <option>Editor</option>
+                      <option>Strategic</option>
+                      <option>Workflow</option>
                     </select>
                   </td>
                 </tr>
@@ -200,9 +210,11 @@ export default function SettingsPage() {
                   </td>
                   <td className="px-4 py-3">
                     <select className="border border-input rounded px-2 py-1 bg-background text-foreground text-xs">
-                      <option>View...</option>
+                      <option>View Only</option>
+                      <option>Suggest Change</option>
+                      <option>View Suggested Change</option>
+                      <option>Approve Changes</option>
                       <option>Edit</option>
-                      <option>Admin</option>
                     </select>
                   </td>
                   <td className="px-4 py-3">
@@ -219,16 +231,24 @@ export default function SettingsPage() {
                   </td>
                   <td className="px-4 py-3">
                     <select className="border border-input rounded px-2 py-1 bg-background text-foreground text-xs">
-                      <option>Tran...</option>
-                      <option>Transfer</option>
-                      <option>Manage</option>
+                      <option>Project Owner</option>
+                      <option>Transfer Ownership (Only 1 owner on each project)</option>
+                      <option>Project Manager (can change all permissions on a project)</option>
+                      <option>Property Manager (coming soon)</option>
+                      <option>Limited Partner (no view perms, only receives emailed reports)</option>
+                      <option>Accountant (views financial records only)</option>
                     </select>
                   </td>
                   <td className="px-4 py-3">
                     <select className="border border-input rounded px-2 py-1 bg-background text-foreground text-xs">
+                      <option>Administrative</option>
+                      <option>Capex</option>
+                      <option>Financial</option>
+                      <option>Legal</option>
+                      <option>Management</option>
                       <option>Misc</option>
-                      <option>Admin</option>
-                      <option>Editor</option>
+                      <option>Strategic</option>
+                      <option>Workflow</option>
                     </select>
                   </td>
                 </tr>
