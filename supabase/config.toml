@@ -1,0 +1,18 @@
+# Supabase Project Configuration
+
+project_id = "zerohasslelandlord"
+
+[api]
+port = 54321
+
+[db]
+port = 54322
+
+[realtime]
+enabled = true
+
+[auth]
+enabled = true
+
+[storage]
+enabled = true

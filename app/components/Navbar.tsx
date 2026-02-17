@@ -7,19 +7,32 @@ import NavActions from './NavActions';
 import NavUserProfile from './NavUserProfile';
 import { ThemeToggle } from './ThemeToggle';
 import { ArrowLeft, ChevronDown } from 'lucide-react';
+import { useAuth } from '../../lib/auth-context';
+import { getProjects } from '../../lib/db/projects';
+import { Project } from '../../lib/types/project';
 
 interface NavbarProps {
   onTabChange?: (tabId: string) => void;
 }
 
 export default function Navbar({ onTabChange }: NavbarProps) {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
-  const [selectedProject, setSelectedProject] = useState('Cherry');
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const projectDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Projects data - will be replaced with database values
-  const projects = ['Cherry', 'Project 1', 'Project 2'];
+  // Load projects from database
+  useEffect(() => {
+    if (!user) return;
+    getProjects().then((data) => {
+      setProjects(data);
+      if (data.length > 0 && !selectedProject) {
+        setSelectedProject(data[0]);
+      }
+    });
+  }, [user]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -90,7 +103,7 @@ export default function Navbar({ onTabChange }: NavbarProps) {
                 }
                 className="text-xs sm:text-sm font-semibold text-foreground hover:text-accent transition-colors flex items-center gap-2"
               >
-                {selectedProject}
+                {selectedProject?.name ?? 'Select Project'}
                 <ChevronDown
                   className={`h-3 w-3 sm:h-4 sm:w-4 transition-transform ${
                     openDropdown === 'project' ? 'rotate-180' : ''
@@ -99,22 +112,28 @@ export default function Navbar({ onTabChange }: NavbarProps) {
               </button>
               {openDropdown === 'project' && (
                 <div className="absolute top-full left-0 mt-2 w-32 sm:w-48 bg-background border border-input rounded-lg shadow-lg z-50">
-                  {projects.map((project) => (
-                    <button
-                      key={project}
-                      onClick={() => {
-                        setSelectedProject(project);
-                        setOpenDropdown(null);
-                      }}
-                      className={`w-full text-left px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm hover:bg-muted transition-colors ${
-                        selectedProject === project
-                          ? 'bg-muted font-semibold text-accent'
-                          : ''
-                      }`}
-                    >
-                      {project}
-                    </button>
-                  ))}
+                  {projects.length === 0 ? (
+                    <div className="px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-muted-foreground">
+                      No projects yet
+                    </div>
+                  ) : (
+                    projects.map((project) => (
+                      <button
+                        key={project.id}
+                        onClick={() => {
+                          setSelectedProject(project);
+                          setOpenDropdown(null);
+                        }}
+                        className={`w-full text-left px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm hover:bg-muted transition-colors ${
+                          selectedProject?.id === project.id
+                            ? 'bg-muted font-semibold text-accent'
+                            : ''
+                        }`}
+                      >
+                        {project.name}
+                      </button>
+                    ))
+                  )}
                 </div>
               )}
             </div>
