@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../lib/auth-context';
+import { getProjects } from '../lib/db/projects';
+import { Project } from '../lib/types/project';
 import Navbar from './components/Navbar';
 import LoginPage from './components/LoginPage';
 import OverviewScreen from './components/OverviewScreen';
@@ -13,6 +15,25 @@ import UserLogsPage from './components/UserLogsPage';
 export default function Home() {
   const { user, loading } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+
+  // Load projects once user is authenticated
+  useEffect(() => {
+    if (!user) return;
+    getProjects().then((data) => {
+      setProjects(data);
+      if (data.length > 0 && !selectedProject) {
+        setSelectedProject(data[0]);
+      }
+    });
+  }, [user]);
+
+  // Callback for when a new project is created (from Settings)
+  const handleProjectCreated = (project: Project) => {
+    setProjects((prev) => [...prev, project]);
+    setSelectedProject(project);
+  };
 
   if (loading) {
     return (
@@ -31,16 +52,24 @@ export default function Home() {
 
   return (
     <>
-      <Navbar onTabChange={setActiveTab} />
+      <Navbar
+        projects={projects}
+        selectedProject={selectedProject}
+        onProjectChange={setSelectedProject}
+        onTabChange={setActiveTab}
+      />
 
       {activeTab === 'overview' ? (
         <OverviewScreen />
       ) : activeTab === 'settings' ? (
-        <SettingsPage />
+        <SettingsPage
+          selectedProjectId={selectedProject?.id ?? null}
+          onProjectCreated={handleProjectCreated}
+        />
       ) : activeTab === 'admin' ? (
         <AdminPanelPage />
       ) : activeTab === 'taskers' ? (
-        <TaskersPage />
+        <TaskersPage selectedProjectId={selectedProject?.id ?? null} />
       ) : activeTab === 'logs' ? (
         <UserLogsPage />
       ) : (

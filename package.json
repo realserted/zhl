@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "seed:admin": "npx tsx scripts/seed-admin.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

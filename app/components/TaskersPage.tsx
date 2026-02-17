@@ -22,8 +22,6 @@ import {
   getTaskerLogs,
   addTaskerLog,
 } from '../../lib/db/taskers';
-import { getProjects } from '../../lib/db/projects';
-import { Project } from '../../lib/types/project';
 
 const STATUS_OPTIONS = ['Open', 'In Progress', 'Complete', 'Archived'] as const;
 
@@ -34,13 +32,15 @@ const STATUS_COLORS: Record<string, string> = {
   Archived: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300',
 };
 
-export default function TaskersPage() {
+interface TaskersPageProps {
+  selectedProjectId: string | null;
+}
+
+export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
   const { user } = useAuth();
   const [viewFilter, setViewFilter] = useState('all');
   const [taskers, setTaskers] = useState<Tasker[]>([]);
   const [loading, setLoading] = useState(true);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
   // Project users for dropdowns
   const [projectUsers, setProjectUsers] = useState<{ user_id: string | null; user_name: string }[]>([]);
@@ -78,15 +78,6 @@ export default function TaskersPage() {
   // Inline editing
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
-
-  // Load projects
-  useEffect(() => {
-    if (!user) return;
-    getProjects().then((data) => {
-      setProjects(data);
-      if (data.length > 0) setSelectedProjectId(data[0].id);
-    });
-  }, [user]);
 
   // Load project users
   useEffect(() => {
@@ -338,24 +329,6 @@ export default function TaskersPage() {
       <div className="max-w-full px-4 sm:px-6 py-6 sm:py-8">
         {/* Title */}
         <h1 className="text-2xl sm:text-3xl font-bold mb-6 sm:mb-8">Your Taskers</h1>
-
-        {/* Project selector */}
-        {projects.length > 1 && (
-          <div className="mb-4 flex items-center gap-3">
-            <span className="text-sm font-semibold">Project:</span>
-            <select
-              className={selectClass}
-              value={selectedProjectId || ''}
-              onChange={(e) => setSelectedProjectId(e.target.value)}
-            >
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
 
         {/* View Taskers and Create Section */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-8 mb-6 sm:mb-8">

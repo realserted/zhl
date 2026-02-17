@@ -2,6 +2,9 @@ export interface Project {
   id: string;
   name: string;
   owner_id: string;
+  status: 'Critical' | 'Problematic' | 'Needs Attention' | 'Good' | 'Excellent';
+  units: number;
+  state: string | null;
   created_at: string;
 }
 

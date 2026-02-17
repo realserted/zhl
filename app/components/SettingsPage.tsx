@@ -6,7 +6,6 @@ import { useAuth } from '../../lib/auth-context';
 import { supabase } from '../../lib/supabase';
 import { Project, ProjectPermission } from '../../lib/types/project';
 import {
-  getProjects,
   createProject as createProjectDb,
   getProjectPermissions,
   addProjectUser,
@@ -16,7 +15,12 @@ import {
 
 type EditingField = 'displayName' | 'phone' | 'email' | 'password' | null;
 
-export default function SettingsPage() {
+interface SettingsPageProps {
+  selectedProjectId: string | null;
+  onProjectCreated?: (project: Project) => void;
+}
+
+export default function SettingsPage({ selectedProjectId, onProjectCreated }: SettingsPageProps) {
   const { user } = useAuth();
 
   // Account fields loaded from DB
@@ -134,10 +138,7 @@ export default function SettingsPage() {
   const inputClass = 'w-full px-3 py-2 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring';
 
   // ===== PROJECT & PERMISSIONS STATE =====
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<ProjectPermission[]>([]);
-  const [loadingProjects, setLoadingProjects] = useState(true);
   const [loadingPerms, setLoadingPerms] = useState(false);
 
   // Create project modal
@@ -150,21 +151,6 @@ export default function SettingsPage() {
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
   const [addingUser, setAddingUser] = useState(false);
-
-  // Load projects on mount
-  useEffect(() => {
-    if (!user) return;
-    async function loadProjects() {
-      setLoadingProjects(true);
-      const data = await getProjects();
-      setProjects(data);
-      if (data.length > 0) {
-        setSelectedProjectId(data[0].id);
-      }
-      setLoadingProjects(false);
-    }
-    loadProjects();
-  }, [user]);
 
   // Load permissions when selected project changes
   const loadPermissions = useCallback(async (projectId: string) => {
@@ -187,8 +173,7 @@ export default function SettingsPage() {
     setCreatingProject(true);
     const project = await createProjectDb(newProjectName.trim(), user.id);
     if (project) {
-      setProjects((prev) => [...prev, project]);
-      setSelectedProjectId(project.id);
+      onProjectCreated?.(project);
       setNewProjectName('');
       setShowCreateProject(false);
     }
@@ -381,21 +366,9 @@ export default function SettingsPage() {
         {/* PROJECT SETTINGS SECTION */}
         <section className="mb-8 sm:mb-12">
           <h2 className="text-lg sm:text-xl font-bold mb-6 sm:mb-8 pb-4 border-b border-border flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4">
-            PROJECT SETTINGS FOR
-            {loadingProjects ? (
-              <span className="text-sm text-muted-foreground">Loading...</span>
-            ) : projects.length > 0 ? (
-              <select
-                className="border border-input rounded px-2 sm:px-3 py-1 sm:py-2 bg-background text-foreground text-sm"
-                value={selectedProjectId || ''}
-                onChange={(e) => setSelectedProjectId(e.target.value)}
-              >
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            ) : (
-              <span className="text-sm text-muted-foreground">No projects yet</span>
+            PROJECT SETTINGS
+            {!selectedProjectId && (
+              <span className="text-sm text-muted-foreground">— Select a project from the navbar</span>
             )}
             <button
               onClick={() => setShowCreateProject(true)}

@@ -1,38 +1,25 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import NavLogo from './NavLogo';
 import NavTabs from './NavTabs';
 import NavActions from './NavActions';
 import NavUserProfile from './NavUserProfile';
 import { ThemeToggle } from './ThemeToggle';
 import { ArrowLeft, ChevronDown } from 'lucide-react';
-import { useAuth } from '../../lib/auth-context';
-import { getProjects } from '../../lib/db/projects';
 import { Project } from '../../lib/types/project';
 
 interface NavbarProps {
+  projects: Project[];
+  selectedProject: Project | null;
+  onProjectChange: (project: Project) => void;
   onTabChange?: (tabId: string) => void;
 }
 
-export default function Navbar({ onTabChange }: NavbarProps) {
-  const { user } = useAuth();
+export default function Navbar({ projects, selectedProject, onProjectChange, onTabChange }: NavbarProps) {
   const [activeTab, setActiveTab] = useState('overview');
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const projectDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Load projects from database
-  useEffect(() => {
-    if (!user) return;
-    getProjects().then((data) => {
-      setProjects(data);
-      if (data.length > 0 && !selectedProject) {
-        setSelectedProject(data[0]);
-      }
-    });
-  }, [user]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -121,7 +108,7 @@ export default function Navbar({ onTabChange }: NavbarProps) {
                       <button
                         key={project.id}
                         onClick={() => {
-                          setSelectedProject(project);
+                          onProjectChange(project);
                           setOpenDropdown(null);
                         }}
                         className={`w-full text-left px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm hover:bg-muted transition-colors ${
@@ -141,7 +128,7 @@ export default function Navbar({ onTabChange }: NavbarProps) {
 
           {/* Status and Actions */}
           <div className="hidden sm:block">
-            <NavActions />
+            <NavActions projectStatus={selectedProject?.status} />
           </div>
         </div>
 

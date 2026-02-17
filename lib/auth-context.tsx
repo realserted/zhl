@@ -37,6 +37,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signUp = async (email: string, password: string, displayName: string, phone?: string) => {
+    // Block admin email from public registration
+    if (email.toLowerCase() === 'admin@zhl.com') {
+      return { error: 'This email address is reserved and cannot be used for registration.' };
+    }
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
