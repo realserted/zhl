@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../lib/auth-context';
 import { useTheme } from 'next-themes';
 import Image from 'next/image';
+import { ThemeToggle } from './ThemeToggle';
 
 export default function LoginPage() {
   const { signIn, signUp } = useAuth();
@@ -82,6 +83,11 @@ export default function LoginPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background p-4">
+      {/* Theme Toggle */}
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
+
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
