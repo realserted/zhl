@@ -1,7 +1,7 @@
 'use client';
 
 import { ArrowUpDown, Filter, Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../../lib/auth-context';
 import { supabase } from '../../lib/supabase';
 
@@ -39,62 +39,71 @@ export default function UserLogsPage() {
   useEffect(() => {
     if (!user) return;
     loadLogs();
-  }, [user, isAdmin]);
+  }, [user, isAdmin, sortOrder]);
 
-  const loadLogs = async () => {
+  const loadLogs = useCallback(async () => {
     setLoading(true);
 
-    let query = supabase
-      .from('user_logs')
-      .select('*, projects:project_id(name)')
-      .order('created_at', { ascending: sortOrder === 'asc' });
+    try {
+      // Fetch all projects first
+      const { data: allProjects } = await supabase.from('projects').select('id, name');
+      const projectMap = new Map(allProjects?.map((p: any) => [p.id, p.name]) ?? []);
 
-    // If not admin, only get logs for projects user has access to
-    if (!isAdmin) {
-      const { data: projectIds } = await supabase
-        .from('project_permissions')
-        .select('project_id')
-        .eq('user_id', user!.id);
+      let query = supabase
+        .from('user_logs')
+        .select('*')
+        .order('created_at', { ascending: sortOrder === 'asc' });
 
-      const ownedProjects = await supabase
-        .from('projects')
-        .select('id')
-        .eq('owner_id', user!.id);
+      // If not admin, only get logs for projects user has access to
+      if (!isAdmin) {
+        const { data: projectIds } = await supabase
+          .from('project_permissions')
+          .select('project_id')
+          .eq('user_id', user!.id);
 
-      const allProjectIds = [
-        ...(projectIds?.map((p: any) => p.project_id) ?? []),
-        ...(ownedProjects.data?.map((p: any) => p.id) ?? []),
-      ];
+        const ownedProjects = await supabase
+          .from('projects')
+          .select('id')
+          .eq('owner_id', user!.id);
 
-      if (allProjectIds.length === 0) {
-        setLogs([]);
-        setLoading(false);
-        return;
+        const allProjectIds = [
+          ...(projectIds?.map((p: any) => p.project_id) ?? []),
+          ...(ownedProjects.data?.map((p: any) => p.id) ?? []),
+        ];
+
+        if (allProjectIds.length === 0) {
+          setLogs([]);
+          setLoading(false);
+          return;
+        }
+
+        query = query.in('project_id', allProjectIds);
       }
 
-      query = query.in('project_id', allProjectIds);
-    }
+      const { data, error } = await query;
 
-    const { data, error } = await query;
-
-    if (error) {
-      console.error('Error loading logs:', error);
+      if (error) {
+        console.error('Error loading logs:', error);
+        setLogs([]);
+      } else {
+        const formattedLogs = (data ?? []).map((log: any) => ({
+          id: log.id,
+          project_id: log.project_id,
+          user_name: log.user_name,
+          user_email: log.user_email,
+          action: log.action,
+          created_at: log.created_at,
+          project_name: projectMap.get(log.project_id) || 'Unknown Project',
+        }));
+        setLogs(formattedLogs);
+      }
+    } catch (err) {
+      console.error('Unexpected error loading logs:', err);
       setLogs([]);
-    } else {
-      const formattedLogs = (data ?? []).map((log: any) => ({
-        id: log.id,
-        project_id: log.project_id,
-        user_name: log.user_name,
-        user_email: log.user_email,
-        action: log.action,
-        created_at: log.created_at,
-        project_name: log.projects?.name || 'Unknown Project',
-      }));
-      setLogs(formattedLogs);
     }
 
     setLoading(false);
-  };
+  }, [user, isAdmin, sortOrder]);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
