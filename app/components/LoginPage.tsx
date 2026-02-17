@@ -1,11 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../lib/auth-context';
-import { Building2 } from 'lucide-react';
+import { useTheme } from 'next-themes';
+import Image from 'next/image';
 
 export default function LoginPage() {
   const { signIn, signUp } = useAuth();
+  const [mounted, setMounted] = useState(false);
+  const { theme } = useTheme();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -14,6 +17,10 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [signUpSuccess, setSignUpSuccess] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,7 +70,7 @@ export default function LoginPage() {
                 setDisplayName('');
                 setPhone('');
               }}
-              className="text-sm text-accent hover:underline"
+              className="text-sm text-green-400 hover:underline font-medium"
             >
               Back to sign in
             </button>
@@ -78,11 +85,19 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 bg-accent rounded-xl mb-4">
-            <Building2 className="w-7 h-7 text-accent-foreground" />
-          </div>
-          <h1 className="text-2xl font-bold text-foreground">Zero Hassle Landlord</h1>
-          <p className="text-sm text-muted-foreground mt-1">Property management simplified</p>
+          {mounted && (
+            <div className="mb-6">
+              <Image
+                src={theme === 'dark' ? '/zhl-logo-light.png' : '/zhl-logo-dark.png'}
+                alt="Zero Hassle Landlord"
+                width={300}
+                height={120}
+                priority
+                className="h-24 w-auto mx-auto"
+              />
+            </div>
+          )}
+          <p className="text-sm text-muted-foreground mt-4">Property management simplified</p>
         </div>
 
         {/* Form Card */}
@@ -164,7 +179,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 bg-accent text-accent-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
+              className="w-full py-2.5 bg-black text-green-400 rounded-lg text-sm font-semibold hover:bg-gray-900 transition-colors disabled:opacity-50 border border-green-400"
             >
               {loading ? 'Please wait...' : isSignUp ? 'Create Account' : 'Sign In'}
             </button>
@@ -178,7 +193,7 @@ export default function LoginPage() {
                   setIsSignUp(!isSignUp);
                   setError(null);
                 }}
-                className="text-accent font-medium hover:underline"
+                className="text-green-400 font-medium hover:underline"
               >
                 {isSignUp ? 'Sign in' : 'Sign up'}
               </button>
