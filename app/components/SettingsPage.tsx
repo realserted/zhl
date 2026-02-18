@@ -19,9 +19,10 @@ type EditingField = 'displayName' | 'phone' | 'email' | 'password' | null;
 interface SettingsPageProps {
   selectedProjectId: string | null;
   onProjectCreated?: (project: Project) => void;
+  userPermission?: ProjectPermission | null; // null = owner (full access)
 }
 
-export default function SettingsPage({ selectedProjectId, onProjectCreated }: SettingsPageProps) {
+export default function SettingsPage({ selectedProjectId, onProjectCreated, userPermission }: SettingsPageProps) {
   const { user } = useAuth();
 
   // Account fields loaded from DB
@@ -137,6 +138,10 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated }: Se
   };
 
   const inputClass = 'w-full px-3 py-2 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring';
+
+  // Permission flags — null userPermission means owner (full access)
+  const isProjectOwner = !userPermission;
+  const canManagePerms = isProjectOwner || (userPermission?.project_role?.includes('Project Manager') ?? false);
 
   // ===== PROJECT & PERMISSIONS STATE =====
   const [permissions, setPermissions] = useState<ProjectPermission[]>([]);
@@ -482,7 +487,8 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated }: Se
                       {permColumns.map((col) => (
                         <td key={col.key} className="px-4 py-3">
                           <select
-                            className={selectClass}
+                            disabled={!canManagePerms}
+                            className={`${selectClass} ${!canManagePerms ? 'opacity-75 cursor-default' : ''}`}
                             value={perm[col.key] as string}
                             onChange={(e) => handlePermChange(perm.id, col.key, e.target.value)}
                           >
@@ -494,7 +500,8 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated }: Se
                       ))}
                       <td className="px-4 py-3">
                         <select
-                          className={selectClass}
+                          disabled={!canManagePerms}
+                          className={`${selectClass} ${!canManagePerms ? 'opacity-75 cursor-default' : ''}`}
                           value={perm.project_role}
                           onChange={(e) => handlePermChange(perm.id, 'project_role', e.target.value)}
                         >
@@ -505,7 +512,8 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated }: Se
                       </td>
                       <td className="px-4 py-3">
                         <select
-                          className={selectClass}
+                          disabled={!canManagePerms}
+                          className={`${selectClass} ${!canManagePerms ? 'opacity-75 cursor-default' : ''}`}
                           value={perm.work_role}
                           onChange={(e) => handlePermChange(perm.id, 'work_role', e.target.value)}
                         >
@@ -515,13 +523,15 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated }: Se
                         </select>
                       </td>
                       <td className="px-4 py-3">
-                        <button
-                          onClick={() => handleRemoveUser(perm.id)}
-                          title="Remove user"
-                          className="p-1 text-muted-foreground hover:text-destructive transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {canManagePerms && (
+                          <button
+                            onClick={() => handleRemoveUser(perm.id)}
+                            title="Remove user"
+                            className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -607,13 +617,15 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated }: Se
             </div>
           )}
 
-          <button
-            onClick={() => setShowAddUser(true)}
-            className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-accent hover:text-accent/80 transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            Add User
-          </button>
+          {canManagePerms && (
+            <button
+              onClick={() => setShowAddUser(true)}
+              className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-accent hover:text-accent/80 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              Add User
+            </button>
+          )}
         </section>
         )}
 

@@ -23,6 +23,7 @@ import {
   addTaskerLog,
 } from '../../lib/db/taskers';
 import { logUserAction } from '../../lib/db/user-logs';
+import { ProjectPermission } from '../../lib/types/project';
 
 const STATUS_OPTIONS = ['Open', 'In Progress', 'Complete', 'Archived'] as const;
 
@@ -35,9 +36,10 @@ const STATUS_COLORS: Record<string, string> = {
 
 interface TaskersPageProps {
   selectedProjectId: string | null;
+  userPermission?: ProjectPermission | null; // null = owner (full access)
 }
 
-export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
+export default function TaskersPage({ selectedProjectId, userPermission }: TaskersPageProps) {
   const { user } = useAuth();
   const [viewFilter, setViewFilter] = useState('all');
   const [taskers, setTaskers] = useState<Tasker[]>([]);
@@ -128,20 +130,28 @@ export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
       });
   }, [user]);
 
-  // Filter taskers
+  // Permission flags — null userPermission means owner (full access)
+  const permLevel = userPermission?.perm_taskers ?? 'Admin';
+  const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
+  const isViewOnly = permLevel === 'View' && !!userPermission;
+
+  // Check if the current user is assigned to a task
+  const isAssignedTo = (t: Tasker) =>
+    t.responsible === user?.id ||
+    t.cc === user?.id ||
+    t.got_the_ball === user?.id ||
+    t.created_by === user?.id ||
+    t.responsible_name === displayName ||
+    t.cc_name === displayName ||
+    t.got_the_ball_name === displayName;
+
+  // Filter taskers — View-only users only see tasks assigned to them
   const filteredTaskers = taskers.filter((t) => {
+    // View-only users always limited to assigned tasks
+    if (isViewOnly && !isAssignedTo(t)) return false;
+
     if (viewFilter === 'all') return true;
-    if (viewFilter === 'relevant') {
-      return (
-        t.responsible === user?.id ||
-        t.cc === user?.id ||
-        t.got_the_ball === user?.id ||
-        t.created_by === user?.id ||
-        t.responsible_name === displayName ||
-        t.cc_name === displayName ||
-        t.got_the_ball_name === displayName
-      );
-    }
+    if (viewFilter === 'relevant') return isAssignedTo(t);
     if (viewFilter === 'pm') {
       return t.responsible === user?.id || t.responsible_name === displayName;
     }
@@ -218,19 +228,18 @@ export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
       .ilike('user_name', assignedName.trim())
       .maybeSingle();
     if (existing) return; // already has access
-    // Look up their account to get email
-    const { data: account } = await supabase
-      .from('accounts')
-      .select('display_name, email')
-      .ilike('display_name', assignedName.trim())
-      .maybeSingle();
+    // Look up their account via SECURITY DEFINER function (bypasses accounts RLS)
+    const { data: accounts } = await supabase.rpc('lookup_account_by_name', { p_name: assignedName.trim() });
+    const account = Array.isArray(accounts) ? accounts[0] : null;
     const userName = account?.display_name ?? assignedName.trim();
-    const userEmail = account?.email ?? '';
-    // Add with view-level permissions
+    const accountEmail = account?.email ?? '';
+    const accountUserId = account?.user_id ?? null;
+    // Add with view-level permissions (include user_id so they can see the project immediately)
     await supabase.from('project_permissions').insert({
       project_id: selectedProjectId,
+      user_id: accountUserId,
       user_name: userName,
-      user_email: userEmail,
+      user_email: accountEmail,
       perm_taskers: 'View',
       perm_unit_data: 'View',
       perm_files: 'View',
@@ -382,6 +391,14 @@ export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
       );
     }
 
+    if (!canEdit) {
+      return (
+        <span className="px-1 py-0.5 block min-w-[2rem] min-h-[1.25rem]">
+          {displayValue || <span className="text-muted-foreground/40">-</span>}
+        </span>
+      );
+    }
+
     return (
       <span
         onClick={() => {
@@ -430,14 +447,16 @@ export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
             </div>
           </div>
 
-          {/* Create Tasker Button */}
-          <button
-            onClick={() => setShowCreate(true)}
-            className="inline-flex items-center gap-2 text-xs sm:text-sm font-semibold text-accent hover:text-accent/80 transition-colors"
-          >
-            <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
-            Create tasker
-          </button>
+          {/* Create Tasker Button — hidden for View-only users */}
+          {canEdit && (
+            <button
+              onClick={() => setShowCreate(true)}
+              className="inline-flex items-center gap-2 text-xs sm:text-sm font-semibold text-accent hover:text-accent/80 transition-colors"
+            >
+              <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
+              Create tasker
+            </button>
+          )}
 
           {/* Calendar View Link */}
           <button className="sm:ml-auto inline-flex items-center gap-2 text-xs sm:text-sm font-semibold text-accent hover:text-accent/80 transition-colors">
@@ -492,7 +511,8 @@ export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
                       {/* Status dropdown */}
                       <td className="px-3 py-3 whitespace-nowrap">
                         <select
-                          className={`${selectClass} ${STATUS_COLORS[tasker.status] || ''}`}
+                          disabled={!canEdit}
+                          className={`${selectClass} ${STATUS_COLORS[tasker.status] || ''} ${!canEdit ? 'opacity-75 cursor-default' : ''}`}
                           value={tasker.status}
                           onChange={async (e) => {
                             const newStatus = e.target.value as Tasker['status'];
@@ -684,15 +704,17 @@ export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
                           : tasker.original_due_date ?? '-'}
                       </td>
 
-                      {/* Delete */}
+                      {/* Delete — hidden for View-only */}
                       <td className="px-3 py-3 whitespace-nowrap">
-                        <button
-                          onClick={() => handleDelete(tasker.id)}
-                          className="p-1 text-muted-foreground hover:text-destructive transition-colors"
-                          title="Delete tasker"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        {canEdit && (
+                          <button
+                            onClick={() => handleDelete(tasker.id)}
+                            className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                            title="Delete tasker"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))

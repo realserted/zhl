@@ -19,16 +19,22 @@ import {
   seedDefaultSchema,
 } from '../../lib/db/unit-data';
 import { logUserAction } from '../../lib/db/user-logs';
+import { ProjectPermission } from '../../lib/types/project';
 import * as XLSX from 'xlsx';
 
 interface UnitDataPageProps {
   selectedProjectId: string | null;
+  userPermission?: ProjectPermission | null; // null = owner (full access)
 }
 
 type ViewMode = 'ALL FIELDS' | 'All Project Users' | 'Personal View (future)' | 'PM View';
 
-export default function UnitDataPage({ selectedProjectId }: UnitDataPageProps) {
+export default function UnitDataPage({ selectedProjectId, userPermission }: UnitDataPageProps) {
   const { user } = useAuth();
+
+  // Permission flags — null userPermission means owner (full access)
+  const permLevel = userPermission?.perm_unit_data ?? 'Admin';
+  const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
 
   // Data state
   const [categories, setCategories] = useState<CategoryWithFields[]>([]);
@@ -470,36 +476,38 @@ export default function UnitDataPage({ selectedProjectId }: UnitDataPageProps) {
               Save View
             </button>
 
-            {/* Add Category / Add Custom Field / Upload Excel */}
-            <div className="space-y-2 mb-4">
-              <button
-                onClick={() => setShowAddCategory(true)}
-                className="flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent/80"
-              >
-                <Plus className="h-3 w-3" /> Add Category
-              </button>
-              <button
-                onClick={() => {
-                  if (categories.length > 0) setNewFieldCategory(categories[0].id);
-                  setShowAddField(true);
-                }}
-                className="flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent/80"
-              >
-                <Plus className="h-3 w-3" /> Add Custom Field
-              </button>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-                className="flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent/80 disabled:opacity-50"
-              >
-                {uploading ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <FileSpreadsheet className="h-3 w-3" />
-                )}
-                {uploading ? 'Importing...' : 'Upload Excel'}
-              </button>
-            </div>
+            {/* Add Category / Add Custom Field / Upload Excel — hidden for View-only */}
+            {canEdit && (
+              <div className="space-y-2 mb-4">
+                <button
+                  onClick={() => setShowAddCategory(true)}
+                  className="flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent/80"
+                >
+                  <Plus className="h-3 w-3" /> Add Category
+                </button>
+                <button
+                  onClick={() => {
+                    if (categories.length > 0) setNewFieldCategory(categories[0].id);
+                    setShowAddField(true);
+                  }}
+                  className="flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent/80"
+                >
+                  <Plus className="h-3 w-3" /> Add Custom Field
+                </button>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent/80 disabled:opacity-50"
+                >
+                  {uploading ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <FileSpreadsheet className="h-3 w-3" />
+                  )}
+                  {uploading ? 'Importing...' : 'Upload Excel'}
+                </button>
+              </div>
+            )}
 
             {/* Category + Field Checkboxes */}
             <div className="space-y-3">
@@ -522,13 +530,15 @@ export default function UnitDataPage({ selectedProjectId }: UnitDataPageProps) {
                         />
                         <span className="text-xs font-semibold text-accent truncate">{cat.name}</span>
                       </label>
-                      <button
-                        onClick={() => handleDeleteCategory(cat.id)}
-                        className="p-0.5 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0"
-                        title={`Delete "${cat.name}"`}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
+                      {canEdit && (
+                        <button
+                          onClick={() => handleDeleteCategory(cat.id)}
+                          className="p-0.5 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0"
+                          title={`Delete "${cat.name}"`}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
                     </div>
 
                     {/* Field checkboxes */}
@@ -688,12 +698,12 @@ export default function UnitDataPage({ selectedProjectId }: UnitDataPageProps) {
                                   />
                                 ) : (
                                   <span
-                                    onClick={() => {
+                                    onClick={canEdit ? () => {
                                       setEditingCell({ rowId: row.id, fieldId: field.id });
                                       setEditValue(cellValue);
-                                    }}
-                                    className="cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded block min-w-[3rem] min-h-[1.25rem] text-xs"
-                                    title="Click to edit"
+                                    } : undefined}
+                                    className={`${canEdit ? 'cursor-pointer hover:bg-muted/50' : ''} px-1 py-0.5 rounded block min-w-[3rem] min-h-[1.25rem] text-xs`}
+                                    title={canEdit ? 'Click to edit' : undefined}
                                   >
                                     {field.is_hyperlink && cellValue ? (
                                       <a
@@ -715,13 +725,15 @@ export default function UnitDataPage({ selectedProjectId }: UnitDataPageProps) {
                           });
                         })}
                         <td className="px-2 py-2">
-                          <button
-                            onClick={() => handleDeleteRow(row.id)}
-                            className="p-1 text-muted-foreground hover:text-destructive transition-colors"
-                            title="Delete row"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          {canEdit && (
+                            <button
+                              onClick={() => handleDeleteRow(row.id)}
+                              className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                              title="Delete row"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))
@@ -731,13 +743,15 @@ export default function UnitDataPage({ selectedProjectId }: UnitDataPageProps) {
             </div>
           )}
 
-          {/* Add Row Button */}
-          <button
-            onClick={handleAddRow}
-            className="mt-4 inline-flex items-center gap-2 text-xs font-semibold text-accent hover:text-accent/80 transition-colors"
-          >
-            <Plus className="h-3 w-3" /> Add Row
-          </button>
+          {/* Add Row Button — hidden for View-only */}
+          {canEdit && (
+            <button
+              onClick={handleAddRow}
+              className="mt-4 inline-flex items-center gap-2 text-xs font-semibold text-accent hover:text-accent/80 transition-colors"
+            >
+              <Plus className="h-3 w-3" /> Add Row
+            </button>
+          )}
         </div>
       </div>
 

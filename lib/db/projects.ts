@@ -45,15 +45,22 @@ export async function getProjectPermissions(projectId: string): Promise<ProjectP
   return data ?? [];
 }
 
-// Add a user to a project
+// Add a user to a project (looks up user_id by email so RLS works immediately)
 export async function addProjectUser(
   projectId: string,
   userName: string,
   userEmail: string
 ): Promise<ProjectPermission | null> {
+  // Look up the user's user_id via SECURITY DEFINER function (bypasses accounts RLS)
+  let userId: string | null = null;
+  if (userEmail) {
+    const { data: uid } = await supabase.rpc('lookup_user_id_by_email', { p_email: userEmail.trim() });
+    userId = uid ?? null;
+  }
+
   const { data, error } = await supabase
     .from('project_permissions')
-    .insert([{ project_id: projectId, user_name: userName, user_email: userEmail }])
+    .insert([{ project_id: projectId, user_id: userId, user_name: userName, user_email: userEmail }])
     .select()
     .single();
 

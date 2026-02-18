@@ -28,20 +28,14 @@ export default function Home() {
     if (!user) return;
 
     // Auto-link user_id in project_permissions where email matches but user_id is null
-    // This lets users who were added by name/email see their assigned projects
+    // Uses SECURITY DEFINER RPC to bypass RLS and do case-insensitive email matching
     const linkUserPermissions = async () => {
-      const { data: account } = await supabase
-        .from('accounts')
-        .select('email')
-        .eq('user_id', user.id)
-        .maybeSingle();
-      const email = account?.email || user.email;
+      const email = user.email; // from auth.users, the source of truth
       if (email) {
-        await supabase
-          .from('project_permissions')
-          .update({ user_id: user.id })
-          .eq('user_email', email)
-          .is('user_id', null);
+        await supabase.rpc('link_user_permissions', {
+          p_user_id: user.id,
+          p_email: email,
+        });
       }
     };
 
@@ -116,15 +110,16 @@ export default function Home() {
         <SettingsPage
           selectedProjectId={selectedProject?.id ?? null}
           onProjectCreated={handleProjectCreated}
+          userPermission={userPermission}
         />
       ) : activeTab === 'admin' ? (
         <AdminPanelPage onProjectStatusChange={handleProjectStatusChange} />
       ) : activeTab === 'taskers' ? (
-        <TaskersPage selectedProjectId={selectedProject?.id ?? null} />
+        <TaskersPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
       ) : activeTab === 'logs' ? (
         <UserLogsPage />
       ) : activeTab === 'unitdata' ? (
-        <UnitDataPage selectedProjectId={selectedProject?.id ?? null} />
+        <UnitDataPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
       ) : (
         <main className="flex min-h-screen flex-col items-center justify-center bg-background text-foreground p-4 sm:p-8">
           <div className="text-center max-w-2xl">
