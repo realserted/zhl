@@ -176,6 +176,13 @@ export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
 
     if (tasker) {
       setTaskers((prev) => [tasker, ...prev]);
+      // Auto-grant access for assigned users
+      const assignedNames = [
+        newTasker.responsible_name,
+        newTasker.cc_name,
+        newTasker.got_the_ball_name,
+      ].filter(Boolean) as string[];
+      await Promise.all(assignedNames.map((name) => ensureUserHasProjectAccess(name)));
       await addTaskerLog({
         tasker_id: tasker.id,
         user_id: user.id,
@@ -200,6 +207,49 @@ export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
     setCreating(false);
   };
 
+  // Auto-grant project access when a user is assigned to a tasker
+  const ensureUserHasProjectAccess = async (assignedName: string) => {
+    if (!selectedProjectId || !assignedName.trim()) return;
+    // Check if already a member by name
+    const { data: existing } = await supabase
+      .from('project_permissions')
+      .select('id')
+      .eq('project_id', selectedProjectId)
+      .ilike('user_name', assignedName.trim())
+      .maybeSingle();
+    if (existing) return; // already has access
+    // Look up their account to get email
+    const { data: account } = await supabase
+      .from('accounts')
+      .select('display_name, email')
+      .ilike('display_name', assignedName.trim())
+      .maybeSingle();
+    const userName = account?.display_name ?? assignedName.trim();
+    const userEmail = account?.email ?? '';
+    // Add with view-level permissions
+    await supabase.from('project_permissions').insert({
+      project_id: selectedProjectId,
+      user_name: userName,
+      user_email: userEmail,
+      perm_taskers: 'View',
+      perm_unit_data: 'View',
+      perm_files: 'View',
+      perm_accounts: 'View',
+      perm_reports: 'View',
+      perm_templates: 'View Only',
+      perm_meetings: 'View',
+      perm_user_logs: "View / Don't view",
+      project_role: 'Project Manager (can change all permissions on a project)',
+      work_role: 'Administrative',
+    });
+    // Refresh project users list
+    const { data: updatedUsers } = await supabase
+      .from('project_permissions')
+      .select('user_id, user_name')
+      .eq('project_id', selectedProjectId);
+    setProjectUsers(updatedUsers ?? []);
+  };
+
   // Inline field save
   const saveInlineEdit = async (taskerId: string, field: string, value: string) => {
     const tasker = taskers.find((t) => t.id === taskerId);
@@ -216,6 +266,10 @@ export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
       setTaskers((prev) =>
         prev.map((t) => (t.id === taskerId ? { ...t, [field]: value || null } : t))
       );
+      // Auto-grant access when assigning someone to a role
+      if (['responsible_name', 'cc_name', 'got_the_ball_name'].includes(field) && value) {
+        await ensureUserHasProjectAccess(value);
+      }
       const fieldLabel = field.replace(/_/g, ' ');
       await addTaskerLog({
         tasker_id: taskerId,

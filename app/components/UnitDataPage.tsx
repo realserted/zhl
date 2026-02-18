@@ -113,8 +113,14 @@ export default function UnitDataPage({ selectedProjectId }: UnitDataPageProps) {
     const vMap = new Map<string, UnitDataValue>();
     valData.forEach((v) => vMap.set(`${v.row_id}-${v.field_id}`, v));
 
+    // Delete rows that have no values at all
+    const rowsWithValues = new Set(valData.map((v) => v.row_id));
+    const emptyRows = rowData.filter((r) => !rowsWithValues.has(r.id));
+    await Promise.all(emptyRows.map((r) => deleteRow(r.id)));
+    const cleanedRows = rowData.filter((r) => rowsWithValues.has(r.id));
+
     setCategories(cats);
-    setRows(rowData);
+    setRows(cleanedRows);
     setValueMap(vMap);
     setLoading(false);
   };
@@ -133,6 +139,14 @@ export default function UnitDataPage({ selectedProjectId }: UnitDataPageProps) {
 
   // Get all visible fields in order
   const visibleFields = categories.flatMap((c) => c.fields.filter((f) => f.visible));
+
+  // Filter out fully blank rows (no values across any visible field)
+  const nonEmptyRows = rows.filter((row) =>
+    visibleFields.some((field) => {
+      const val = valueMap.get(`${row.id}-${field.id}`);
+      return val?.value != null && val.value.trim() !== '';
+    })
+  );
 
   // View mode handler — changes which fields are visible
   const handleViewChange = async (view: ViewMode) => {
@@ -562,6 +576,7 @@ export default function UnitDataPage({ selectedProjectId }: UnitDataPageProps) {
               <table className="w-full text-xs sm:text-sm">
                 {/* Category header row */}
                 <thead>
+                  {categories.some((cat) => cat.fields.filter((f) => f.visible).length > 0) && (
                   <tr className="border-b border-input">
                     {categories.map((cat) => {
                       const catVisibleFields = cat.fields.filter((f) => f.visible);
@@ -589,6 +604,7 @@ export default function UnitDataPage({ selectedProjectId }: UnitDataPageProps) {
                     })}
                     <th className="w-8"></th>
                   </tr>
+                  )}
 
                   {/* Field header row */}
                   <tr className="bg-muted border-b border-input">
@@ -631,7 +647,7 @@ export default function UnitDataPage({ selectedProjectId }: UnitDataPageProps) {
                       </td>
                     </tr>
                   ) : (
-                    rows.map((row) => (
+                    nonEmptyRows.map((row) => (
                       <tr key={row.id} className="border-b border-input hover:bg-muted/30 transition-colors">
                         {categories.map((cat) => {
                           const catVisibleFields = cat.fields.filter((f) => f.visible);

@@ -152,6 +152,18 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated }: Se
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
   const [addingUser, setAddingUser] = useState(false);
+  const [newUserPerms, setNewUserPerms] = useState<Record<string, string>>({
+    perm_taskers: 'View',
+    perm_unit_data: 'View',
+    perm_files: 'View',
+    perm_accounts: 'View',
+    perm_reports: 'View',
+    perm_templates: 'View Only',
+    perm_meetings: 'View',
+    perm_user_logs: "View / Don't view",
+    project_role: 'Project Manager (can change all permissions on a project)',
+    work_role: 'Administrative',
+  });
 
   // Load permissions when selected project changes
   const loadPermissions = useCallback(async (projectId: string) => {
@@ -187,12 +199,31 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated }: Se
     setAddingUser(true);
     const perm = await addProjectUser(selectedProjectId, newUserName.trim(), newUserEmail.trim());
     if (perm) {
-      setPermissions((prev) => [...prev, perm]);
+      // Apply the preset permissions chosen in the modal
+      const updates = Object.entries(newUserPerms).map(([field, value]) =>
+        updatePermission(perm.id, field, value)
+      );
+      await Promise.all(updates);
+      // Build the full record with preset values so the table shows correct data immediately
+      const fullPerm: ProjectPermission = { ...perm, ...newUserPerms } as ProjectPermission;
+      setPermissions((prev) => [...prev, fullPerm]);
       if (user) {
         logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayName, userEmail: email, action: `Added user "${newUserName.trim()}" to project` });
       }
       setNewUserName('');
       setNewUserEmail('');
+      setNewUserPerms({
+        perm_taskers: 'View',
+        perm_unit_data: 'View',
+        perm_files: 'View',
+        perm_accounts: 'View',
+        perm_reports: 'View',
+        perm_templates: 'View Only',
+        perm_meetings: 'View',
+        perm_user_logs: "View / Don't view",
+        project_role: 'Project Manager (can change all permissions on a project)',
+        work_role: 'Administrative',
+      });
       setShowAddUser(false);
     }
     setAddingUser(false);
@@ -499,52 +530,90 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated }: Se
             </div>
           )}
 
-          {/* Add User */}
-          {showAddUser ? (
-            <div className="mt-4 bg-card border border-border rounded-xl p-5 max-w-md">
-              <h3 className="text-sm font-semibold text-foreground mb-3">Add User</h3>
-              <div className="space-y-2 mb-3">
-                <input
-                  type="text"
-                  value={newUserName}
-                  onChange={(e) => setNewUserName(e.target.value)}
-                  placeholder="Name"
-                  className={inputClass}
-                />
-                <input
-                  type="email"
-                  value={newUserEmail}
-                  onChange={(e) => setNewUserEmail(e.target.value)}
-                  placeholder="Email"
-                  className={inputClass}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddUser()}
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleAddUser}
-                  disabled={addingUser || !newUserName.trim() || !newUserEmail.trim()}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent text-accent-foreground rounded-lg text-xs font-semibold hover:opacity-90 disabled:opacity-50"
-                >
-                  {addingUser ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Add
-                </button>
-                <button
-                  onClick={() => { setShowAddUser(false); setNewUserName(''); setNewUserEmail(''); }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-input rounded-lg text-xs font-semibold hover:bg-muted"
-                >
-                  <X className="w-3 h-3" /> Cancel
-                </button>
+          {/* Add User Modal */}
+          {showAddUser && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+              <div className="bg-card border border-border rounded-xl p-6 w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-5">
+                  <h3 className="text-lg font-bold">Add User to Project</h3>
+                  <button onClick={() => { setShowAddUser(false); setNewUserName(''); setNewUserEmail(''); }} className="p-1 hover:bg-muted rounded">
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                {/* Name + Email */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Name</label>
+                    <input type="text" value={newUserName} onChange={(e) => setNewUserName(e.target.value)} placeholder="Full name" className={inputClass} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Email</label>
+                    <input type="email" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} placeholder="user@example.com" className={inputClass} />
+                  </div>
+                </div>
+
+                {/* Roles */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Project Role</label>
+                    <select value={newUserPerms.project_role} onChange={(e) => setNewUserPerms((p) => ({ ...p, project_role: e.target.value }))} className={inputClass}>
+                      {projectRoleOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Work Role</label>
+                    <select value={newUserPerms.work_role} onChange={(e) => setNewUserPerms((p) => ({ ...p, work_role: e.target.value }))} className={inputClass}>
+                      {workRoleOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Permissions per module */}
+                <div className="mb-5">
+                  <label className="block text-xs font-semibold mb-2">Module Permissions</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {permColumns.map((col) => (
+                      <div key={col.key}>
+                        <label className="block text-xs text-muted-foreground mb-1">{col.label}</label>
+                        <select
+                          value={newUserPerms[col.key as string]}
+                          onChange={(e) => setNewUserPerms((p) => ({ ...p, [col.key]: e.target.value }))}
+                          className={inputClass}
+                        >
+                          {col.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleAddUser}
+                    disabled={addingUser || !newUserName.trim() || !newUserEmail.trim()}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50"
+                  >
+                    {addingUser ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Add User
+                  </button>
+                  <button
+                    onClick={() => { setShowAddUser(false); setNewUserName(''); setNewUserEmail(''); }}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 border border-input rounded-lg text-sm font-semibold hover:bg-muted"
+                  >
+                    <X className="w-4 h-4" /> Cancel
+                  </button>
+                </div>
               </div>
             </div>
-          ) : (
-            <button
-              onClick={() => setShowAddUser(true)}
-              className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-accent hover:text-accent/80 transition-colors"
-            >
-              <Plus className="h-4 w-4" />
-              Add User
-            </button>
           )}
+
+          <button
+            onClick={() => setShowAddUser(true)}
+            className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-accent hover:text-accent/80 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Add User
+          </button>
         </section>
         )}
 

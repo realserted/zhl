@@ -20,7 +20,31 @@ export default function UserLogsPage() {
   const [logs, setLogs] = useState<UserLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
+  const [filterProject, setFilterProject] = useState<string>('');
+  const [filterAction, setFilterAction] = useState<string>('');
+  const [filterUser, setFilterUser] = useState<string>('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
+  // Check if user is admin
+  useEffect(() => {
+    if (!user) return;
+    const checkAdmin = async () => {
+      try {
+        const { data } = await supabase
+          .from('accounts')
+          .select('is_admin')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        setIsAdmin(data?.is_admin === true);
+      } catch (err) {
+        setIsAdmin(false);
+      }
+    };
+    checkAdmin();
+  }, [user]);
+
+  // Load user logs
   const loadLogs = useCallback(async () => {
     setLoading(true);
 
@@ -59,7 +83,19 @@ export default function UserLogsPage() {
     setLoading(false);
   }, [sortOrder]);
 
-  // Load user logs
+  // Apply filters to logs
+  const filteredLogs = logs.filter((log) => {
+    if (filterProject && log.project_name !== filterProject) return false;
+    if (filterAction && !log.action.toLowerCase().includes(filterAction.toLowerCase())) return false;
+    if (filterUser && !log.user_email.toLowerCase().includes(filterUser.toLowerCase())) return false;
+    return true;
+  });
+
+  // Get unique values for filter dropdowns
+  const uniqueProjects = Array.from(new Set(logs.map((l) => l.project_name))).sort();
+  const uniqueUsers = Array.from(new Set(logs.map((l) => l.user_email))).sort();
+
+  // Load user logs when user changes or sortOrder changes
   useEffect(() => {
     if (!user) return;
     loadLogs();
@@ -99,7 +135,83 @@ export default function UserLogsPage() {
             <ArrowUpDown className="h-3 w-3 sm:h-4 sm:w-4" />
             SORT {sortOrder === 'desc' ? '(Newest)' : '(Oldest)'}
           </button>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 border border-input rounded hover:bg-muted transition-colors font-medium text-xs sm:text-sm"
+          >
+            <Filter className="h-3 w-3 sm:h-4 sm:w-4" />
+            FILTER
+          </button>
         </div>
+
+        {/* Filters Panel */}
+        {showFilters && (
+          <div className="mb-6 p-4 border border-input rounded-lg bg-muted/30 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* Project Filter */}
+              <div>
+                <label className="block text-xs sm:text-sm font-semibold mb-2">Project</label>
+                <select
+                  value={filterProject}
+                  onChange={(e) => setFilterProject(e.target.value)}
+                  className="w-full px-3 py-2 border border-input rounded bg-background text-foreground text-xs"
+                >
+                  <option value="">All Projects</option>
+                  {uniqueProjects.map((project) => (
+                    <option key={project} value={project}>
+                      {project}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Action Filter */}
+              <div>
+                <label className="block text-xs sm:text-sm font-semibold mb-2">Action</label>
+                <input
+                  type="text"
+                  value={filterAction}
+                  onChange={(e) => setFilterAction(e.target.value)}
+                  placeholder="Search actions..."
+                  className="w-full px-3 py-2 border border-input rounded bg-background text-foreground text-xs"
+                />
+              </div>
+
+              {/* User Filter (Admin only) */}
+              {isAdmin && (
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold mb-2">User</label>
+                  <select
+                    value={filterUser}
+                    onChange={(e) => setFilterUser(e.target.value)}
+                    className="w-full px-3 py-2 border border-input rounded bg-background text-foreground text-xs"
+                  >
+                    <option value="">All Users</option>
+                    {uniqueUsers.map((userEmail) => (
+                      <option key={userEmail} value={userEmail}>
+                        {userEmail}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {/* Reset Filters Button */}
+            {(filterProject || filterAction || filterUser) && (
+              <button
+                onClick={() => {
+                  setFilterProject('');
+                  setFilterAction('');
+                  setFilterUser('');
+                }}
+                className="text-xs sm:text-sm text-accent hover:underline font-medium"
+              >
+                Reset Filters
+              </button>
+            )}
+          </div>
+        )}
 
         {/* User Logs Table */}
         {loading ? (
@@ -111,6 +223,13 @@ export default function UserLogsPage() {
             <p className="text-muted-foreground mb-2">No logs found</p>
             <p className="text-xs text-muted-foreground">
               Start performing actions to see your activity tracked here
+            </p>
+          </div>
+        ) : filteredLogs.length === 0 ? (
+          <div className="text-center py-12 text-sm border border-input rounded-lg bg-muted/30">
+            <p className="text-muted-foreground mb-2">No logs match your filters</p>
+            <p className="text-xs text-muted-foreground">
+              Try adjusting your filter criteria
             </p>
           </div>
         ) : (
@@ -125,7 +244,7 @@ export default function UserLogsPage() {
                 </tr>
               </thead>
               <tbody>
-                {logs.map((log) => (
+                {filteredLogs.map((log) => (
                   <tr
                     key={log.id}
                     className="border-b border-input hover:bg-muted/50 transition-colors"

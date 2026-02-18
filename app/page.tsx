@@ -3,7 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../lib/auth-context';
 import { getProjects } from '../lib/db/projects';
+import { supabase } from '../lib/supabase';
 import { Project } from '../lib/types/project';
+import { ProjectPermission } from '../lib/types/project';
 import Navbar from './components/Navbar';
 import LoginPage from './components/LoginPage';
 import OverviewScreen from './components/OverviewScreen';
@@ -18,17 +20,54 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('overview');
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  // Permission of current user for the selected project (null = owner or no project)
+  const [userPermission, setUserPermission] = useState<ProjectPermission | null>(null);
 
   // Load projects once user is authenticated
   useEffect(() => {
     if (!user) return;
-    getProjects().then((data) => {
-      setProjects(data);
-      if (data.length > 0 && !selectedProject) {
-        setSelectedProject(data[0]);
+
+    // Auto-link user_id in project_permissions where email matches but user_id is null
+    // This lets users who were added by name/email see their assigned projects
+    const linkUserPermissions = async () => {
+      const { data: account } = await supabase
+        .from('accounts')
+        .select('email')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      const email = account?.email || user.email;
+      if (email) {
+        await supabase
+          .from('project_permissions')
+          .update({ user_id: user.id })
+          .eq('user_email', email)
+          .is('user_id', null);
       }
+    };
+
+    linkUserPermissions().then(() => {
+      getProjects().then((data) => {
+        setProjects(data);
+        if (data.length > 0 && !selectedProject) {
+          setSelectedProject(data[0]);
+        }
+      });
     });
   }, [user]);
+
+  // When selected project changes, load the user's permission for it
+  useEffect(() => {
+    if (!user || !selectedProject) { setUserPermission(null); return; }
+    // If the user is the owner they have full access — no permission row needed
+    if (selectedProject.owner_id === user.id) { setUserPermission(null); return; }
+    supabase
+      .from('project_permissions')
+      .select('*')
+      .eq('project_id', selectedProject.id)
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => setUserPermission(data ?? null));
+  }, [user, selectedProject]);
 
   // Callback for when admin changes a project's status
   const handleProjectStatusChange = (projectId: string, status: string) => {
@@ -68,6 +107,7 @@ export default function Home() {
         selectedProject={selectedProject}
         onProjectChange={setSelectedProject}
         onTabChange={setActiveTab}
+        userPermission={userPermission}
       />
 
       {activeTab === 'overview' ? (

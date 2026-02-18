@@ -8,18 +8,34 @@ import NavUserProfile from './NavUserProfile';
 import { ThemeToggle } from './ThemeToggle';
 import { ArrowLeft, ChevronDown } from 'lucide-react';
 import { Project } from '../../lib/types/project';
+import { ProjectPermission } from '../../lib/types/project';
+import { useAuth } from '../../lib/auth-context';
+import { supabase } from '../../lib/supabase';
 
 interface NavbarProps {
   projects: Project[];
   selectedProject: Project | null;
   onProjectChange: (project: Project) => void;
   onTabChange?: (tabId: string) => void;
+  userPermission?: ProjectPermission | null;
 }
 
-export default function Navbar({ projects, selectedProject, onProjectChange, onTabChange }: NavbarProps) {
+export default function Navbar({ projects, selectedProject, onProjectChange, onTabChange, userPermission }: NavbarProps) {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const projectDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from('accounts')
+      .select('is_admin')
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => setIsAdmin(data?.is_admin === true));
+  }, [user]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -36,24 +52,36 @@ export default function Navbar({ projects, selectedProject, onProjectChange, onT
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [openDropdown]);
 
-  const tabs = [
-    { id: 'overview', label: 'OVERVIEW', badge: '3 Alerts' },
-    { id: 'taskers', label: 'TASKERS', badge: '2 due soon' },
-    { id: 'unitdata', label: 'UNIT DATA', badge: '2 Issues' },
-    { id: 'files', label: 'FILES' },
-    { id: 'accounts', label: 'ACCOUNTS' },
-    { id: 'financial', label: 'FINANCIAL', badge: '2 Issues' },
-    { id: 'templates', label: 'TEMPLATES' },
-    { id: 'meetings', label: 'MEETINGS & AVAILABILITY' },
-    { id: 'issues', label: 'TENANT ISSUES' },
-    { id: 'logs', label: 'USER LOGS' },
-    { id: 'admin', label: 'ADMIN PANEL' },
-    { id: 'settings', label: 'SETTINGS' },
+  // Tab definitions with their corresponding permission key
+  const allTabs = [
+    { id: 'overview',   label: 'OVERVIEW',              permKey: null },
+    { id: 'taskers',    label: 'TASKERS',               permKey: 'perm_taskers',   badge: '2 due soon' },
+    { id: 'unitdata',   label: 'UNIT DATA',             permKey: 'perm_unit_data', badge: '2 Issues' },
+    { id: 'files',      label: 'FILES',                 permKey: 'perm_files' },
+    { id: 'accounts',   label: 'ACCOUNTS',              permKey: 'perm_accounts' },
+    { id: 'financial',  label: 'FINANCIAL',             permKey: 'perm_reports',   badge: '2 Issues' },
+    { id: 'templates',  label: 'TEMPLATES',             permKey: 'perm_templates' },
+    { id: 'meetings',   label: 'MEETINGS & AVAILABILITY', permKey: 'perm_meetings' },
+    { id: 'issues',     label: 'TENANT ISSUES',         permKey: null },
+    { id: 'logs',       label: 'USER LOGS',             permKey: 'perm_user_logs' },
+    ...(isAdmin ? [{ id: 'admin', label: 'ADMIN PANEL', permKey: null }] : []),
+    { id: 'settings',   label: 'SETTINGS',              permKey: null },
   ];
+
+  // If the user is a member (not owner), hide tabs where their permission is not granted
+  const HIDDEN_PERM_VALUES = new Set(["View / Don't view", 'None', '']);
+  const tabs = userPermission
+    ? allTabs.filter((tab) => {
+        if (!tab.permKey) return true; // always show non-permission tabs
+        const val = (userPermission as unknown as Record<string, string>)[tab.permKey];
+        return val && !HIDDEN_PERM_VALUES.has(val);
+      })
+    : allTabs;
 
   const handleTabChange = (tabId: string) => {
     setActiveTab(tabId);
     onTabChange?.(tabId);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   return (
