@@ -11,6 +11,7 @@ import SettingsPage from './components/SettingsPage';
 import AdminPanelPage from './components/AdminPanelPage';
 import TaskersPage from './components/TaskersPage';
 import UserLogsPage from './components/UserLogsPage';
+import UnitDataPage from './components/UnitDataPage';
 
 export default function Home() {
   const { user, loading } = useAuth();
@@ -28,6 +29,16 @@ export default function Home() {
       }
     });
   }, [user]);
+
+  // Callback for when admin changes a project's status
+  const handleProjectStatusChange = (projectId: string, status: string) => {
+    setProjects((prev) =>
+      prev.map((p) => (p.id === projectId ? { ...p, status: status as Project['status'] } : p))
+    );
+    if (selectedProject?.id === projectId) {
+      setSelectedProject((prev) => prev ? { ...prev, status: status as Project['status'] } : prev);
+    }
+  };
 
   // Callback for when a new project is created (from Settings)
   const handleProjectCreated = (project: Project) => {
@@ -67,17 +78,18 @@ export default function Home() {
           onProjectCreated={handleProjectCreated}
         />
       ) : activeTab === 'admin' ? (
-        <AdminPanelPage />
+        <AdminPanelPage onProjectStatusChange={handleProjectStatusChange} />
       ) : activeTab === 'taskers' ? (
         <TaskersPage selectedProjectId={selectedProject?.id ?? null} />
       ) : activeTab === 'logs' ? (
         <UserLogsPage />
+      ) : activeTab === 'unitdata' ? (
+        <UnitDataPage selectedProjectId={selectedProject?.id ?? null} />
       ) : (
         <main className="flex min-h-screen flex-col items-center justify-center bg-background text-foreground p-4 sm:p-8">
           <div className="text-center max-w-2xl">
             <h1 className="text-3xl sm:text-4xl font-bold mb-4">Welcome to Zero Hassle Landlord</h1>
             <p className="text-base sm:text-lg text-muted-foreground">
-              {activeTab === 'unitdata' && 'View and manage unit data'}
               {activeTab === 'files' && 'Manage your files'}
               {activeTab === 'accounts' && 'Manage accounts'}
               {activeTab === 'financial' && 'Financial management'}

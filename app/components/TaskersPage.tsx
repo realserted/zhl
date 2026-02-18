@@ -22,6 +22,7 @@ import {
   getTaskerLogs,
   addTaskerLog,
 } from '../../lib/db/taskers';
+import { logUserAction } from '../../lib/db/user-logs';
 
 const STATUS_OPTIONS = ['Open', 'In Progress', 'Complete', 'Archived'] as const;
 
@@ -105,17 +106,25 @@ export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
     });
   }, [selectedProjectId]);
 
-  // Get current user display name
+  // Get current user display name and email — use refs to avoid stale closures
   const [displayName, setDisplayName] = useState('');
+  const [, setUserEmail] = useState('');
+  const displayNameRef = useRef('');
+  const userEmailRef = useRef('');
   useEffect(() => {
     if (!user) return;
     supabase
       .from('accounts')
-      .select('display_name')
+      .select('display_name, email')
       .eq('user_id', user.id)
       .single()
       .then(({ data }) => {
-        setDisplayName(data?.display_name ?? user.user_metadata?.display_name ?? 'Unknown');
+        const name = data?.display_name || user.user_metadata?.display_name || user.email || 'Unknown';
+        const email = data?.email || user.email || '';
+        setDisplayName(name);
+        setUserEmail(email);
+        displayNameRef.current = name;
+        userEmailRef.current = email;
       });
   }, [user]);
 
@@ -174,6 +183,7 @@ export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
         type: 'change',
         message: `Created tasker "${tasker.task_name}"`,
       });
+      logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action: `Created tasker "${tasker.task_name}"` });
       setNewTasker({
         task_name: '',
         description: '',
@@ -214,6 +224,9 @@ export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
         type: 'change',
         message: `Changed ${fieldLabel} from "${oldValue ?? ''}" to "${value}"`,
       });
+      if (selectedProjectId) {
+        logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action: `Updated tasker "${tasker.task_name}" — changed ${fieldLabel}` });
+      }
     }
     setEditingCell(null);
   };
@@ -264,6 +277,9 @@ export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
         type: 'change',
         message: `Requested help from "${helpUser.trim()}"`,
       });
+      if (selectedProjectId) {
+        logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action: `Requested help from "${helpUser.trim()}" for tasker "${helpModal.task_name}"` });
+      }
     }
     setHelpModal(null);
     setHelpUser('');
@@ -271,8 +287,14 @@ export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
 
   // Delete tasker
   const handleDelete = async (taskerId: string) => {
+    const tasker = taskers.find((t) => t.id === taskerId);
     const ok = await deleteTasker(taskerId);
-    if (ok) setTaskers((prev) => prev.filter((t) => t.id !== taskerId));
+    if (ok) {
+      setTaskers((prev) => prev.filter((t) => t.id !== taskerId));
+      if (user && selectedProjectId && tasker) {
+        logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action: `Deleted tasker "${tasker.task_name}"` });
+      }
+    }
   };
 
   // Editable cell component
@@ -435,6 +457,9 @@ export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
                                   type: 'change',
                                   message: `Changed status from "${tasker.status}" to "${newStatus}"`,
                                 });
+                                if (selectedProjectId) {
+                                  logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action: `Changed tasker "${tasker.task_name}" status to "${newStatus}"` });
+                                }
                               }
                             }
                           }}
@@ -828,6 +853,9 @@ export default function TaskersPage({ selectedProjectId }: TaskersPageProps) {
                       type: 'change',
                       message: 'Updated description',
                     });
+                    if (selectedProjectId) {
+                      logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action: `Updated description for tasker "${descriptionModal.task_name}"` });
+                    }
                   }
                   setDescriptionModal(null);
                 }}

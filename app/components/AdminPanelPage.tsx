@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../lib/auth-context';
 import { supabase } from '../../lib/supabase';
 import { Project } from '../../lib/types/project';
+import { logUserAction } from '../../lib/db/user-logs';
 
 const STATUS_OPTIONS = ['Critical', 'Problematic', 'Needs Attention', 'Good', 'Excellent'] as const;
 
@@ -29,7 +30,11 @@ interface ProjectWithOwner extends Project {
   owner_email: string;
 }
 
-export default function AdminPanelPage() {
+interface AdminPanelPageProps {
+  onProjectStatusChange?: (projectId: string, status: string) => void;
+}
+
+export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPageProps) {
   const { user } = useAuth();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
@@ -132,9 +137,21 @@ export default function AdminPanelPage() {
       return;
     }
 
+    const project = projects.find((p) => p.id === projectId);
     setProjects((prev) =>
       prev.map((p) => (p.id === projectId ? { ...p, [field]: value } : p))
     );
+
+    // Notify parent when status changes so navbar updates
+    if (field === 'status' && typeof value === 'string') {
+      onProjectStatusChange?.(projectId, value);
+    }
+
+    // Log admin action
+    if (user && project) {
+      const fieldLabel = field.charAt(0).toUpperCase() + field.slice(1);
+      logUserAction({ projectId, userId: user.id, userName: 'AdminJon', userEmail: 'admin@zhl.com', action: `Changed ${fieldLabel} to "${value}" for project "${project.name}"` });
+    }
   };
 
   const selectClass = 'border border-input rounded px-2 py-1 bg-background text-foreground text-xs';

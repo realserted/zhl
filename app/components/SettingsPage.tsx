@@ -12,6 +12,7 @@ import {
   updatePermission,
   removeProjectUser,
 } from '../../lib/db/projects';
+import { logUserAction } from '../../lib/db/user-logs';
 
 type EditingField = 'displayName' | 'phone' | 'email' | 'password' | null;
 
@@ -174,6 +175,7 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated }: Se
     const project = await createProjectDb(newProjectName.trim(), user.id);
     if (project) {
       onProjectCreated?.(project);
+      logUserAction({ projectId: project.id, userId: user.id, userName: displayName, userEmail: email, action: `Created project "${project.name}"` });
       setNewProjectName('');
       setShowCreateProject(false);
     }
@@ -186,6 +188,9 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated }: Se
     const perm = await addProjectUser(selectedProjectId, newUserName.trim(), newUserEmail.trim());
     if (perm) {
       setPermissions((prev) => [...prev, perm]);
+      if (user) {
+        logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayName, userEmail: email, action: `Added user "${newUserName.trim()}" to project` });
+      }
       setNewUserName('');
       setNewUserEmail('');
       setShowAddUser(false);
@@ -202,9 +207,13 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated }: Se
   };
 
   const handleRemoveUser = async (permId: string) => {
+    const perm = permissions.find((p) => p.id === permId);
     const ok = await removeProjectUser(permId);
     if (ok) {
       setPermissions((prev) => prev.filter((p) => p.id !== permId));
+      if (user && selectedProjectId && perm) {
+        logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayName, userEmail: email, action: `Removed user "${perm.user_name}" from project` });
+      }
     }
   };
 

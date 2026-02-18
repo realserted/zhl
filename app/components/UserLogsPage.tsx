@@ -19,68 +19,22 @@ export default function UserLogsPage() {
   const { user } = useAuth();
   const [logs, setLogs] = useState<UserLog[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
-
-  // Check if user is admin
-  useEffect(() => {
-    if (!user) return;
-    supabase
-      .from('accounts')
-      .select('is_admin')
-      .eq('user_id', user.id)
-      .single()
-      .then(({ data }) => {
-        setIsAdmin(data?.is_admin === true);
-      });
-  }, [user]);
-
-  // Load user logs
-  useEffect(() => {
-    if (!user) return;
-    loadLogs();
-  }, [user, isAdmin, sortOrder]);
 
   const loadLogs = useCallback(async () => {
     setLoading(true);
 
     try {
-      // Fetch all projects first
+      // Fetch all projects for project name mapping
       const { data: allProjects } = await supabase.from('projects').select('id, name');
       const projectMap = new Map(allProjects?.map((p: any) => [p.id, p.name]) ?? []);
 
-      let query = supabase
+      // Fetch logs - RLS will only return logs for current user
+      // (or all logs if user is admin)
+      const { data, error } = await supabase
         .from('user_logs')
         .select('*')
         .order('created_at', { ascending: sortOrder === 'asc' });
-
-      // If not admin, only get logs for projects user has access to
-      if (!isAdmin) {
-        const { data: projectIds } = await supabase
-          .from('project_permissions')
-          .select('project_id')
-          .eq('user_id', user!.id);
-
-        const ownedProjects = await supabase
-          .from('projects')
-          .select('id')
-          .eq('owner_id', user!.id);
-
-        const allProjectIds = [
-          ...(projectIds?.map((p: any) => p.project_id) ?? []),
-          ...(ownedProjects.data?.map((p: any) => p.id) ?? []),
-        ];
-
-        if (allProjectIds.length === 0) {
-          setLogs([]);
-          setLoading(false);
-          return;
-        }
-
-        query = query.in('project_id', allProjectIds);
-      }
-
-      const { data, error } = await query;
 
       if (error) {
         console.error('Error loading logs:', error);
@@ -103,7 +57,13 @@ export default function UserLogsPage() {
     }
 
     setLoading(false);
-  }, [user, isAdmin, sortOrder]);
+  }, [sortOrder]);
+
+  // Load user logs
+  useEffect(() => {
+    if (!user) return;
+    loadLogs();
+  }, [user, loadLogs]);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -124,9 +84,7 @@ export default function UserLogsPage() {
         <div className="mb-6 sm:mb-8">
           <h1 className="text-2xl sm:text-3xl font-bold mb-2">User Logs</h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
-            {isAdmin
-              ? 'Shows all user activity across all projects'
-              : 'Shows activity for all projects that you have permissions for'}
+            Shows all your activity across projects. Admins can see all user activity.
           </p>
         </div>
 
@@ -149,8 +107,11 @@ export default function UserLogsPage() {
             <Loader2 className="w-4 h-4 animate-spin" /> Loading logs...
           </div>
         ) : logs.length === 0 ? (
-          <div className="text-center py-8 text-sm text-muted-foreground border border-input rounded-lg">
-            No logs found
+          <div className="text-center py-12 text-sm border border-input rounded-lg bg-muted/30">
+            <p className="text-muted-foreground mb-2">No logs found</p>
+            <p className="text-xs text-muted-foreground">
+              Start performing actions to see your activity tracked here
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto border border-input rounded-lg">
