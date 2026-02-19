@@ -16,6 +16,7 @@ import UserLogsPage from './components/UserLogsPage';
 import UnitDataPage from './components/UnitDataPage';
 import AccountsPage from './components/AccountsPage';
 import FinancialPage from './components/FinancialPage';
+import FilesPage from './components/FilesPage';
 
 export default function Home() {
   const { user, loading } = useAuth();
@@ -122,6 +123,8 @@ export default function Home() {
         <UserLogsPage />
       ) : activeTab === 'unitdata' ? (
         <UnitDataPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
+      ) : activeTab === 'files' ? (
+        <FilesPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
       ) : activeTab === 'accounts' ? (
         <AccountsPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
       ) : activeTab === 'financial' ? (
