@@ -14,6 +14,8 @@ import AdminPanelPage from './components/AdminPanelPage';
 import TaskersPage from './components/TaskersPage';
 import UserLogsPage from './components/UserLogsPage';
 import UnitDataPage from './components/UnitDataPage';
+import AccountsPage from './components/AccountsPage';
+import FinancialPage from './components/FinancialPage';
 
 export default function Home() {
   const { user, loading } = useAuth();
@@ -120,6 +122,10 @@ export default function Home() {
         <UserLogsPage />
       ) : activeTab === 'unitdata' ? (
         <UnitDataPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
+      ) : activeTab === 'accounts' ? (
+        <AccountsPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
+      ) : activeTab === 'financial' ? (
+        <FinancialPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
       ) : (
         <main className="flex min-h-screen flex-col items-center justify-center bg-background text-foreground p-4 sm:p-8">
           <div className="text-center max-w-2xl">
