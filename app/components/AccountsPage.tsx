@@ -5,6 +5,7 @@ import { useAuth } from '../../lib/auth-context';
 import { supabase } from '../../lib/supabase';
 import { ProjectPermission } from '../../lib/types/project';
 import { ProjectAccount } from '../../lib/types/project-account';
+import { safeHref } from '../../lib/security';
 import {
   getProjectAccounts,
   createProjectAccount,
@@ -206,7 +207,7 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
             <EditableCell account={account} field={col.field} displayValue={value} />
           </div>
           <a
-            href={value.startsWith('http') ? value : `https://${value}`}
+            href={safeHref(value)}
             target="_blank"
             rel="noopener noreferrer"
             className="text-accent hover:text-accent/80 shrink-0"

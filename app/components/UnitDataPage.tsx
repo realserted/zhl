@@ -5,6 +5,7 @@ import { Plus, ChevronLeft, ChevronRight, Loader2, Trash2, X, Link, Upload, File
 import { useAuth } from '../../lib/auth-context';
 import { supabase } from '../../lib/supabase';
 import { CategoryWithFields, UnitDataField, UnitDataRow, UnitDataValue } from '../../lib/types/unit-data';
+import { safeHref } from '../../lib/security';
 import {
   getCategories,
   getRows,
@@ -707,7 +708,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission }: Unit
                                   >
                                     {field.is_hyperlink && cellValue ? (
                                       <a
-                                        href={cellValue}
+                                        href={safeHref(cellValue)}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="text-blue-500 hover:underline"
