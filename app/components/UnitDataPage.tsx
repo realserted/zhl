@@ -17,7 +17,6 @@ import {
   deleteCategory,
   upsertValue,
   updateFieldVisibility,
-  seedDefaultSchema,
 } from '../../lib/db/unit-data';
 import { logUserAction } from '../../lib/db/user-logs';
 import { ProjectPermission } from '../../lib/types/project';
@@ -107,12 +106,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission }: Unit
   const loadData = async (projectId: string) => {
     setLoading(true);
 
-    let cats = await getCategories(projectId);
-
-    // Seed defaults if no schema exists yet
-    if (cats.length === 0) {
-      cats = await seedDefaultSchema(projectId);
-    }
+    const cats = await getCategories(projectId);
 
     const rowData = await getRows(projectId);
     const valData = await getValues(projectId);
