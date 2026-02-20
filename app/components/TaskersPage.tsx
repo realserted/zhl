@@ -10,7 +10,7 @@ import {
   Loader2,
   Trash2,
 } from 'lucide-react';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../../lib/auth-context';
 import { supabase } from '../../lib/supabase';
 import { Tasker, TaskerLog } from '../../lib/types/tasker';
@@ -43,7 +43,7 @@ export default function TaskersPage({ selectedProjectId, userPermission }: Taske
   const { user } = useAuth();
   const [viewFilter, setViewFilter] = useState('all');
   const [taskers, setTaskers] = useState<Tasker[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   // Project users for dropdowns
   const [projectUsers, setProjectUsers] = useState<{ user_id: string | null; user_name: string }[]>([]);
@@ -96,11 +96,8 @@ export default function TaskersPage({ selectedProjectId, userPermission }: Taske
 
   // Load taskers when project changes
   useEffect(() => {
-    if (!selectedProjectId) {
-      setTaskers([]);
-      setLoading(false);
-      return;
-    }
+    if (!selectedProjectId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     getTaskers(selectedProjectId).then((data) => {
       setTaskers(data);
@@ -129,6 +126,31 @@ export default function TaskersPage({ selectedProjectId, userPermission }: Taske
         userEmailRef.current = email;
       });
   }, [user]);
+
+  const projectUserOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const unique: { user_id: string | null; user_name: string }[] = [];
+
+    for (const u of projectUsers) {
+      const name = (u.user_name ?? '').trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push({ user_id: u.user_id, user_name: name });
+    }
+
+    const currentName = displayName.trim();
+    if (currentName && !seen.has(currentName.toLowerCase())) {
+      unique.push({ user_id: user?.id ?? null, user_name: currentName });
+    }
+
+    unique.sort((a, b) => a.user_name.localeCompare(b.user_name));
+    return unique;
+  }, [projectUsers, displayName, user?.id]);
+
+  const findProjectUserByName = (name: string) =>
+    projectUserOptions.find((u) => u.user_name.trim().toLowerCase() === name.trim().toLowerCase());
 
   // Permission flags — null userPermission means owner (full access)
   const permLevel = userPermission?.perm_taskers ?? 'Admin';
@@ -163,18 +185,26 @@ export default function TaskersPage({ selectedProjectId, userPermission }: Taske
     if (!user || !selectedProjectId || !newTasker.task_name.trim()) return;
     setCreating(true);
 
+    const responsibleName = newTasker.responsible_name || displayName;
+    const ccName = newTasker.cc_name || null;
+    const gotTheBallName = newTasker.got_the_ball_name || null;
+
+    const responsibleUser = responsibleName ? findProjectUserByName(responsibleName) : null;
+    const ccUser = ccName ? findProjectUserByName(ccName) : null;
+    const gotTheBallUser = gotTheBallName ? findProjectUserByName(gotTheBallName) : null;
+
     const tasker = await createTasker({
       project_id: selectedProjectId,
       status: newTasker.status,
       task_name: newTasker.task_name.trim(),
       description: newTasker.description.trim() || null,
       update_status: null,
-      responsible: null,
-      responsible_name: newTasker.responsible_name || displayName,
-      cc: null,
-      cc_name: newTasker.cc_name || null,
-      got_the_ball: null,
-      got_the_ball_name: newTasker.got_the_ball_name || null,
+      responsible: responsibleUser?.user_id ?? null,
+      responsible_name: responsibleName,
+      cc: ccUser?.user_id ?? null,
+      cc_name: ccName,
+      got_the_ball: gotTheBallUser?.user_id ?? null,
+      got_the_ball_name: gotTheBallName,
       priority: newTasker.priority,
       due_date: newTasker.due_date || null,
       original_due_date: newTasker.due_date || null,
@@ -215,6 +245,28 @@ export default function TaskersPage({ selectedProjectId, userPermission }: Taske
       setShowCreate(false);
     }
     setCreating(false);
+  };
+
+  const handleRoleUpdate = async (
+    tasker: Tasker,
+    role: 'responsible' | 'cc' | 'got_the_ball',
+    selectedName: string
+  ) => {
+    const selectedUser = selectedName ? findProjectUserByName(selectedName) : undefined;
+    const updates: Partial<Tasker> =
+      role === 'responsible'
+        ? { responsible_name: selectedName || null, responsible: selectedUser?.user_id ?? null }
+        : role === 'cc'
+          ? { cc_name: selectedName || null, cc: selectedUser?.user_id ?? null }
+          : { got_the_ball_name: selectedName || null, got_the_ball: selectedUser?.user_id ?? null };
+
+    const ok = await updateTasker(tasker.id, updates);
+    if (!ok) return;
+
+    setTaskers((prev) => prev.map((t) => (t.id === tasker.id ? { ...t, ...updates } : t)));
+    if (selectedName) {
+      await ensureUserHasProjectAccess(selectedName);
+    }
   };
 
   // Auto-grant project access when a user is assigned to a tasker
@@ -581,29 +633,68 @@ export default function TaskersPage({ selectedProjectId, userPermission }: Taske
 
                       {/* Responsible */}
                       <td className="px-3 py-3 whitespace-nowrap">
-                        <EditableCell
-                          tasker={tasker}
-                          field="responsible_name"
-                          displayValue={tasker.responsible_name ?? ''}
-                        />
+                        {canEdit ? (
+                          <select
+                            value={tasker.responsible_name ?? ''}
+                            onChange={(e) => handleRoleUpdate(tasker, 'responsible', e.target.value)}
+                            className={selectClass}
+                          >
+                            <option value="">-</option>
+                            {projectUserOptions.map((u) => (
+                              <option key={`responsible-${u.user_name}`} value={u.user_name}>
+                                {u.user_name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="px-1 py-0.5 block min-w-[2rem] min-h-[1.25rem]">
+                            {tasker.responsible_name || <span className="text-muted-foreground/40">-</span>}
+                          </span>
+                        )}
                       </td>
 
                       {/* CC */}
                       <td className="px-3 py-3 whitespace-nowrap">
-                        <EditableCell
-                          tasker={tasker}
-                          field="cc_name"
-                          displayValue={tasker.cc_name ?? ''}
-                        />
+                        {canEdit ? (
+                          <select
+                            value={tasker.cc_name ?? ''}
+                            onChange={(e) => handleRoleUpdate(tasker, 'cc', e.target.value)}
+                            className={selectClass}
+                          >
+                            <option value="">-</option>
+                            {projectUserOptions.map((u) => (
+                              <option key={`cc-${u.user_name}`} value={u.user_name}>
+                                {u.user_name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="px-1 py-0.5 block min-w-[2rem] min-h-[1.25rem]">
+                            {tasker.cc_name || <span className="text-muted-foreground/40">-</span>}
+                          </span>
+                        )}
                       </td>
 
                       {/* Got the Ball */}
                       <td className="px-3 py-3 whitespace-nowrap">
-                        <EditableCell
-                          tasker={tasker}
-                          field="got_the_ball_name"
-                          displayValue={tasker.got_the_ball_name ?? ''}
-                        />
+                        {canEdit ? (
+                          <select
+                            value={tasker.got_the_ball_name ?? ''}
+                            onChange={(e) => handleRoleUpdate(tasker, 'got_the_ball', e.target.value)}
+                            className={selectClass}
+                          >
+                            <option value="">-</option>
+                            {projectUserOptions.map((u) => (
+                              <option key={`gtb-${u.user_name}`} value={u.user_name}>
+                                {u.user_name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="px-1 py-0.5 block min-w-[2rem] min-h-[1.25rem]">
+                            {tasker.got_the_ball_name || <span className="text-muted-foreground/40">-</span>}
+                          </span>
+                        )}
                       </td>
 
                       {/* Priority */}
@@ -798,43 +889,55 @@ export default function TaskersPage({ selectedProjectId, userPermission }: Taske
                   <label className="block text-sm font-medium mb-1">
                     Responsible <span className="text-muted-foreground font-normal">(defaults to you)</span>
                   </label>
-                  <input
-                    type="text"
+                  <select
                     value={newTasker.responsible_name}
                     onChange={(e) =>
                       setNewTasker({ ...newTasker, responsible_name: e.target.value })
                     }
                     className={inputClass}
-                    placeholder={displayName}
-                    list="project-users"
-                  />
+                  >
+                    <option value="">{`Default (${displayName || 'you'})`}</option>
+                    {projectUserOptions.map((u) => (
+                      <option key={`new-responsible-${u.user_name}`} value={u.user_name}>
+                        {u.user_name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">CC</label>
-                  <input
-                    type="text"
+                  <select
                     value={newTasker.cc_name}
                     onChange={(e) => setNewTasker({ ...newTasker, cc_name: e.target.value })}
                     className={inputClass}
-                    placeholder="Who needs to know"
-                    list="project-users"
-                  />
+                  >
+                    <option value="">Who needs to know</option>
+                    {projectUserOptions.map((u) => (
+                      <option key={`new-cc-${u.user_name}`} value={u.user_name}>
+                        {u.user_name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">&quot;Got the Ball&quot;</label>
-                  <input
-                    type="text"
+                  <select
                     value={newTasker.got_the_ball_name}
                     onChange={(e) =>
                       setNewTasker({ ...newTasker, got_the_ball_name: e.target.value })
                     }
                     className={inputClass}
-                    placeholder="Who actually does it"
-                    list="project-users"
-                  />
+                  >
+                    <option value="">Who actually does it</option>
+                    {projectUserOptions.map((u) => (
+                      <option key={`new-gtb-${u.user_name}`} value={u.user_name}>
+                        {u.user_name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Due Date</label>
@@ -860,7 +963,7 @@ export default function TaskersPage({ selectedProjectId, userPermission }: Taske
 
               {/* Datalist for user autocomplete */}
               <datalist id="project-users">
-                {projectUsers.map((u) => (
+                {projectUserOptions.map((u) => (
                   <option key={u.user_name} value={u.user_name} />
                 ))}
               </datalist>
@@ -1063,7 +1166,7 @@ export default function TaskersPage({ selectedProjectId, userPermission }: Taske
               list="project-users-help"
             />
             <datalist id="project-users-help">
-              {projectUsers.map((u) => (
+              {projectUserOptions.map((u) => (
                 <option key={u.user_name} value={u.user_name} />
               ))}
             </datalist>

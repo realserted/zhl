@@ -11,6 +11,10 @@ export async function logUserAction(params: {
   userEmail: string;
   action: string;
 }) {
+  if (!params.projectId || !params.userId || !params.action?.trim()) {
+    return;
+  }
+
   const { error } = await supabase.from('user_logs').insert({
     project_id: params.projectId,
     user_id: params.userId,
@@ -20,6 +24,14 @@ export async function logUserAction(params: {
   });
 
   if (error) {
-    console.error('Error logging user action:', error);
+    const pieces = [error.code, error.message, error.details, error.hint]
+      .filter(Boolean)
+      .map((p) => String(p));
+    const summary = pieces.join(' | ');
+    const expectedPermissionIssue =
+      error.code === '42501' ||
+      /permission denied|row-level security|forbidden|not allowed/i.test(summary);
+    if (expectedPermissionIssue) return;
+    console.warn('User action log skipped:', summary || 'Unknown logging error');
   }
 }

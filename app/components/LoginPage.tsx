@@ -18,6 +18,7 @@ const PASSWORD_RULES = [
 
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_SECONDS = 30;
+const SIGNUP_COOLDOWN_SECONDS = 30;
 
 export default function LoginPage() {
   const { signIn, signUp } = useAuth();
@@ -29,7 +30,14 @@ export default function LoginPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [phone, setPhone] = useState('');
+  const [descriptor, setDescriptor] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [personName, setPersonName] = useState('');
+  const [username, setUsername] = useState('');
+  const [accountNumber, setAccountNumber] = useState('');
+  const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [signupCooldownNotice, setSignupCooldownNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [signUpSuccess, setSignUpSuccess] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -39,16 +47,27 @@ export default function LoginPage() {
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
   const [lockoutCountdown, setLockoutCountdown] = useState(0);
+  const [signUpCooldownUntil, setSignUpCooldownUntil] = useState<number | null>(null);
+  const [signUpCooldownCountdown, setSignUpCooldownCountdown] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const signUpTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (signUpTimerRef.current) clearInterval(signUpTimerRef.current);
+    };
   }, []);
 
   // Countdown timer for lockout
   useEffect(() => {
-    if (!lockoutUntil) { setLockoutCountdown(0); return; }
+    if (!lockoutUntil) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLockoutCountdown(0);
+      return;
+    }
     const tick = () => {
       const remaining = Math.max(0, Math.ceil((lockoutUntil - Date.now()) / 1000));
       setLockoutCountdown(remaining);
@@ -62,7 +81,29 @@ export default function LoginPage() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [lockoutUntil]);
 
+  // Countdown timer for signup cooldown (email rate limits)
+  useEffect(() => {
+    if (!signUpCooldownUntil) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSignUpCooldownCountdown(0);
+      setSignupCooldownNotice(null);
+      return;
+    }
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((signUpCooldownUntil - Date.now()) / 1000));
+      setSignUpCooldownCountdown(remaining);
+      if (remaining <= 0) {
+        setSignUpCooldownUntil(null);
+        if (signUpTimerRef.current) clearInterval(signUpTimerRef.current);
+      }
+    };
+    tick();
+    signUpTimerRef.current = setInterval(tick, 1000);
+    return () => { if (signUpTimerRef.current) clearInterval(signUpTimerRef.current); };
+  }, [signUpCooldownUntil]);
+
   const isLocked = lockoutCountdown > 0;
+  const isSignUpCooldown = signUpCooldownCountdown > 0;
 
   // Password strength score (0-5)
   const strengthScore = PASSWORD_RULES.filter((r) => r.test(password)).length;
@@ -75,10 +116,18 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
 
-    // Check lockout
-    if (isLocked) {
-      setError(`Too many failed attempts. Try again in ${lockoutCountdown} seconds.`);
-      return;
+    // Check cooldown/lockout
+    if (isSignUp) {
+      if (isSignUpCooldown) {
+        setError(null);
+        setSignupCooldownNotice(`Please wait ${signUpCooldownCountdown} seconds before trying signup again.`);
+        return;
+      }
+    } else {
+      if (isLocked) {
+        setError(`Too many failed attempts. Try again in ${lockoutCountdown} seconds.`);
+        return;
+      }
     }
 
     const trimmedEmail = email.trim().toLowerCase();
@@ -115,10 +164,32 @@ export default function LoginPage() {
       }
 
       setLoading(true);
-      const { error } = await signUp(trimmedEmail, password, trimmedName, phone.trim());
+      const { error } = await signUp(trimmedEmail, password, trimmedName, phone.trim(), {
+        descriptor: descriptor.trim(),
+        companyName: companyName.trim(),
+        personName: personName.trim(),
+        username: username.trim(),
+        accountNumber: accountNumber.trim(),
+        notes: notes.trim(),
+      });
       if (error) {
-        setError(error);
+        const normalized = error.toLowerCase();
+        const isRateLimitError =
+          normalized.includes('email rate limit exceeded') ||
+          normalized.includes('security purposes');
+
+        if (isRateLimitError) {
+          setSignUpCooldownUntil(Date.now() + SIGNUP_COOLDOWN_SECONDS * 1000);
+          setError(null);
+          setSignupCooldownNotice(
+            `Signup is cooling down for ${SIGNUP_COOLDOWN_SECONDS} seconds. If you already signed up, check your email inbox.`
+          );
+        } else {
+          setSignupCooldownNotice(null);
+          setError(error);
+        }
       } else {
+        setSignupCooldownNotice(null);
         setSignUpSuccess(true);
       }
     } else {
@@ -163,6 +234,12 @@ export default function LoginPage() {
                 setConfirmPassword('');
                 setDisplayName('');
                 setPhone('');
+                setDescriptor('');
+                setCompanyName('');
+                setPersonName('');
+                setUsername('');
+                setAccountNumber('');
+                setNotes('');
               }}
               className="text-sm text-green-400 hover:underline font-medium"
             >
@@ -235,6 +312,90 @@ export default function LoginPage() {
                     placeholder="(555) 123-4567"
                     maxLength={20}
                     className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="descriptor" className="block text-sm font-medium text-foreground mb-1.5">
+                    Descriptor <span className="text-muted-foreground font-normal">(optional)</span>
+                  </label>
+                  <input
+                    id="descriptor"
+                    type="text"
+                    value={descriptor}
+                    onChange={(e) => setDescriptor(e.target.value)}
+                    placeholder="e.g. Property Manager"
+                    maxLength={255}
+                    className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="companyName" className="block text-sm font-medium text-foreground mb-1.5">
+                    Company Name <span className="text-muted-foreground font-normal">(optional)</span>
+                  </label>
+                  <input
+                    id="companyName"
+                    type="text"
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    placeholder="Company LLC"
+                    maxLength={255}
+                    className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="personName" className="block text-sm font-medium text-foreground mb-1.5">
+                    Person Name <span className="text-muted-foreground font-normal">(optional)</span>
+                  </label>
+                  <input
+                    id="personName"
+                    type="text"
+                    value={personName}
+                    onChange={(e) => setPersonName(e.target.value)}
+                    placeholder="Full legal name"
+                    maxLength={255}
+                    className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="username" className="block text-sm font-medium text-foreground mb-1.5">
+                    Username <span className="text-muted-foreground font-normal">(optional)</span>
+                  </label>
+                  <input
+                    id="username"
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="Username"
+                    maxLength={100}
+                    className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="accountNumber" className="block text-sm font-medium text-foreground mb-1.5">
+                    Account Number <span className="text-muted-foreground font-normal">(optional)</span>
+                  </label>
+                  <input
+                    id="accountNumber"
+                    type="text"
+                    value={accountNumber}
+                    onChange={(e) => setAccountNumber(e.target.value)}
+                    placeholder="Account #"
+                    maxLength={100}
+                    className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="notes" className="block text-sm font-medium text-foreground mb-1.5">
+                    Notes <span className="text-muted-foreground font-normal">(optional)</span>
+                  </label>
+                  <textarea
+                    id="notes"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Additional notes..."
+                    maxLength={500}
+                    rows={2}
+                    className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
                   />
                 </div>
               </>
@@ -356,13 +517,20 @@ export default function LoginPage() {
                 <p className="text-sm text-destructive">{error}</p>
               </div>
             )}
+            {isSignUp && signupCooldownNotice && (
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2.5">
+                <p className="text-sm text-amber-500">{signupCooldownNotice}</p>
+              </div>
+            )}
 
             <button
               type="submit"
-              disabled={loading || isLocked}
+              disabled={loading || isLocked || (isSignUp && isSignUpCooldown)}
               className="w-full py-2.5 bg-black text-green-400 rounded-lg text-sm font-semibold hover:bg-gray-900 transition-colors disabled:opacity-50 border border-green-400"
             >
-              {isLocked
+              {isSignUp && isSignUpCooldown
+                ? `Signup Cooldown (${signUpCooldownCountdown}s)`
+                : isLocked
                 ? `Locked (${lockoutCountdown}s)`
                 : loading
                 ? 'Please wait...'

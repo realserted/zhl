@@ -31,6 +31,17 @@ export interface FinancialBankType {
   id: string;
   project_id: string;
   name: string;
+  status: string;
+  created_at: string;
+}
+
+export interface FinancialUploadSheet {
+  id: string;
+  project_id: string;
+  bank_type_id: string | null;
+  name: string;
+  column_headers: string[];
+  created_by: string | null;
   created_at: string;
 }
 
@@ -54,6 +65,8 @@ export interface FinancialTransaction {
   notes: string | null;
   description: string | null;
   auto_grouping: string | null;
+  raw_data: Record<string, unknown> | null;
+  sheet_id: string | null;
   created_at: string;
   updated_at: string;
 }

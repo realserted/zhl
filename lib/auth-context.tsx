@@ -8,7 +8,10 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
-  signUp: (email: string, password: string, displayName: string, phone?: string) => Promise<{ error: string | null }>;
+  signUp: (email: string, password: string, displayName: string, phone?: string, extra?: {
+    descriptor?: string; companyName?: string; personName?: string;
+    username?: string; accountNumber?: string; notes?: string;
+  }) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 }
@@ -36,7 +39,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const signUp = async (email: string, password: string, displayName: string, phone?: string) => {
+  const signUp = async (email: string, password: string, displayName: string, phone?: string, extra?: {
+    descriptor?: string; companyName?: string; personName?: string;
+    username?: string; accountNumber?: string; notes?: string;
+  }) => {
     // Block admin email from public registration
     if (email.toLowerCase() === 'admin@zhl.com') {
       return { error: 'This email address is reserved and cannot be used for registration.' };
@@ -54,17 +60,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Create the account record in our accounts table
     if (data.user) {
-      const { error: accountError } = await supabase.from('accounts').insert([
-        {
-          user_id: data.user.id,
-          display_name: displayName,
-          email,
-          phone: phone || null,
-          password_hash: 'managed_by_supabase_auth',
-        },
-      ]);
+      const { error: accountError } = await supabase
+        .from('accounts')
+        .upsert(
+          [
+            {
+              user_id: data.user.id,
+              display_name: displayName,
+              email,
+              phone: phone || null,
+              password_hash: 'managed_by_supabase_auth',
+              descriptor: extra?.descriptor || null,
+              company_name: extra?.companyName || null,
+              person_name: extra?.personName || null,
+              username: extra?.username || null,
+              account_number: extra?.accountNumber || null,
+              notes: extra?.notes || null,
+            },
+          ],
+          { onConflict: 'user_id' }
+        );
       if (accountError) {
-        console.error('Error creating account record:', accountError);
+        const details = [accountError.code, accountError.message, accountError.details, accountError.hint]
+          .filter(Boolean)
+          .map((v) => String(v))
+          .join(' | ');
+        console.warn('Account profile sync skipped:', details || 'Unknown error');
       }
     }
 

@@ -4,16 +4,26 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../lib/auth-context';
 import { supabase } from '../../lib/supabase';
 import { ProjectPermission } from '../../lib/types/project';
-import { ProjectAccount } from '../../lib/types/project-account';
-import { safeHref } from '../../lib/security';
-import {
-  getProjectAccounts,
-  createProjectAccount,
-  updateProjectAccount,
-  deleteProjectAccount,
-} from '../../lib/db/project-accounts';
 import { logUserAction } from '../../lib/db/user-logs';
-import { Plus, Trash2, Lock, Hash, Eye, EyeOff, ExternalLink, ShieldAlert } from 'lucide-react';
+import { Trash2, Lock, Hash, Eye, EyeOff, ShieldAlert, UserPlus, X, Loader2 } from 'lucide-react';
+
+interface AccountRow {
+  id: string;
+  user_id: string;
+  display_name: string;
+  email: string;
+  phone: string | null;
+  descriptor: string | null;
+  company_name: string | null;
+  person_name: string | null;
+  username: string | null;
+  password_hash: string | null;
+  account_number: string | null;
+  notes: string | null;
+  is_admin: boolean;
+  created_at: string;
+  updated_at: string;
+}
 
 interface AccountsPageProps {
   selectedProjectId: string | null;
@@ -22,38 +32,62 @@ interface AccountsPageProps {
 
 export default function AccountsPage({ selectedProjectId, userPermission }: AccountsPageProps) {
   const { user } = useAuth();
-  const [accounts, setAccounts] = useState<ProjectAccount[]>([]);
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [accounts, setAccounts] = useState<AccountRow[]>([]);
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [createUserError, setCreateUserError] = useState<string | null>(null);
+  const [newUserForm, setNewUserForm] = useState({
+    displayName: '',
+    email: '',
+    phone: '',
+    password: '',
+    descriptor: '',
+    companyName: '',
+    personName: '',
+    username: '',
+    accountNumber: '',
+    notes: '',
+  });
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
   const [visiblePasswords, setVisiblePasswords] = useState<Set<string>>(new Set());
 
-  // Refs for display name / email (avoid stale closures in async callbacks)
   const displayNameRef = useRef('Unknown');
   const userEmailRef = useRef('');
 
-  // Permission handling
   const permLevel = userPermission?.perm_accounts ?? 'Admin';
   const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
 
-  // Load user display name
   useEffect(() => {
     if (!user) return;
     userEmailRef.current = user.email || '';
     supabase
       .from('accounts')
-      .select('display_name')
+      .select('is_admin, display_name')
       .eq('user_id', user.id)
       .maybeSingle()
       .then(({ data }) => {
+        setIsAdmin(data?.is_admin === true);
         displayNameRef.current = data?.display_name || user.email || 'Unknown';
       });
   }, [user]);
 
-  // Load accounts when project changes
+  // Load all accounts from the accounts table
   useEffect(() => {
-    if (!selectedProjectId) { setAccounts([]); return; }
-    getProjectAccounts(selectedProjectId).then(setAccounts);
-  }, [selectedProjectId]);
+    if (!selectedProjectId || isAdmin === null) return;
+    loadAccounts();
+  }, [selectedProjectId, isAdmin]);
+
+  const loadAccounts = async () => {
+    const { data, error } = await supabase
+      .from('accounts')
+      .select('*')
+      .order('created_at', { ascending: true });
+    if (!error && data) {
+      setAccounts(data as AccountRow[]);
+    }
+  };
 
   const log = (action: string) => {
     if (!user || !selectedProjectId) return;
@@ -66,21 +100,75 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
     });
   };
 
-  const handleAddAccount = async () => {
-    if (!selectedProjectId || !user) return;
-    const newAccount = await createProjectAccount(selectedProjectId, user.id);
-    if (newAccount) {
-      setAccounts((prev) => [...prev, newAccount]);
-      log('Added a new account entry');
+  const handleCreateUserAccount = async () => {
+    if (!user || !isAdmin || !selectedProjectId) return;
+    setCreatingUser(true);
+    setCreateUserError(null);
+
+    const email = newUserForm.email.trim().toLowerCase();
+    const displayName = newUserForm.displayName.trim();
+    const password = newUserForm.password;
+    const phone = newUserForm.phone.trim();
+
+    if (!email || !displayName || password.length < 6) {
+      setCreateUserError('Email, display name, and password (min 6 chars) are required.');
+      setCreatingUser(false);
+      return;
     }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      setCreateUserError('Missing admin session. Please sign in again.');
+      setCreatingUser(false);
+      return;
+    }
+
+    const res = await fetch('/api/admin/create-user', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        projectId: selectedProjectId,
+        email,
+        password,
+        displayName,
+        phone: phone || null,
+        descriptor: newUserForm.descriptor.trim() || null,
+        companyName: newUserForm.companyName.trim() || null,
+        personName: newUserForm.personName.trim() || null,
+        username: newUserForm.username.trim() || null,
+        accountNumber: newUserForm.accountNumber.trim() || null,
+        notes: newUserForm.notes.trim() || null,
+      }),
+    });
+
+    const json = await res.json().catch(() => ({} as { error?: string }));
+    if (!res.ok) {
+      setCreateUserError(json.error ?? 'Failed to create user account.');
+      setCreatingUser(false);
+      return;
+    }
+
+    await loadAccounts();
+    setShowCreateUser(false);
+    setNewUserForm({
+      displayName: '', email: '', phone: '', password: '',
+      descriptor: '', companyName: '', personName: '',
+      username: '', accountNumber: '', notes: '',
+    });
+    log(`Created user account "${displayName}" (${email})`);
+    setCreatingUser(false);
   };
 
-  const handleDeleteAccount = async (account: ProjectAccount) => {
-    if (!confirm('Delete this account entry?')) return;
-    const ok = await deleteProjectAccount(account.id);
-    if (ok) {
+  const handleDeleteAccount = async (account: AccountRow) => {
+    if (!confirm('Delete this account entry? This will NOT delete the authentication user.')) return;
+    const { error } = await supabase.from('accounts').delete().eq('id', account.id);
+    if (!error) {
       setAccounts((prev) => prev.filter((a) => a.id !== account.id));
-      log(`Deleted account "${account.account_name || 'Untitled'}"`);
+      log(`Deleted account "${account.display_name || 'Untitled'}"`);
     }
   };
 
@@ -91,13 +179,17 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
     const oldValue = (account as unknown as Record<string, string | null>)[field] ?? '';
     if (value === oldValue) return;
 
-    const ok = await updateProjectAccount(accountId, field, value || null);
-    if (ok) {
+    const { error } = await supabase
+      .from('accounts')
+      .update({ [field]: value || null })
+      .eq('id', accountId);
+
+    if (!error) {
       setAccounts((prev) =>
         prev.map((a) => (a.id === accountId ? { ...a, [field]: value || null } : a))
       );
       const label = columns.find((c) => c.field === field)?.label ?? field;
-      log(`Updated ${label} on account "${account.account_name || 'Untitled'}"`);
+      log(`Updated ${label} on account "${account.display_name || 'Untitled'}"`);
     }
   };
 
@@ -110,34 +202,34 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
     });
   };
 
-  // Column definitions
-  const columns: { field: string; label: string; icon?: 'lock' | 'hash'; sensitive?: boolean }[] = [
-    { field: 'account_name', label: 'Account' },
+  // Column definitions — maps to `accounts` table fields
+  const columns: { field: string; label: string; icon?: 'lock' | 'hash'; sensitive?: boolean; readonly?: boolean }[] = [
+    { field: 'display_name', label: 'Account' },
     { field: 'descriptor', label: 'Descriptor' },
     { field: 'company_name', label: 'Company Name' },
     { field: 'person_name', label: 'Person Name' },
     { field: 'phone', label: 'Phone' },
     { field: 'email', label: 'Email' },
-    { field: 'link', label: 'Link' },
     { field: 'username', label: 'USERNAME', icon: 'lock', sensitive: true },
-    { field: 'password', label: 'PASSWORD', icon: 'lock', sensitive: true },
+    { field: 'password_hash', label: 'PASSWORD', icon: 'lock', sensitive: true, readonly: true },
     { field: 'account_number', label: 'Account Number', icon: 'hash', sensitive: true },
     { field: 'notes', label: 'NOTES' },
   ];
 
-  // Editable cell component
   const EditableCell = ({
     account,
     field,
     displayValue,
+    isReadonly,
   }: {
-    account: ProjectAccount;
+    account: AccountRow;
     field: string;
     displayValue: string;
+    isReadonly?: boolean;
   }) => {
     const isEditing = editingCell?.id === account.id && editingCell?.field === field;
 
-    if (isEditing) {
+    if (isEditing && !isReadonly) {
       return (
         <input
           autoFocus
@@ -154,7 +246,7 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
       );
     }
 
-    if (!canEdit) {
+    if (!canEdit || isReadonly) {
       return <span className="text-xs">{displayValue || <span className="text-muted-foreground/40">-</span>}</span>;
     }
 
@@ -171,26 +263,23 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
     );
   };
 
-  // Render a cell based on column type
-  const renderCell = (account: ProjectAccount, col: typeof columns[number]) => {
+  const renderCell = (account: AccountRow, col: typeof columns[number]) => {
     const value = (account as unknown as Record<string, string | null>)[col.field] ?? '';
 
-    // Password field — masked display with toggle
-    if (col.field === 'password') {
+    // Password field — show masked, not editable (managed by Supabase Auth)
+    if (col.field === 'password_hash') {
+      const display = value && value !== 'managed_by_supabase_auth' ? value : '';
       const isVisible = visiblePasswords.has(account.id);
-      const masked = value ? '••••••' : '';
-      const display = isVisible ? value : masked;
+      const masked = display ? '••••••' : 'Auth managed';
 
       return (
         <div className="flex items-center gap-1">
-          <div className="flex-1">
-            <EditableCell account={account} field={col.field} displayValue={isVisible ? value : value} />
-          </div>
-          {value && (
+          <span className="text-xs text-muted-foreground">{isVisible ? display || 'Auth managed' : masked}</span>
+          {display && (
             <button
               onClick={() => togglePasswordVisibility(account.id)}
               className="text-muted-foreground hover:text-foreground shrink-0"
-              title={isVisible ? 'Hide password' : 'Show password'}
+              title={isVisible ? 'Hide' : 'Show'}
             >
               {isVisible ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
             </button>
@@ -199,38 +288,21 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
       );
     }
 
-    // Link field — clickable when filled
-    if (col.field === 'link' && value && !editingCell?.id) {
-      return (
-        <div className="flex items-center gap-1">
-          <div className="flex-1">
-            <EditableCell account={account} field={col.field} displayValue={value} />
-          </div>
-          <a
-            href={safeHref(value)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-accent hover:text-accent/80 shrink-0"
-            title="Open link"
-          >
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        </div>
-      );
-    }
-
-    // Password field when editing — show actual value
-    if (col.field === 'password' && editingCell?.id === account.id && editingCell?.field === 'password') {
-      return <EditableCell account={account} field={col.field} displayValue={value} />;
-    }
-
-    return <EditableCell account={account} field={col.field} displayValue={value} />;
+    return <EditableCell account={account} field={col.field} displayValue={value} isReadonly={col.readonly} />;
   };
 
   if (!selectedProjectId) {
     return (
       <div className="p-8 text-center text-muted-foreground">
         Select a project to view accounts.
+      </div>
+    );
+  }
+
+  if (isAdmin === false) {
+    return (
+      <div className="p-8 text-center text-muted-foreground">
+        Access denied. Accounts is restricted to admins only.
       </div>
     );
   }
@@ -246,6 +318,20 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
       </div>
 
       {/* Table */}
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-sm font-semibold">Project Account Vault</h2>
+        <div className="flex items-center gap-3">
+          {isAdmin && (
+            <button
+              onClick={() => setShowCreateUser(true)}
+              className="inline-flex items-center gap-2 text-xs sm:text-sm font-semibold text-accent hover:text-accent/80 transition-colors"
+            >
+              <UserPlus className="h-4 w-4" />
+              Create User Account
+            </button>
+          )}
+        </div>
+      </div>
       <div className="border border-border rounded-lg overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -262,7 +348,7 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
                   </div>
                 </th>
               ))}
-              {canEdit && (
+              {canEdit && isAdmin && (
                 <th className="px-3 py-2 text-xs font-semibold text-foreground w-10"></th>
               )}
             </tr>
@@ -271,10 +357,10 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
             {accounts.length === 0 ? (
               <tr>
                 <td
-                  colSpan={columns.length + (canEdit ? 1 : 0)}
+                  colSpan={columns.length + (canEdit && isAdmin ? 1 : 0)}
                   className="px-3 py-8 text-center text-muted-foreground text-sm"
                 >
-                  No accounts yet.{canEdit ? ' Click "+ Add Account" to add one.' : ''}
+                  No accounts yet.
                 </td>
               </tr>
             ) : (
@@ -285,7 +371,7 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
                       {renderCell(account, col)}
                     </td>
                   ))}
-                  {canEdit && (
+                  {canEdit && isAdmin && (
                     <td className="px-3 py-2">
                       <button
                         onClick={() => handleDeleteAccount(account)}
@@ -302,16 +388,110 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
           </tbody>
         </table>
       </div>
+      {createUserError && <p className="mt-2 text-xs text-destructive">{createUserError}</p>}
 
-      {/* Add Account button */}
-      {canEdit && (
-        <button
-          onClick={handleAddAccount}
-          className="mt-4 flex items-center gap-2 text-sm font-semibold text-accent hover:text-accent/80 transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          Add Account
-        </button>
+      {showCreateUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">Create User Account</h2>
+              <button onClick={() => setShowCreateUser(false)} className="p-1 hover:bg-muted rounded">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <input
+                type="text"
+                placeholder="Display name *"
+                value={newUserForm.displayName}
+                onChange={(e) => setNewUserForm((prev) => ({ ...prev, displayName: e.target.value }))}
+                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
+              />
+              <input
+                type="email"
+                placeholder="Email *"
+                value={newUserForm.email}
+                onChange={(e) => setNewUserForm((prev) => ({ ...prev, email: e.target.value }))}
+                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
+              />
+              <input
+                type="password"
+                placeholder="Password (min 6 chars) *"
+                value={newUserForm.password}
+                onChange={(e) => setNewUserForm((prev) => ({ ...prev, password: e.target.value }))}
+                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
+              />
+              <input
+                type="text"
+                placeholder="Phone (optional)"
+                value={newUserForm.phone}
+                onChange={(e) => setNewUserForm((prev) => ({ ...prev, phone: e.target.value }))}
+                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
+              />
+              <input
+                type="text"
+                placeholder="Descriptor (optional)"
+                value={newUserForm.descriptor}
+                onChange={(e) => setNewUserForm((prev) => ({ ...prev, descriptor: e.target.value }))}
+                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
+              />
+              <input
+                type="text"
+                placeholder="Company name (optional)"
+                value={newUserForm.companyName}
+                onChange={(e) => setNewUserForm((prev) => ({ ...prev, companyName: e.target.value }))}
+                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
+              />
+              <input
+                type="text"
+                placeholder="Person name (optional)"
+                value={newUserForm.personName}
+                onChange={(e) => setNewUserForm((prev) => ({ ...prev, personName: e.target.value }))}
+                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
+              />
+              <input
+                type="text"
+                placeholder="Username (optional)"
+                value={newUserForm.username}
+                onChange={(e) => setNewUserForm((prev) => ({ ...prev, username: e.target.value }))}
+                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
+              />
+              <input
+                type="text"
+                placeholder="Account number (optional)"
+                value={newUserForm.accountNumber}
+                onChange={(e) => setNewUserForm((prev) => ({ ...prev, accountNumber: e.target.value }))}
+                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
+              />
+              <textarea
+                placeholder="Notes (optional)"
+                value={newUserForm.notes}
+                onChange={(e) => setNewUserForm((prev) => ({ ...prev, notes: e.target.value }))}
+                rows={2}
+                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm resize-none"
+              />
+              {createUserError && <p className="text-xs text-destructive">{createUserError}</p>}
+            </div>
+
+            <div className="flex items-center gap-3 mt-4">
+              <button
+                onClick={handleCreateUserAccount}
+                disabled={creatingUser}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50"
+              >
+                {creatingUser ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+                Create User
+              </button>
+              <button
+                onClick={() => setShowCreateUser(false)}
+                className="px-4 py-2 border border-input rounded-lg text-sm font-semibold hover:bg-muted"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

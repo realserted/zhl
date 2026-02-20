@@ -7,6 +7,7 @@ import {
   FinancialTxCategory,
   FinancialTransaction,
   FinancialLoan,
+  FinancialUploadSheet,
   SectionWithItems,
 } from '../types/financial';
 
@@ -92,19 +93,180 @@ export async function upsertMonthlyValue(
 // ── AutoBooks helpers ─────────────────────────────────────────
 
 export async function getBankTypes(projectId: string): Promise<FinancialBankType[]> {
-  const { data } = await supabase.from('financial_bank_types').select('*').eq('project_id', projectId).order('created_at');
-  return data ?? [];
+  const { data, error } = await supabase.from('financial_bank_types').select('*').eq('project_id', projectId).order('created_at');
+  if (error) { console.error('Error fetching bank types:', error.message); return []; }
+  return (data ?? []).map((b) => ({ ...b, status: b.status ?? 'approved' }));
 }
 
-export async function createBankType(projectId: string, name: string): Promise<FinancialBankType | null> {
-  const { data, error } = await supabase.from('financial_bank_types').insert([{ project_id: projectId, name }]).select().single();
-  if (error) return null;
+export const DEFAULT_BANK_TYPES = [
+  'Wells Fargo Checking (pdf)',
+  'Wells Fargo Checking (xlsx)',
+  'Bank of America Checking',
+  'Rent Vine Report',
+  'Buildium Report',
+  'Yardi Breeze Report',
+  'Appfolio Report',
+];
+
+function normalizeBankTypeName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+export async function dedupeBankTypes(projectId: string): Promise<void> {
+  const existing = await getBankTypes(projectId);
+  if (existing.length <= 1) return;
+
+  const keepByName = new Map<string, FinancialBankType>();
+  const duplicateIds: string[] = [];
+
+  for (const type of existing) {
+    const key = normalizeBankTypeName(type.name);
+    const current = keepByName.get(key);
+    if (!current) {
+      keepByName.set(key, type);
+      continue;
+    }
+
+    // Prefer approved entries; otherwise keep the earlier created record.
+    const currentApproved = !current.status || current.status === 'approved';
+    const nextApproved = !type.status || type.status === 'approved';
+
+    if (!currentApproved && nextApproved) {
+      duplicateIds.push(current.id);
+      keepByName.set(key, type);
+      continue;
+    }
+
+    if (currentApproved && !nextApproved) {
+      duplicateIds.push(type.id);
+      continue;
+    }
+
+    if (new Date(type.created_at).getTime() < new Date(current.created_at).getTime()) {
+      duplicateIds.push(current.id);
+      keepByName.set(key, type);
+    } else {
+      duplicateIds.push(type.id);
+    }
+  }
+
+  if (duplicateIds.length === 0) return;
+
+  const { error } = await supabase
+    .from('financial_bank_types')
+    .delete()
+    .in('id', duplicateIds);
+
+  if (error) {
+    console.error('Error deduping bank types:', error.message);
+  }
+}
+
+export async function ensureDefaultBankTypes(projectId: string): Promise<FinancialBankType[]> {
+  await dedupeBankTypes(projectId);
+  const existing = await getBankTypes(projectId);
+  const existingNames = new Set(existing.map((b) => normalizeBankTypeName(b.name)));
+  const missing = DEFAULT_BANK_TYPES.filter((name) => !existingNames.has(name.trim().toLowerCase()));
+
+  if (missing.length === 0) {
+    return existing;
+  }
+
+  for (const name of missing) {
+    await createBankType(projectId, name, 'approved');
+  }
+
+  return getBankTypes(projectId);
+}
+
+export async function createBankType(projectId: string, name: string, status: string = 'approved'): Promise<FinancialBankType | null> {
+  // Try with status column first, fallback without if column doesn't exist yet
+  const { data, error } = await supabase.from('financial_bank_types').insert([{ project_id: projectId, name, status }]).select().single();
+  if (error) {
+    // Fallback: insert without status (migration not run yet)
+    const { data: d2, error: e2 } = await supabase.from('financial_bank_types').insert([{ project_id: projectId, name }]).select().single();
+    if (e2) { console.error('Error creating bank type:', e2.message); return null; }
+    return { ...d2, status: 'approved' };
+  }
   return data;
+}
+
+export async function approveBankType(id: string): Promise<boolean> {
+  const { error } = await supabase.from('financial_bank_types').update({ status: 'approved' }).eq('id', id);
+  return !error;
+}
+
+export async function rejectBankType(id: string): Promise<boolean> {
+  const { error } = await supabase.from('financial_bank_types').delete().eq('id', id);
+  return !error;
 }
 
 export async function getTxCategories(projectId: string): Promise<FinancialTxCategory[]> {
   const { data } = await supabase.from('financial_tx_categories').select('*').eq('project_id', projectId).order('sort_order');
   return data ?? [];
+}
+
+function normalizeCategoryName(name: string): string {
+  return name.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+export async function dedupeTxCategories(projectId: string): Promise<void> {
+  const categories = await getTxCategories(projectId);
+  if (categories.length <= 1) return;
+
+  const keepByName = new Map<string, FinancialTxCategory>();
+  const dupToKeep = new Map<string, string>();
+
+  for (const cat of categories) {
+    const key = normalizeCategoryName(cat.name);
+    const existing = keepByName.get(key);
+    if (!existing) {
+      keepByName.set(key, cat);
+      continue;
+    }
+
+    // Keep the category with the lower sort order; tie-break by earlier created_at.
+    const existingSort = Number.isFinite(existing.sort_order) ? existing.sort_order : Number.MAX_SAFE_INTEGER;
+    const catSort = Number.isFinite(cat.sort_order) ? cat.sort_order : Number.MAX_SAFE_INTEGER;
+    const keepCurrent =
+      catSort < existingSort ||
+      (catSort === existingSort && new Date(cat.created_at).getTime() < new Date(existing.created_at).getTime());
+
+    if (keepCurrent) {
+      dupToKeep.set(existing.id, cat.id);
+      keepByName.set(key, cat);
+    } else {
+      dupToKeep.set(cat.id, existing.id);
+    }
+  }
+
+  if (dupToKeep.size === 0) return;
+
+  for (const [dupId, keepId] of dupToKeep.entries()) {
+    const { error: txErr } = await supabase
+      .from('financial_transactions')
+      .update({ category_id: keepId })
+      .eq('project_id', projectId)
+      .eq('category_id', dupId);
+    if (txErr) {
+      console.error('Error remapping duplicate transaction categories:', txErr.message);
+      return;
+    }
+  }
+
+  const { error: deleteErr } = await supabase
+    .from('financial_tx_categories')
+    .delete()
+    .in('id', Array.from(dupToKeep.keys()));
+
+  if (deleteErr) {
+    console.error('Error deleting duplicate categories:', deleteErr.message);
+  }
+}
+
+export async function ensureDistinctTxCategories(projectId: string): Promise<FinancialTxCategory[]> {
+  await dedupeTxCategories(projectId);
+  return getTxCategories(projectId);
 }
 
 export async function createTxCategory(projectId: string, name: string, icon: string, color: string): Promise<FinancialTxCategory | null> {
@@ -135,18 +297,102 @@ export async function deleteTransaction(id: string): Promise<boolean> {
 export async function bulkCreateTransactions(
   projectId: string,
   bankTypeId: string | null,
-  rows: { date: string; amount: number; description: string }[]
+  sheetId: string | null,
+  rows: { date: string; amount: number; description: string; raw_data?: Record<string, unknown> }[]
 ): Promise<FinancialTransaction[]> {
-  const inserts = rows.map((r) => ({
+  const normalizeText = (value: string): string =>
+    value.trim().replace(/\s+/g, ' ').toLowerCase();
+
+  const normalizedAmount = (value: number): number =>
+    Math.round(value * 100) / 100;
+
+  const signature = (date: string, amount: number, description: string): string => {
+    return `${date || ''}|${normalizedAmount(amount)}|${normalizeText(description || '')}`;
+  };
+
+  // Build signatures of existing entries for the same project + bank type.
+  let existingSignatures = new Set<string>();
+  {
+    let query = supabase
+      .from('financial_transactions')
+      .select('date, amount, description')
+      .eq('project_id', projectId);
+
+    if (bankTypeId) {
+      query = query.eq('bank_type_id', bankTypeId);
+    } else {
+      query = query.is('bank_type_id', null);
+    }
+
+    const { data: existingRows, error: existingError } = await query;
+    if (existingError) {
+      console.error('Error checking existing transactions for duplicates:', existingError.message);
+    } else {
+      existingSignatures = new Set(
+        (existingRows ?? []).map((r) => signature(r.date ?? '', Number(r.amount ?? 0), r.description ?? ''))
+      );
+    }
+  }
+
+  // De-duplicate rows from the current upload and skip rows already in DB.
+  const uploadSignatures = new Set<string>();
+  const dedupedRows = rows.filter((r) => {
+    const sig = signature(r.date || '', Number(r.amount || 0), r.description || '');
+    if (uploadSignatures.has(sig)) return false;
+    uploadSignatures.add(sig);
+    if (existingSignatures.has(sig)) return false;
+    return true;
+  });
+
+  if (dedupedRows.length === 0) {
+    return [];
+  }
+
+  const inserts = dedupedRows.map((r) => ({
     project_id: projectId,
     bank_type_id: bankTypeId,
-    date: r.date,
+    sheet_id: sheetId,
+    date: r.date || null,
     amount: r.amount,
-    description: r.description,
+    description: r.description || null,
+    raw_data: r.raw_data ?? null,
   }));
   const { data, error } = await supabase.from('financial_transactions').insert(inserts).select();
   if (error) { console.error('Error bulk creating transactions:', error.message); return []; }
   return data ?? [];
+}
+
+// ── Upload Sheet helpers ──────────────────────────────────────
+
+export async function getUploadSheets(projectId: string): Promise<FinancialUploadSheet[]> {
+  const { data } = await supabase.from('financial_upload_sheets').select('*').eq('project_id', projectId).order('created_at');
+  return data ?? [];
+}
+
+export async function createUploadSheet(
+  projectId: string,
+  bankTypeId: string | null,
+  name: string,
+  columnHeaders: string[],
+  userId: string | null
+): Promise<FinancialUploadSheet | null> {
+  const { data, error } = await supabase
+    .from('financial_upload_sheets')
+    .insert([{ project_id: projectId, bank_type_id: bankTypeId, name, column_headers: columnHeaders, created_by: userId }])
+    .select()
+    .single();
+  if (error) { console.error('Error creating upload sheet:', error.message); return null; }
+  return data;
+}
+
+export async function deleteUploadSheet(sheetId: string): Promise<boolean> {
+  const { error } = await supabase.from('financial_upload_sheets').delete().eq('id', sheetId);
+  return !error;
+}
+
+export async function updateSheetColumnHeaders(sheetId: string, headers: string[]): Promise<boolean> {
+  const { error } = await supabase.from('financial_upload_sheets').update({ column_headers: headers }).eq('id', sheetId);
+  return !error;
 }
 
 // ── Debt Schedule helpers ─────────────────────────────────────
@@ -190,16 +436,6 @@ const DEFAULT_SECTIONS = [
   { name: 'DISBURSEMENTS', sort_order: 5, items: ['User 1', 'User 2', 'User 3', 'User 4'] },
 ];
 
-const DEFAULT_BANK_TYPES = [
-  'Wells Fargo Checking (pdf)',
-  'Wells Fargo Checking (xlsx)',
-  'Bank of America Checking',
-  'Rent Vine Report',
-  'Buildium Report',
-  'Yardi Breeze Report',
-  'Appfolio Report',
-];
-
 const DEFAULT_TX_CATEGORIES = [
   { name: 'Bank Fees', icon: '●', color: '#000000' },
   { name: 'Office Expenses', icon: '●', color: '#3b82f6' },
@@ -224,9 +460,7 @@ export async function seedDefaultFinancials(projectId: string): Promise<void> {
     }
   }
   // Seed bank types
-  for (const name of DEFAULT_BANK_TYPES) {
-    await supabase.from('financial_bank_types').insert([{ project_id: projectId, name }]);
-  }
+  await ensureDefaultBankTypes(projectId);
   // Seed tx categories
   for (let i = 0; i < DEFAULT_TX_CATEGORIES.length; i++) {
     const cat = DEFAULT_TX_CATEGORIES[i];

@@ -23,6 +23,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('overview');
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   // Permission of current user for the selected project (null = owner or no project)
   const [userPermission, setUserPermission] = useState<ProjectPermission | null>(null);
 
@@ -65,6 +66,16 @@ export default function Home() {
       .maybeSingle()
       .then(({ data }) => setUserPermission(data ?? null));
   }, [user, selectedProject]);
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from('accounts')
+      .select('is_admin')
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => setIsAdmin(data?.is_admin === true));
+  }, [user]);
 
   // Callback for when admin changes a project's status
   const handleProjectStatusChange = (projectId: string, status: string) => {
@@ -126,7 +137,13 @@ export default function Home() {
       ) : activeTab === 'files' ? (
         <FilesPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
       ) : activeTab === 'accounts' ? (
-        <AccountsPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
+        isAdmin ? (
+          <AccountsPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
+        ) : (
+          <main className="flex min-h-screen flex-col items-center justify-center bg-background text-foreground p-4 sm:p-8">
+            <p className="text-sm text-muted-foreground">Access denied. Accounts is restricted to admins only.</p>
+          </main>
+        )
       ) : activeTab === 'financial' ? (
         <FinancialPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
       ) : (

@@ -58,7 +58,7 @@ export default function Navbar({ projects, selectedProject, onProjectChange, onT
     { id: 'taskers',    label: 'TASKERS',               permKey: 'perm_taskers',   badge: '2 due soon' },
     { id: 'unitdata',   label: 'UNIT DATA',             permKey: 'perm_unit_data', badge: '2 Issues' },
     { id: 'files',      label: 'FILES',                 permKey: 'perm_files' },
-    { id: 'accounts',   label: 'ACCOUNTS',              permKey: 'perm_accounts' },
+    ...(isAdmin ? [{ id: 'accounts', label: 'ACCOUNTS', permKey: null }] : []),
     { id: 'financial',  label: 'FINANCIAL',             permKey: 'perm_reports',   badge: '2 Issues' },
     { id: 'templates',  label: 'TEMPLATES',             permKey: 'perm_templates' },
     { id: 'meetings',   label: 'MEETINGS & AVAILABILITY', permKey: 'perm_meetings' },
