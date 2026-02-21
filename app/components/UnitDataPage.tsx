@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Plus, ChevronLeft, ChevronRight, Loader2, Trash2, X, Link, Upload, FileSpreadsheet } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
 import { supabase } from '../../lib/supabase';
-import { CategoryWithFields, UnitDataField, UnitDataRow, UnitDataValue } from '../../lib/types/unit-data';
+import { CategoryWithFields, UnitDataField, UnitDataRow, UnitDataValue, ViewName } from '../../lib/types/unit-data';
 import { safeHref } from '../../lib/security';
 import {
   getCategories,
@@ -16,8 +16,9 @@ import {
   deleteRow,
   deleteCategory,
   upsertValue,
-  updateFieldVisibility,
+  getCurrentFieldVisibility,
 } from '../../lib/db/unit-data';
+import { getView, getProjectViews, saveView } from '../../lib/db/unit-data-views';
 import { logUserAction } from '../../lib/db/user-logs';
 import { ProjectPermission } from '../../lib/types/project';
 import * as XLSX from 'xlsx';
@@ -25,16 +26,17 @@ import * as XLSX from 'xlsx';
 interface UnitDataPageProps {
   selectedProjectId: string | null;
   userPermission?: ProjectPermission | null; // null = owner (full access)
+  isAdmin?: boolean;
 }
 
-type ViewMode = 'ALL FIELDS' | 'All Project Users' | 'Personal View (future)' | 'PM View';
+type ViewMode = ViewName;
 
-export default function UnitDataPage({ selectedProjectId, userPermission }: UnitDataPageProps) {
+export default function UnitDataPage({ selectedProjectId, userPermission, isAdmin }: UnitDataPageProps) {
   const { user } = useAuth();
 
-  // Permission flags — null userPermission means owner (full access)
-  const permLevel = userPermission?.perm_unit_data ?? 'Admin';
-  const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
+  // Permission flags — null userPermission means owner (full access); admin also gets full access
+  const permLevel = isAdmin ? 'Admin' : (userPermission?.perm_unit_data ?? 'Admin');
+  const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission || !!isAdmin;
 
   // Data state
   const [categories, setCategories] = useState<CategoryWithFields[]>([]);
@@ -48,10 +50,18 @@ export default function UnitDataPage({ selectedProjectId, userPermission }: Unit
   const displayNameRef = useRef('');
   const userEmailRef = useRef('');
 
+  // View system
+  const isOwner = !userPermission || !!isAdmin; // null permission = project owner, admin also gets owner access
+  const assignedView: ViewMode = (userPermission?.unit_data_view as ViewMode) ?? 'All Project Users';
+  const [selectedView, setSelectedView] = useState<ViewMode>('ALL FIELDS');
+  const [viewConfigs, setViewConfigs] = useState<Map<ViewMode, Record<string, boolean>>>(new Map());
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [viewNotice, setViewNotice] = useState('');
+  const [newRowIds, setNewRowIds] = useState<Set<string>>(new Set());
+
   // UI state
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
-  const [selectedView, setSelectedView] = useState<ViewMode>('ALL FIELDS');
 
   // Inline editing
   const [editingCell, setEditingCell] = useState<{ rowId: string; fieldId: string } | null>(null);
@@ -91,6 +101,13 @@ export default function UnitDataPage({ selectedProjectId, userPermission }: Unit
       });
   }, [user]);
 
+  // Auto-clear view notice
+  useEffect(() => {
+    if (!viewNotice) return;
+    const t = setTimeout(() => setViewNotice(''), 3000);
+    return () => clearTimeout(t);
+  }, [viewNotice]);
+
   // Load data when project changes
   useEffect(() => {
     if (!selectedProjectId) {
@@ -105,25 +122,55 @@ export default function UnitDataPage({ selectedProjectId, userPermission }: Unit
 
   const loadData = async (projectId: string) => {
     setLoading(true);
+    setNewRowIds(new Set());
 
     const cats = await getCategories(projectId);
-
     const rowData = await getRows(projectId);
     const valData = await getValues(projectId);
 
     const vMap = new Map<string, UnitDataValue>();
     valData.forEach((v) => vMap.set(`${v.row_id}-${v.field_id}`, v));
 
-    // Delete rows that have no values at all
-    const rowsWithValues = new Set(valData.map((v) => v.row_id));
-    const emptyRows = rowData.filter((r) => !rowsWithValues.has(r.id));
-    await Promise.all(emptyRows.map((r) => deleteRow(r.id)));
-    const cleanedRows = rowData.filter((r) => rowsWithValues.has(r.id));
-
-    setCategories(cats);
-    setRows(cleanedRows);
+    setRows(rowData);
     setValueMap(vMap);
+
+    // Load view configs and apply the correct view
+    if (isOwner) {
+      // Owner: load all project views, default to ALL FIELDS
+      const views = await getProjectViews(projectId);
+      const configMap = new Map<ViewMode, Record<string, boolean>>();
+      views.forEach((v) => configMap.set(v.view_name as ViewMode, v.field_visibility));
+      setViewConfigs(configMap);
+      // Start on ALL FIELDS — show everything
+      setCategories(cats.map((c) => ({ ...c, fields: c.fields.map((f) => ({ ...f, visible: true })) })));
+      setSelectedView('ALL FIELDS');
+    } else {
+      // Non-owner: load their assigned view
+      const viewName = assignedView;
+      setSelectedView(viewName);
+
+      if (viewName === 'ALL FIELDS') {
+        setCategories(cats.map((c) => ({ ...c, fields: c.fields.map((f) => ({ ...f, visible: true })) })));
+      } else if (viewName === 'Personal View') {
+        const view = user ? await getView(projectId, 'Personal View', user.id) : null;
+        setCategories(applyViewConfig(cats, view?.field_visibility ?? null));
+      } else {
+        const view = await getView(projectId, viewName);
+        setCategories(applyViewConfig(cats, view?.field_visibility ?? null));
+      }
+    }
+
+    setHasUnsavedChanges(false);
     setLoading(false);
+  };
+
+  /** Apply a view config to categories. null config = show all. */
+  const applyViewConfig = (cats: CategoryWithFields[], config: Record<string, boolean> | null): CategoryWithFields[] => {
+    if (!config || Object.keys(config).length === 0) return cats;
+    return cats.map((c) => ({
+      ...c,
+      fields: c.fields.map((f) => ({ ...f, visible: config[f.id] ?? f.visible })),
+    }));
   };
 
   // Helper to get current user info from refs (avoids stale closures)
@@ -141,43 +188,79 @@ export default function UnitDataPage({ selectedProjectId, userPermission }: Unit
   // Get all visible fields in order
   const visibleFields = categories.flatMap((c) => c.fields.filter((f) => f.visible));
 
-  // Filter out fully blank rows (no values across any visible field)
+  // Filter out fully blank rows (no values across any visible field), but always show newly added rows
   const nonEmptyRows = rows.filter((row) =>
+    newRowIds.has(row.id) ||
     visibleFields.some((field) => {
       const val = valueMap.get(`${row.id}-${field.id}`);
       return val?.value != null && val.value.trim() !== '';
     })
   );
 
-  // View mode handler — changes which fields are visible
+  // View mode handler — owner switches between views
   const handleViewChange = async (view: ViewMode) => {
+    if (hasUnsavedChanges) {
+      if (!window.confirm('You have unsaved view changes. Switch anyway?')) return;
+    }
+
     setSelectedView(view);
+    setHasUnsavedChanges(false);
 
     if (view === 'ALL FIELDS') {
-      // Show all fields
-      for (const cat of categories) {
-        for (const field of cat.fields) {
-          if (!field.visible) await updateFieldVisibility(field.id, true);
-        }
-      }
       setCategories((prev) =>
         prev.map((c) => ({ ...c, fields: c.fields.map((f) => ({ ...f, visible: true })) }))
       );
+      return;
     }
-    // Other views can be customized later — for now they just set the label
+
+    if (view === 'Personal View' && user && selectedProjectId) {
+      const saved = await getView(selectedProjectId, 'Personal View', user.id);
+      setCategories((prev) => applyViewConfig(prev, saved?.field_visibility ?? null));
+      return;
+    }
+
+    // Project views (All Project Users, PM View)
+    const config = viewConfigs.get(view);
+    if (config && Object.keys(config).length > 0) {
+      setCategories((prev) => applyViewConfig(prev, config));
+    } else if (selectedProjectId) {
+      const saved = await getView(selectedProjectId, view);
+      if (saved && Object.keys(saved.field_visibility).length > 0) {
+        setViewConfigs((prev) => new Map(prev).set(view, saved.field_visibility));
+        setCategories((prev) => applyViewConfig(prev, saved.field_visibility));
+      }
+      // If no saved config, keep current state (all fields visible)
+    }
   };
 
+  // Save the current view configuration
+  const handleSaveView = async () => {
+    if (!selectedProjectId || !user) return;
+    if (selectedView === 'ALL FIELDS') return; // ALL FIELDS is always all visible
+
+    const currentVis = getCurrentFieldVisibility(categories);
+    const userId = selectedView === 'Personal View' ? user.id : undefined;
+    const ok = await saveView(selectedProjectId, selectedView, currentVis, userId);
+
+    if (ok) {
+      setViewConfigs((prev) => new Map(prev).set(selectedView, currentVis));
+      setHasUnsavedChanges(false);
+      setViewNotice(`"${selectedView}" saved.`);
+      log(`Saved view configuration for "${selectedView}"`);
+    }
+  };
+
+  // Can this user toggle fields in the sidebar?
+  const canToggleFields = isOwner || (selectedView === 'Personal View');
+
   // Toggle category visibility (all fields in category)
-  const toggleCategory = async (categoryId: string) => {
+  const toggleCategory = (categoryId: string) => {
+    if (!canToggleFields) return;
     const cat = categories.find((c) => c.id === categoryId);
     if (!cat) return;
 
     const allVisible = cat.fields.every((f) => f.visible);
     const newVisible = !allVisible;
-
-    for (const field of cat.fields) {
-      await updateFieldVisibility(field.id, newVisible);
-    }
 
     setCategories((prev) =>
       prev.map((c) =>
@@ -186,22 +269,19 @@ export default function UnitDataPage({ selectedProjectId, userPermission }: Unit
           : c
       )
     );
+    setHasUnsavedChanges(true);
   };
 
   // Toggle individual field visibility
-  const toggleField = async (fieldId: string) => {
-    const field = categories.flatMap((c) => c.fields).find((f) => f.id === fieldId);
-    if (!field) return;
-
-    const newVisible = !field.visible;
-    await updateFieldVisibility(fieldId, newVisible);
-
+  const toggleField = (fieldId: string) => {
+    if (!canToggleFields) return;
     setCategories((prev) =>
       prev.map((c) => ({
         ...c,
-        fields: c.fields.map((f) => (f.id === fieldId ? { ...f, visible: newVisible } : f)),
+        fields: c.fields.map((f) => (f.id === fieldId ? { ...f, visible: !f.visible } : f)),
       }))
     );
+    setHasUnsavedChanges(true);
   };
 
   // Toggle category collapse in table header
@@ -220,6 +300,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission }: Unit
     const row = await createRow(selectedProjectId, rows.length);
     if (row) {
       setRows((prev) => [...prev, row]);
+      setNewRowIds((prev) => new Set(prev).add(row.id));
       log('Added a new unit data row');
     }
   };
@@ -274,6 +355,14 @@ export default function UnitDataPage({ selectedProjectId, userPermission }: Unit
           created_at: existing?.created_at ?? new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
+        return next;
+      });
+
+      // Row now has data, remove from new rows tracking
+      setNewRowIds((prev) => {
+        if (!prev.has(rowId)) return prev;
+        const next = new Set(prev);
+        next.delete(rowId);
         return next;
       });
 
@@ -451,25 +540,49 @@ export default function UnitDataPage({ selectedProjectId, userPermission }: Unit
               DATA VIEW <span className="font-normal text-muted-foreground text-xs ml-1">(collapse)</span>
             </button>
 
-            {/* Load View Dropdown */}
-            <div className="mb-2">
-              <label className="text-xs text-muted-foreground block mb-1">Load View:</label>
-              <select
-                value={selectedView}
-                onChange={(e) => handleViewChange(e.target.value as ViewMode)}
-                className="w-full border border-input rounded px-2 py-1 bg-background text-foreground text-xs"
-              >
-                <option value="ALL FIELDS">ALL FIELDS</option>
-                <option value="All Project Users">All Project Users</option>
-                <option value="Personal View (future)">Personal View (future)</option>
-                <option value="PM View">PM View</option>
-              </select>
-            </div>
+            {/* View Notice */}
+            {viewNotice && (
+              <div className="mb-2 px-2 py-1 bg-accent/10 border border-accent/30 rounded text-xs text-accent font-medium">
+                {viewNotice}
+              </div>
+            )}
 
-            {/* Save View */}
-            <button className="text-xs text-muted-foreground hover:text-foreground mb-4 block">
-              Save View
-            </button>
+            {/* Load View Dropdown — owners only */}
+            {isOwner ? (
+              <div className="mb-2">
+                <label className="text-xs text-muted-foreground block mb-1">Load View:</label>
+                <select
+                  value={selectedView}
+                  onChange={(e) => handleViewChange(e.target.value as ViewMode)}
+                  className="w-full border border-input rounded px-2 py-1 bg-background text-foreground text-xs"
+                >
+                  <option value="ALL FIELDS">ALL FIELDS</option>
+                  <option value="All Project Users">All Project Users</option>
+                  <option value="Personal View">Personal View</option>
+                  <option value="PM View">PM View</option>
+                </select>
+              </div>
+            ) : (
+              <div className="mb-2 p-2 bg-muted/30 rounded border border-border">
+                <div className="text-xs text-muted-foreground mb-0.5">Current View:</div>
+                <div className="text-sm font-semibold text-accent">{selectedView}</div>
+              </div>
+            )}
+
+            {/* Save View — owners can save any view, non-owners only Personal View */}
+            {(isOwner || selectedView === 'Personal View') && selectedView !== 'ALL FIELDS' && (
+              <button
+                onClick={handleSaveView}
+                disabled={!hasUnsavedChanges}
+                className={`text-xs mb-4 block px-3 py-1 rounded ${
+                  hasUnsavedChanges
+                    ? 'bg-accent text-accent-foreground hover:opacity-90 font-semibold'
+                    : 'text-muted-foreground cursor-not-allowed'
+                }`}
+              >
+                {hasUnsavedChanges ? 'Save View *' : 'Save View'}
+              </button>
+            )}
 
             {/* Add Category / Add Custom Field / Upload Excel — hidden for View-only */}
             {canEdit && (
@@ -515,12 +628,13 @@ export default function UnitDataPage({ selectedProjectId, userPermission }: Unit
                   <div key={cat.id} className={`border-l-2 border-dotted ${color} pl-3`}>
                     {/* Category checkbox + delete */}
                     <div className="flex items-center gap-2 mb-1">
-                      <label className="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
+                      <label className={`flex items-center gap-2 flex-1 min-w-0 ${canToggleFields ? 'cursor-pointer' : 'cursor-default'}`}>
                         <input
                           type="checkbox"
                           checked={allVisible}
                           ref={(el) => { if (el) el.indeterminate = someVisible && !allVisible; }}
                           onChange={() => toggleCategory(cat.id)}
+                          disabled={!canToggleFields}
                           className="rounded border-input flex-shrink-0"
                         />
                         <span className="text-xs font-semibold text-accent truncate">{cat.name}</span>
@@ -539,11 +653,12 @@ export default function UnitDataPage({ selectedProjectId, userPermission }: Unit
                     {/* Field checkboxes */}
                     <div className="ml-4 space-y-0.5">
                       {cat.fields.map((field) => (
-                        <label key={field.id} className="flex items-center gap-2 cursor-pointer">
+                        <label key={field.id} className={`flex items-center gap-2 ${canToggleFields ? 'cursor-pointer' : 'cursor-default'}`}>
                           <input
                             type="checkbox"
                             checked={field.visible}
                             onChange={() => toggleField(field.id)}
+                            disabled={!canToggleFields}
                             className="rounded border-input"
                           />
                           <span className={`text-xs ${field.visible ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>

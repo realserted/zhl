@@ -23,6 +23,7 @@ import {
   addTaskerLog,
 } from '../../lib/db/taskers';
 import { logUserAction } from '../../lib/db/user-logs';
+import { createNotification } from '../../lib/db/notifications';
 import { ProjectPermission } from '../../lib/types/project';
 
 const STATUS_OPTIONS = ['Open', 'In Progress', 'Complete', 'Archived'] as const;
@@ -223,6 +224,27 @@ export default function TaskersPage({ selectedProjectId, userPermission }: Taske
         newTasker.got_the_ball_name,
       ].filter(Boolean) as string[];
       await Promise.all(assignedNames.map((name) => ensureUserHasProjectAccess(name)));
+
+      // Notify assigned users (fire-and-forget)
+      const roleLabel = { responsible: 'Responsible', cc: 'CC', got_the_ball: 'Got the Ball' } as const;
+      const assignees: { userId: string | null; role: keyof typeof roleLabel }[] = [
+        { userId: responsibleUser?.user_id ?? null, role: 'responsible' },
+        { userId: ccUser?.user_id ?? null, role: 'cc' },
+        { userId: gotTheBallUser?.user_id ?? null, role: 'got_the_ball' },
+      ];
+      for (const a of assignees) {
+        if (a.userId && a.userId !== user.id) {
+          createNotification({
+            userId: a.userId,
+            type: 'tasker_assignment',
+            title: 'New Tasker Assignment',
+            message: `You were assigned as ${roleLabel[a.role]} on "${tasker.task_name}" by ${displayName}`,
+            relatedId: tasker.id,
+            relatedType: 'tasker',
+          }).catch(() => {});
+        }
+      }
+
       await addTaskerLog({
         tasker_id: tasker.id,
         user_id: user.id,
@@ -266,6 +288,19 @@ export default function TaskersPage({ selectedProjectId, userPermission }: Taske
     setTaskers((prev) => prev.map((t) => (t.id === tasker.id ? { ...t, ...updates } : t)));
     if (selectedName) {
       await ensureUserHasProjectAccess(selectedName);
+    }
+
+    // Notify newly assigned user
+    if (selectedUser?.user_id && selectedUser.user_id !== user?.id) {
+      const roleLabel = { responsible: 'Responsible', cc: 'CC', got_the_ball: 'Got the Ball' } as const;
+      createNotification({
+        userId: selectedUser.user_id,
+        type: 'tasker_assignment',
+        title: 'Tasker Assignment Updated',
+        message: `You were assigned as ${roleLabel[role]} on "${tasker.task_name}" by ${displayName}`,
+        relatedId: tasker.id,
+        relatedType: 'tasker',
+      }).catch(() => {});
     }
   };
 

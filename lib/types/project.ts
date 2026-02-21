@@ -24,6 +24,7 @@ export interface ProjectPermission {
   perm_user_logs: string;
   project_role: string;
   work_role: string;
+  unit_data_view?: string;
   created_at: string;
   updated_at: string;
 }

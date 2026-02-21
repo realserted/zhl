@@ -89,6 +89,20 @@ export async function updatePermission(
   return true;
 }
 
+// Delete a project (CASCADE will remove permissions, unit data, files, etc.)
+export async function deleteProject(projectId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('projects')
+    .delete()
+    .eq('id', projectId);
+
+  if (error) {
+    console.error('Error deleting project:', error);
+    return false;
+  }
+  return true;
+}
+
 // Delete a user from a project
 export async function removeProjectUser(permissionId: string): Promise<boolean> {
   const { error } = await supabase

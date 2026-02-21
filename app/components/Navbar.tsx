@@ -6,9 +6,11 @@ import NavTabs from './NavTabs';
 import NavActions from './NavActions';
 import NavUserProfile from './NavUserProfile';
 import { ThemeToggle } from './ThemeToggle';
-import { ArrowLeft, ChevronDown } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Bell, Loader2 } from 'lucide-react';
 import { Project } from '../../lib/types/project';
 import { ProjectPermission } from '../../lib/types/project';
+import { Notification } from '../../lib/types/notification';
+import { getNotifications, getUnreadCount, markAsRead, markAllAsRead } from '../../lib/db/notifications';
 import { useAuth } from '../../lib/auth-context';
 import { supabase } from '../../lib/supabase';
 
@@ -26,6 +28,13 @@ export default function Navbar({ projects, selectedProject, onProjectChange, onT
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const projectDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Notifications
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
+  const notifDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -51,6 +60,57 @@ export default function Navbar({ projects, selectedProject, onProjectChange, onT
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [openDropdown]);
+
+  // Poll unread count every 30s
+  useEffect(() => {
+    if (!user) return;
+    const fetch = () => getUnreadCount(user.id).then(setUnreadCount);
+    fetch();
+    const interval = setInterval(fetch, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  // Load full list when dropdown opens
+  useEffect(() => {
+    if (!user || !showNotifications) return;
+    setLoadingNotifications(true);
+    getNotifications(user.id).then((data) => {
+      setNotifications(data);
+      setLoadingNotifications(false);
+    });
+  }, [user, showNotifications]);
+
+  // Close notification dropdown on outside click
+  useEffect(() => {
+    if (!showNotifications) return;
+    const handler = (e: MouseEvent) => {
+      if (notifDropdownRef.current && !notifDropdownRef.current.contains(e.target as Node)) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showNotifications]);
+
+  const handleNotifClick = async (n: Notification) => {
+    if (!n.is_read) {
+      const ok = await markAsRead(n.id);
+      if (ok) {
+        setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)));
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+      }
+    }
+    setShowNotifications(false);
+  };
+
+  const handleMarkAllRead = async () => {
+    if (!user) return;
+    const ok = await markAllAsRead(user.id);
+    if (ok) {
+      setNotifications((prev) => prev.map((x) => ({ ...x, is_read: true })));
+      setUnreadCount(0);
+    }
+  };
 
   // Tab definitions with their corresponding permission key
   const allTabs = [
@@ -160,8 +220,75 @@ export default function Navbar({ projects, selectedProject, onProjectChange, onT
           </div>
         </div>
 
-        {/* Right Section: Theme Toggle and User Profile */}
+        {/* Right Section: Notifications, Theme Toggle and User Profile */}
         <div className="flex items-center gap-2 sm:gap-4 ml-auto sm:ml-0 sm:border-l sm:border-border sm:pl-6">
+          {/* Notification Bell */}
+          <div className="relative" ref={notifDropdownRef}>
+            <button
+              onClick={() => setShowNotifications(!showNotifications)}
+              className="relative p-2 hover:bg-muted rounded-lg transition-colors"
+              title="Notifications"
+            >
+              <Bell className="h-5 w-5 text-foreground" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+
+            {showNotifications && (
+              <div className="absolute top-full right-0 mt-2 w-80 max-h-96 bg-background border border-input rounded-lg shadow-lg z-50 overflow-hidden flex flex-col">
+                {/* Header */}
+                <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted">
+                  <h3 className="font-semibold text-sm">Notifications</h3>
+                  {unreadCount > 0 && (
+                    <button onClick={handleMarkAllRead} className="text-xs text-accent hover:underline">
+                      Mark all as read
+                    </button>
+                  )}
+                </div>
+
+                {/* List */}
+                <div className="overflow-y-auto flex-1">
+                  {loadingNotifications ? (
+                    <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />
+                      Loading...
+                    </div>
+                  ) : notifications.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      No notifications yet
+                    </div>
+                  ) : (
+                    notifications.map((n) => (
+                      <button
+                        key={n.id}
+                        onClick={() => handleNotifClick(n)}
+                        className={`w-full text-left px-4 py-3 border-b border-border hover:bg-muted transition-colors ${
+                          !n.is_read ? 'bg-blue-50 dark:bg-blue-950/20' : ''
+                        }`}
+                      >
+                        <div className="flex items-start gap-2">
+                          {!n.is_read && (
+                            <div className="w-2 h-2 bg-blue-500 rounded-full mt-1.5 flex-shrink-0" />
+                          )}
+                          <div className={`flex-1 min-w-0 ${n.is_read ? 'ml-4' : ''}`}>
+                            <p className="font-semibold text-xs text-foreground">{n.title}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.message}</p>
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              {new Date(n.created_at).toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           <ThemeToggle />
           <NavUserProfile />
         </div>

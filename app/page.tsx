@@ -93,6 +93,13 @@ export default function Home() {
     setSelectedProject(project);
   };
 
+  // Callback for when a project is deleted (from Settings)
+  const handleProjectDeleted = (projectId: string) => {
+    const remaining = projects.filter((p) => p.id !== projectId);
+    setProjects(remaining);
+    setSelectedProject(remaining.length > 0 ? remaining[0] : null);
+  };
+
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background">
@@ -124,6 +131,7 @@ export default function Home() {
         <SettingsPage
           selectedProjectId={selectedProject?.id ?? null}
           onProjectCreated={handleProjectCreated}
+          onProjectDeleted={handleProjectDeleted}
           userPermission={userPermission}
         />
       ) : activeTab === 'admin' ? (
@@ -133,7 +141,7 @@ export default function Home() {
       ) : activeTab === 'logs' ? (
         <UserLogsPage />
       ) : activeTab === 'unitdata' ? (
-        <UnitDataPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
+        <UnitDataPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} isAdmin={isAdmin} />
       ) : activeTab === 'files' ? (
         <FilesPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
       ) : activeTab === 'accounts' ? (

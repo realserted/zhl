@@ -89,6 +89,17 @@ export async function updateFieldVisibility(fieldId: string, visible: boolean): 
   return true;
 }
 
+/** Build a { fieldId: boolean } map from current categories state. */
+export function getCurrentFieldVisibility(categories: CategoryWithFields[]): Record<string, boolean> {
+  const vis: Record<string, boolean> = {};
+  for (const cat of categories) {
+    for (const f of cat.fields) {
+      vis[f.id] = f.visible;
+    }
+  }
+  return vis;
+}
+
 // ── Rows ──
 
 export async function getRows(projectId: string): Promise<UnitDataRow[]> {

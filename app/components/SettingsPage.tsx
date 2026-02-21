@@ -7,6 +7,7 @@ import { supabase } from '../../lib/supabase';
 import { Project, ProjectPermission } from '../../lib/types/project';
 import {
   createProject as createProjectDb,
+  deleteProject as deleteProjectDb,
   getProjectPermissions,
   addProjectUser,
   updatePermission,
@@ -19,10 +20,11 @@ type EditingField = 'displayName' | 'phone' | 'email' | 'password' | null;
 interface SettingsPageProps {
   selectedProjectId: string | null;
   onProjectCreated?: (project: Project) => void;
+  onProjectDeleted?: (projectId: string) => void;
   userPermission?: ProjectPermission | null; // null = owner (full access)
 }
 
-export default function SettingsPage({ selectedProjectId, onProjectCreated, userPermission }: SettingsPageProps) {
+export default function SettingsPage({ selectedProjectId, onProjectCreated, onProjectDeleted, userPermission }: SettingsPageProps) {
   const { user } = useAuth();
 
   // Account fields loaded from DB
@@ -168,6 +170,7 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated, user
     perm_user_logs: "View / Don't view",
     project_role: 'Project Manager (can change all permissions on a project)',
     work_role: 'Administrative',
+    unit_data_view: 'All Project Users',
   });
 
   // Load permissions when selected project changes
@@ -199,6 +202,22 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated, user
     setCreatingProject(false);
   };
 
+  const [deletingProject, setDeletingProject] = useState(false);
+
+  const handleDeleteProject = async () => {
+    if (!selectedProjectId || !user) return;
+    const confirmed = window.confirm(
+      'Are you sure you want to delete this project? This will permanently remove all project data including permissions, unit data, files, and financials. This cannot be undone.'
+    );
+    if (!confirmed) return;
+    setDeletingProject(true);
+    const ok = await deleteProjectDb(selectedProjectId);
+    if (ok) {
+      onProjectDeleted?.(selectedProjectId);
+    }
+    setDeletingProject(false);
+  };
+
   const handleAddUser = async () => {
     if (!selectedProjectId || !newUserName.trim() || !newUserEmail.trim()) return;
     setAddingUser(true);
@@ -228,6 +247,7 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated, user
         perm_user_logs: "View / Don't view",
         project_role: 'Project Manager (can change all permissions on a project)',
         work_role: 'Administrative',
+        unit_data_view: 'All Project Users',
       });
       setShowAddUser(false);
     }
@@ -415,12 +435,23 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated, user
             {!selectedProjectId && (
               <span className="text-sm text-muted-foreground">— Select a project from the navbar</span>
             )}
-            <button
-              onClick={() => setShowCreateProject(true)}
-              className="w-full sm:w-auto sm:ml-auto border-2 border-foreground px-4 sm:px-6 py-2 rounded font-semibold hover:bg-muted transition-colors text-sm sm:text-base"
-            >
-              CREATE NEW PROJECT
-            </button>
+            <div className="w-full sm:w-auto sm:ml-auto flex items-center gap-2">
+              <button
+                onClick={() => setShowCreateProject(true)}
+                className="border-2 border-foreground px-4 sm:px-6 py-2 rounded font-semibold hover:bg-muted transition-colors text-sm sm:text-base"
+              >
+                CREATE NEW PROJECT
+              </button>
+              {selectedProjectId && isProjectOwner && (
+                <button
+                  onClick={handleDeleteProject}
+                  disabled={deletingProject}
+                  className="border-2 border-destructive text-destructive px-4 sm:px-6 py-2 rounded font-semibold hover:bg-destructive hover:text-destructive-foreground transition-colors text-sm sm:text-base disabled:opacity-50"
+                >
+                  {deletingProject ? 'Deleting...' : 'DELETE PROJECT'}
+                </button>
+              )}
+            </div>
           </h2>
 
           {/* Create Project Modal */}
@@ -474,6 +505,7 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated, user
                     {permColumns.map((col) => (
                       <th key={col.key} className="px-4 py-3 text-left font-semibold">{col.label}</th>
                     ))}
+                    <th className="px-4 py-3 text-left font-semibold">Unit Data View</th>
                     <th className="px-4 py-3 text-left font-semibold">Project Permissions</th>
                     <th className="px-4 py-3 text-left font-semibold">Work Roles</th>
                     <th className="px-4 py-3 text-left font-semibold"></th>
@@ -498,6 +530,18 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated, user
                           </select>
                         </td>
                       ))}
+                      <td className="px-4 py-3">
+                        <select
+                          disabled={!canManagePerms}
+                          className={`${selectClass} ${!canManagePerms ? 'opacity-75 cursor-default' : ''}`}
+                          value={perm.unit_data_view || 'All Project Users'}
+                          onChange={(e) => handlePermChange(perm.id, 'unit_data_view', e.target.value)}
+                        >
+                          <option value="All Project Users">All Project Users</option>
+                          <option value="PM View">PM View</option>
+                          <option value="Personal View">Personal View</option>
+                        </select>
+                      </td>
                       <td className="px-4 py-3">
                         <select
                           disabled={!canManagePerms}
@@ -577,6 +621,21 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated, user
                       {workRoleOptions.map((o) => <option key={o} value={o}>{o}</option>)}
                     </select>
                   </div>
+                </div>
+
+                {/* Unit Data View assignment */}
+                <div className="mb-5">
+                  <label className="block text-xs font-semibold mb-1">Unit Data View</label>
+                  <select
+                    value={newUserPerms.unit_data_view}
+                    onChange={(e) => setNewUserPerms((p) => ({ ...p, unit_data_view: e.target.value }))}
+                    className={inputClass}
+                  >
+                    <option value="All Project Users">All Project Users</option>
+                    <option value="PM View">PM View</option>
+                    <option value="Personal View">Personal View</option>
+                  </select>
+                  <p className="text-xs text-muted-foreground mt-1">Controls which field visibility config the user sees on Unit Data</p>
                 </div>
 
                 {/* Permissions per module */}
