@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Folder, Plus, Loader2, Download, DatabaseBackup, ShieldCheck, FileText, Upload, Trash2, Pencil, AlertTriangle } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, FolderUp, Plus, Loader2, Download, DatabaseBackup, ShieldCheck, FileText, Upload, Trash2, Pencil, AlertTriangle } from 'lucide-react';
 import { ProjectPermission } from '../../lib/types/project';
 import { useAuth } from '../../lib/auth-context';
 import {
@@ -111,8 +111,10 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
 
   const [uploading, setUploading] = useState(false);
   const [uploadTargetFolderId, setUploadTargetFolderId] = useState<string | null>(null);
+  const [uploadFolderTargetId, setUploadFolderTargetId] = useState<string | null>(null); // parent folder for subfolder uploads
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const subfolderInputRef = useRef<HTMLInputElement>(null);
 
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
   const [renamingFileId, setRenamingFileId] = useState<string | null>(null);
@@ -315,42 +317,79 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
     setSavingPermission(null);
   };
 
-  /** Upload a folder: creates a folder row, then uploads all files inside it */
-  const handleUploadFolder = async (fileList: File[]) => {
+  /** Upload a folder: preserves subfolder structure, creates nested folders, uploads files into correct locations.
+   *  If parentFolderId is provided, the uploaded folder becomes a child of that folder. */
+  const handleUploadFolder = async (fileList: File[], parentFolderId?: string | null) => {
     if (!selectedProjectId || !user || !canEdit || fileList.length === 0) return;
 
     setUploading(true);
 
-    // Extract folder name from the first file's webkitRelativePath (e.g. "MyFolder/file.txt")
-    const firstPath = (fileList[0] as File & { webkitRelativePath?: string }).webkitRelativePath ?? '';
-    const folderName = firstPath.split('/')[0] || `Folder ${new Date().toLocaleTimeString()}`;
+    // Map of "folderPath" -> folder DB id (e.g. "MyFolder" -> uuid, "MyFolder/Sub" -> uuid)
+    const folderMap = new Map<string, string>();
+    const newFolders: ProjectFileFolder[] = [];
 
-    // Create the folder
-    const siblings = folders.filter((f) => f.parent_folder_id === null);
-    const created = await createFileFolder(selectedProjectId, folderName, null, siblings.length, user.id);
+    // Helper: ensure a folder path exists, creating parent folders as needed
+    const ensureFolder = async (pathParts: string[], depth: number = 0): Promise<string> => {
+      const key = pathParts.slice(0, depth + 1).join('/');
+      if (folderMap.has(key)) return folderMap.get(key)!;
 
-    if (!created) {
-      setUploading(false);
-      return;
-    }
+      const folderName = pathParts[depth];
+      const parentKey = depth > 0 ? pathParts.slice(0, depth).join('/') : null;
 
-    setFolders((prev) => [...prev, created]);
-    setCollapsedFolders((prev) => { const next = new Set(prev); next.add(created.id); return next; });
+      // If parent doesn't exist yet, create it first
+      if (depth > 0 && parentKey && !folderMap.has(parentKey)) {
+        await ensureFolder(pathParts, depth - 1);
+      }
 
-    // Upload all files into the new folder
+      // For root-level folders in the upload, use the provided parentFolderId
+      const resolvedParentId = depth === 0
+        ? (parentFolderId ?? null)
+        : (parentKey ? folderMap.get(parentKey) ?? null : null);
+
+      // Count existing siblings for sort_order
+      const siblingCount = newFolders.filter((f) => f.parent_folder_id === resolvedParentId).length
+        + folders.filter((f) => f.parent_folder_id === resolvedParentId).length;
+
+      const created = await createFileFolder(selectedProjectId, folderName, resolvedParentId, siblingCount, user.id);
+      if (created) {
+        folderMap.set(key, created.id);
+        newFolders.push(created);
+      }
+      return folderMap.get(key) ?? '';
+    };
+
+    // Process all files: create folders from their paths, then upload
     const uploaded: ProjectFileItem[] = [];
-    for (let i = 0; i < fileList.length; i++) {
-      const f = fileList[i];
-      const result = await uploadFile(selectedProjectId, created.id, f, user.id);
+
+    for (const f of fileList) {
+      const relativePath = (f as File & { webkitRelativePath?: string }).webkitRelativePath ?? f.name;
+      const parts = relativePath.split('/');
+      // parts = ["RootFolder", "SubFolder", "file.txt"] — last part is the file name
+      const folderParts = parts.slice(0, -1); // all except file name
+
+      // Ensure all folders in the path exist
+      let targetFolderId: string | null = null;
+      if (folderParts.length > 0) {
+        for (let depth = 0; depth < folderParts.length; depth++) {
+          await ensureFolder(folderParts, depth);
+        }
+        targetFolderId = folderMap.get(folderParts.join('/')) ?? null;
+      }
+
+      const result = await uploadFile(selectedProjectId, targetFolderId, f, user.id);
       if (result) uploaded.push(result);
     }
 
+    if (newFolders.length > 0) {
+      setFolders((prev) => [...prev, ...newFolders]);
+    }
     if (uploaded.length > 0) {
       setFiles((prev) => [...uploaded, ...prev]);
     }
 
-    log(`Uploaded folder "${folderName}" with ${uploaded.length} file(s)`);
-    setNotice(`Folder "${folderName}" uploaded with ${uploaded.length} file(s).`);
+    const rootName = newFolders[0]?.name ?? 'folder';
+    log(`Uploaded folder "${rootName}" with ${newFolders.length} folder(s) and ${uploaded.length} file(s)`);
+    setNotice(`Folder "${rootName}" uploaded with ${uploaded.length} file(s) across ${newFolders.length} folder(s).`);
     setUploading(false);
   };
 
@@ -558,7 +597,7 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
           }
         }}
       />
-      {/* Folder upload input — webkitdirectory lets user select a folder */}
+      {/* Folder upload input — webkitdirectory lets user select a folder (root level) */}
       <input
         ref={(el) => {
           folderInputRef.current = el;
@@ -575,6 +614,27 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
             const filesArray = Array.from(e.target.files);
             handleUploadFolder(filesArray);
             e.target.value = '';
+          }
+        }}
+      />
+      {/* Subfolder upload input — uploads a folder into an existing folder */}
+      <input
+        ref={(el) => {
+          subfolderInputRef.current = el;
+          if (el) {
+            el.setAttribute('webkitdirectory', '');
+            el.setAttribute('directory', '');
+          }
+        }}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            const filesArray = Array.from(e.target.files);
+            handleUploadFolder(filesArray, uploadFolderTargetId);
+            e.target.value = '';
+            setUploadFolderTargetId(null);
           }
         }}
       />
@@ -792,6 +852,15 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                               title="Upload files to this folder"
                             >
                               <Upload className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          {canEdit && (
+                            <button
+                              onClick={() => { setUploadFolderTargetId(folder.id); subfolderInputRef.current?.click(); }}
+                              className="text-muted-foreground hover:text-foreground"
+                              title="Upload folder into this folder"
+                            >
+                              <FolderUp className="h-3.5 w-3.5" />
                             </button>
                           )}
                           {canEdit && !isRenaming && (
