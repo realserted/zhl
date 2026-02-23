@@ -167,15 +167,16 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
   const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
   const isViewOnly = permLevel === 'View' && !!userPermission;
 
-  // Check if the current user is assigned to a task
+  // Check if the current user is assigned to a task (responsible, cc, got the ball, or help)
   const isAssignedTo = (t: Tasker) =>
     t.responsible === user?.id ||
     t.cc === user?.id ||
     t.got_the_ball === user?.id ||
-    t.created_by === user?.id ||
+    t.help_request_user === user?.id ||
     t.responsible_name === displayName ||
     t.cc_name === displayName ||
-    t.got_the_ball_name === displayName;
+    t.got_the_ball_name === displayName ||
+    t.help_request_user_name === displayName;
 
   // Filter taskers — View-only users only see tasks assigned to them
   const filteredTaskers = taskers.filter((t) => {

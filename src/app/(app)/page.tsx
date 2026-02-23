@@ -126,7 +126,7 @@ export default function Home() {
       />
 
       {activeTab === 'overview' ? (
-        <OverviewScreen />
+        <OverviewScreen selectedProjectId={selectedProject?.id ?? null} />
       ) : activeTab === 'settings' ? (
         <SettingsPage
           selectedProjectId={selectedProject?.id ?? null}
