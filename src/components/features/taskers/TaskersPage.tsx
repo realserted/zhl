@@ -3,6 +3,9 @@
 import {
   Plus,
   Calendar,
+  List,
+  ChevronLeft,
+  ChevronRight,
   MessageCircle,
   HelpCircle,
   X,
@@ -44,6 +47,11 @@ interface TaskersPageProps {
 export default function TaskersPage({ selectedProjectId, selectedProjectName, userPermission }: TaskersPageProps) {
   const { user } = useAuth();
   const [viewFilter, setViewFilter] = useState('all');
+  const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
+  const [calendarDate, setCalendarDate] = useState(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
   const [taskers, setTaskers] = useState<Tasker[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -564,12 +572,25 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
             </button>
           )}
 
-          {/* Calendar View Link */}
-          <button className="sm:ml-auto inline-flex items-center gap-2 text-xs sm:text-sm font-semibold text-accent hover:text-accent/80 transition-colors">
-            <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
-            <span className="hidden sm:inline">(calendar view)</span>
-            <span className="sm:hidden">Calendar</span>
-          </button>
+          {/* View Mode Toggle */}
+          <div className="sm:ml-auto flex items-center border border-input rounded-lg overflow-hidden">
+            <button
+              onClick={() => setViewMode('table')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors ${viewMode === 'table' ? 'bg-accent text-accent-foreground' : 'hover:bg-muted text-muted-foreground'}`}
+              title="Table view"
+            >
+              <List className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Table</span>
+            </button>
+            <button
+              onClick={() => setViewMode('calendar')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors ${viewMode === 'calendar' ? 'bg-accent text-accent-foreground' : 'hover:bg-muted text-muted-foreground'}`}
+              title="Calendar view"
+            >
+              <Calendar className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Calendar</span>
+            </button>
+          </div>
         </div>
 
         {/* Loading */}
@@ -579,6 +600,118 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
           </div>
         ) : !selectedProjectId ? (
           <p className="text-sm text-muted-foreground py-8">No project selected. Create a project in Settings first.</p>
+        ) : viewMode === 'calendar' ? (
+          /* ===== CALENDAR VIEW ===== */
+          (() => {
+            const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+            const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+            const { year, month } = calendarDate;
+            const today = new Date();
+            const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+
+            // Build calendar grid: leading prev-month days + current month + trailing next-month days
+            const firstDayOfWeek = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const daysInPrevMonth = new Date(year, month, 0).getDate();
+            const cells: { dateStr: string; day: number; inMonth: boolean }[] = [];
+            for (let i = firstDayOfWeek - 1; i >= 0; i--) {
+              const d = daysInPrevMonth - i;
+              const m = month === 0 ? 12 : month;
+              const y = month === 0 ? year - 1 : year;
+              cells.push({ dateStr: `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`, day: d, inMonth: false });
+            }
+            for (let d = 1; d <= daysInMonth; d++) {
+              cells.push({ dateStr: `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`, day: d, inMonth: true });
+            }
+            const remaining = 42 - cells.length;
+            for (let d = 1; d <= remaining; d++) {
+              const m = month === 11 ? 1 : month + 2;
+              const y = month === 11 ? year + 1 : year;
+              cells.push({ dateStr: `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`, day: d, inMonth: false });
+            }
+
+            const taskersForDate = (dateStr: string) => filteredTaskers.filter(t => t.due_date === dateStr);
+
+            return (
+              <div className="border border-input rounded-lg overflow-hidden">
+                {/* Calendar header */}
+                <div className="flex items-center justify-between px-4 py-3 bg-muted border-b border-input">
+                  <button
+                    onClick={() => setCalendarDate(d => d.month === 0 ? { year: d.year - 1, month: 11 } : { year: d.year, month: d.month - 1 })}
+                    className="p-1.5 rounded hover:bg-background transition-colors"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <div className="flex items-center gap-3">
+                    <span className="font-bold text-sm">{MONTH_NAMES[month]} {year}</span>
+                    <button
+                      onClick={() => { const n = new Date(); setCalendarDate({ year: n.getFullYear(), month: n.getMonth() }); }}
+                      className="text-xs px-2 py-0.5 border border-input rounded hover:bg-background transition-colors text-muted-foreground"
+                    >
+                      Today
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setCalendarDate(d => d.month === 11 ? { year: d.year + 1, month: 0 } : { year: d.year, month: d.month + 1 })}
+                    className="p-1.5 rounded hover:bg-background transition-colors"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {/* Day-of-week header */}
+                <div className="grid grid-cols-7 border-b border-input">
+                  {DAY_NAMES.map(d => (
+                    <div key={d} className="px-2 py-2 text-center text-xs font-semibold text-muted-foreground bg-muted/50 border-r border-input last:border-r-0">
+                      {d}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Calendar grid */}
+                <div className="grid grid-cols-7">
+                  {cells.map((cell, idx) => {
+                    const dayTaskers = taskersForDate(cell.dateStr);
+                    const isToday = cell.dateStr === todayStr;
+                    return (
+                      <div
+                        key={idx}
+                        className={`min-h-[100px] p-1.5 border-r border-b border-input last:border-r-0 ${!cell.inMonth ? 'bg-muted/30' : 'bg-background'}`}
+                      >
+                        {/* Day number */}
+                        <div className={`text-xs font-semibold mb-1 w-6 h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-accent text-accent-foreground' : cell.inMonth ? 'text-foreground' : 'text-muted-foreground/50'}`}>
+                          {cell.day}
+                        </div>
+                        {/* Tasker chips */}
+                        <div className="flex flex-col gap-0.5">
+                          {dayTaskers.map(t => (
+                            <button
+                              key={t.id}
+                              onClick={() => openLogModal(t)}
+                              title={`${t.task_name}${t.responsible_name ? ` — ${t.responsible_name}` : ''}`}
+                              className={`w-full text-left px-1.5 py-0.5 rounded text-[10px] font-medium truncate leading-tight ${STATUS_COLORS[t.status]} hover:opacity-80 transition-opacity`}
+                            >
+                              {t.priority > 0 && <span className="mr-0.5">{'★'.repeat(t.priority)}</span>}
+                              {t.task_name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Legend */}
+                <div className="flex flex-wrap items-center gap-3 px-4 py-2 border-t border-input bg-muted/30">
+                  {Object.entries(STATUS_COLORS).map(([status, cls]) => (
+                    <span key={status} className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded ${cls}`}>
+                      {status}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })()
         ) : (
           /* Taskers Table */
           <div className="overflow-x-auto border border-input rounded-lg">
