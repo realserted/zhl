@@ -130,14 +130,17 @@ export default function Home() {
       ) : activeTab === 'settings' ? (
         <SettingsPage
           selectedProjectId={selectedProject?.id ?? null}
+          selectedProjectName={selectedProject?.name ?? null}
+          selectedProjectStatus={selectedProject?.status ?? null}
           onProjectCreated={handleProjectCreated}
           onProjectDeleted={handleProjectDeleted}
+          onProjectStatusChange={handleProjectStatusChange}
           userPermission={userPermission}
         />
       ) : activeTab === 'admin' ? (
         <AdminPanelPage onProjectStatusChange={handleProjectStatusChange} />
       ) : activeTab === 'taskers' ? (
-        <TaskersPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
+        <TaskersPage selectedProjectId={selectedProject?.id ?? null} selectedProjectName={selectedProject?.name ?? null} userPermission={userPermission} />
       ) : activeTab === 'logs' ? (
         <UserLogsPage />
       ) : activeTab === 'unitdata' ? (

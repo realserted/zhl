@@ -10,7 +10,7 @@ import { ArrowLeft, ChevronDown, Bell, Loader2 } from 'lucide-react';
 import { Project } from '@/lib/types/project';
 import { ProjectPermission } from '@/lib/types/project';
 import { Notification } from '@/lib/types/notification';
-import { getNotifications, getUnreadCount, markAsRead, markAllAsRead } from '@/lib/db/notifications';
+import { getNotifications, getUnreadCount, markAsRead, markAllAsRead, deleteAllNotifications } from '@/lib/db/notifications';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase/client';
 
@@ -108,6 +108,15 @@ export default function Navbar({ projects, selectedProject, onProjectChange, onT
     const ok = await markAllAsRead(user.id);
     if (ok) {
       setNotifications((prev) => prev.map((x) => ({ ...x, is_read: true })));
+      setUnreadCount(0);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (!user) return;
+    const ok = await deleteAllNotifications(user.id);
+    if (ok) {
+      setNotifications([]);
       setUnreadCount(0);
     }
   };
@@ -242,11 +251,18 @@ export default function Navbar({ projects, selectedProject, onProjectChange, onT
                 {/* Header */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted">
                   <h3 className="font-semibold text-sm">Notifications</h3>
-                  {unreadCount > 0 && (
-                    <button onClick={handleMarkAllRead} className="text-xs text-accent hover:underline">
-                      Mark all as read
-                    </button>
-                  )}
+                  <div className="flex items-center gap-3">
+                    {unreadCount > 0 && (
+                      <button onClick={handleMarkAllRead} className="text-xs text-accent hover:underline">
+                        Mark all as read
+                      </button>
+                    )}
+                    {notifications.length > 0 && (
+                      <button onClick={handleClearAll} className="text-xs text-muted-foreground hover:text-destructive transition-colors">
+                        Clear all
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* List */}

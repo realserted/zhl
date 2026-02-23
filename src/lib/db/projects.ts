@@ -89,6 +89,20 @@ export async function updatePermission(
   return true;
 }
 
+// Update a project's status
+export async function updateProjectStatus(projectId: string, status: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('projects')
+    .update({ status })
+    .eq('id', projectId);
+
+  if (error) {
+    console.error('Error updating project status:', error);
+    return false;
+  }
+  return true;
+}
+
 // Delete a project (CASCADE will remove permissions, unit data, files, etc.)
 export async function deleteProject(projectId: string): Promise<boolean> {
   const { error } = await supabase

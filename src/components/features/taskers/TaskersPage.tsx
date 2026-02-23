@@ -37,10 +37,11 @@ const STATUS_COLORS: Record<string, string> = {
 
 interface TaskersPageProps {
   selectedProjectId: string | null;
+  selectedProjectName?: string | null;
   userPermission?: ProjectPermission | null; // null = owner (full access)
 }
 
-export default function TaskersPage({ selectedProjectId, userPermission }: TaskersPageProps) {
+export default function TaskersPage({ selectedProjectId, selectedProjectName, userPermission }: TaskersPageProps) {
   const { user } = useAuth();
   const [viewFilter, setViewFilter] = useState('all');
   const [taskers, setTaskers] = useState<Tasker[]>([]);
@@ -238,7 +239,7 @@ export default function TaskersPage({ selectedProjectId, userPermission }: Taske
             userId: a.userId,
             type: 'tasker_assignment',
             title: 'New Tasker Assignment',
-            message: `You were assigned as ${roleLabel[a.role]} on "${tasker.task_name}" by ${displayName}`,
+            message: `You were assigned as ${roleLabel[a.role]} on "${tasker.task_name}"${selectedProjectName ? ` in project "${selectedProjectName}"` : ''} by ${displayName}`,
             relatedId: tasker.id,
             relatedType: 'tasker',
           }).catch(() => {});
@@ -315,7 +316,7 @@ export default function TaskersPage({ selectedProjectId, userPermission }: Taske
         userId: selectedUser.user_id,
         type: 'tasker_assignment',
         title: 'Tasker Assignment Updated',
-        message: `You were assigned as ${roleLabel[role]} on "${tasker.task_name}" by ${displayName}`,
+        message: `You were assigned as ${roleLabel[role]} on "${tasker.task_name}"${selectedProjectName ? ` in project "${selectedProjectName}"` : ''} by ${displayName}`,
         relatedId: tasker.id,
         relatedType: 'tasker',
       }).catch(() => {});

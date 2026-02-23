@@ -8,23 +8,28 @@ import { Project, ProjectPermission } from '@/lib/types/project';
 import {
   createProject as createProjectDb,
   deleteProject as deleteProjectDb,
+  updateProjectStatus,
   getProjectPermissions,
   addProjectUser,
   updatePermission,
   removeProjectUser,
 } from '@/lib/db/projects';
 import { logUserAction } from '@/lib/db/user-logs';
+import { createNotification } from '@/lib/db/notifications';
 
 type EditingField = 'displayName' | 'phone' | 'email' | 'password' | null;
 
 interface SettingsPageProps {
   selectedProjectId: string | null;
+  selectedProjectName?: string | null;
+  selectedProjectStatus?: Project['status'] | null;
   onProjectCreated?: (project: Project) => void;
   onProjectDeleted?: (projectId: string) => void;
+  onProjectStatusChange?: (projectId: string, status: Project['status']) => void;
   userPermission?: ProjectPermission | null; // null = owner (full access)
 }
 
-export default function SettingsPage({ selectedProjectId, onProjectCreated, onProjectDeleted, userPermission }: SettingsPageProps) {
+export default function SettingsPage({ selectedProjectId, selectedProjectName, selectedProjectStatus, onProjectCreated, onProjectDeleted, onProjectStatusChange, userPermission }: SettingsPageProps) {
   const { user } = useAuth();
 
   // Account fields loaded from DB
@@ -204,6 +209,19 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated, onPr
 
   const [deletingProject, setDeletingProject] = useState(false);
 
+  const PROJECT_STATUSES: Project['status'][] = ['Critical', 'Problematic', 'Needs Attention', 'Good', 'Excellent'];
+  const [savingStatus, setSavingStatus] = useState(false);
+
+  const handleStatusChange = async (newStatus: Project['status']) => {
+    if (!selectedProjectId) return;
+    setSavingStatus(true);
+    const ok = await updateProjectStatus(selectedProjectId, newStatus);
+    if (ok) {
+      onProjectStatusChange?.(selectedProjectId, newStatus);
+    }
+    setSavingStatus(false);
+  };
+
   const handleDeleteProject = async () => {
     if (!selectedProjectId || !user) return;
     const confirmed = window.confirm(
@@ -233,6 +251,17 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated, onPr
       setPermissions((prev) => [...prev, fullPerm]);
       if (user) {
         logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayName, userEmail: email, action: `Added user "${newUserName.trim()}" to project` });
+      }
+      // Notify the added user if they have an account (user_id known)
+      if (perm.user_id && perm.user_id !== user?.id) {
+        createNotification({
+          userId: perm.user_id,
+          type: 'project_access',
+          title: 'Added to Project',
+          message: `You were added to the project "${selectedProjectName ?? 'Unknown Project'}" by ${displayName}`,
+          relatedId: selectedProjectId ?? undefined,
+          relatedType: 'project',
+        }).catch(() => {});
       }
       setNewUserName('');
       setNewUserEmail('');
@@ -481,6 +510,50 @@ export default function SettingsPage({ selectedProjectId, onProjectCreated, onPr
                   <X className="w-3 h-3" /> Cancel
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Project Status */}
+          {selectedProjectId && isProjectOwner && (
+            <div className="mb-6 bg-card border border-border rounded-xl p-5 max-w-lg">
+              <h3 className="text-sm font-semibold text-foreground mb-3">Project Status</h3>
+              <p className="text-xs text-muted-foreground mb-4">Set the overall health status of this project.</p>
+              <div className="flex flex-wrap gap-2">
+                {PROJECT_STATUSES.map((status) => {
+                  const isActive = (selectedProjectStatus ?? 'Good') === status;
+                  const colorMap: Record<string, string> = {
+                    Critical:       'border-red-500 bg-red-500/10 text-red-500',
+                    Problematic:    'border-orange-500 bg-orange-500/10 text-orange-500',
+                    'Needs Attention': 'border-yellow-500 bg-yellow-500/10 text-yellow-500',
+                    Good:           'border-green-500 bg-green-500/10 text-green-500',
+                    Excellent:      'border-blue-500 bg-blue-500/10 text-blue-500',
+                  };
+                  const idleMap: Record<string, string> = {
+                    Critical:       'border-input hover:border-red-500 hover:text-red-500',
+                    Problematic:    'border-input hover:border-orange-500 hover:text-orange-500',
+                    'Needs Attention': 'border-input hover:border-yellow-500 hover:text-yellow-500',
+                    Good:           'border-input hover:border-green-500 hover:text-green-500',
+                    Excellent:      'border-input hover:border-blue-500 hover:text-blue-500',
+                  };
+                  return (
+                    <button
+                      key={status}
+                      onClick={() => handleStatusChange(status)}
+                      disabled={savingStatus}
+                      className={`px-4 py-2 rounded-lg border-2 text-sm font-semibold transition-colors disabled:opacity-50 ${
+                        isActive ? colorMap[status] : `text-muted-foreground ${idleMap[status]}`
+                      }`}
+                    >
+                      {status}
+                    </button>
+                  );
+                })}
+              </div>
+              {savingStatus && (
+                <p className="mt-2 text-xs text-muted-foreground flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Saving…
+                </p>
+              )}
             </div>
           )}
 
