@@ -148,13 +148,7 @@ export default function Home() {
       ) : activeTab === 'files' ? (
         <FilesPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
       ) : activeTab === 'accounts' ? (
-        isAdmin ? (
-          <AccountsPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
-        ) : (
-          <main className="flex min-h-screen flex-col items-center justify-center bg-background text-foreground p-4 sm:p-8">
-            <p className="text-sm text-muted-foreground">Access denied. Accounts is restricted to admins only.</p>
-          </main>
-        )
+        <AccountsPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
       ) : activeTab === 'financial' ? (
         <FinancialPage selectedProjectId={selectedProject?.id ?? null} userPermission={userPermission} />
       ) : (

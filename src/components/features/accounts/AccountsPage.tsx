@@ -1,26 +1,28 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase/client';
 import { ProjectPermission } from '@/lib/types/project';
-import { logUserAction } from '@/lib/db/user-logs';
-import { Trash2, Lock, Hash, Eye, EyeOff, ShieldAlert, UserPlus, X, Loader2 } from 'lucide-react';
+import {
+  Trash2, Lock, Hash, Eye, EyeOff, ShieldAlert,
+  PlusCircle, Upload, Loader2, X,
+} from 'lucide-react';
+import * as XLSX from 'xlsx';
 
-interface AccountRow {
+interface ProjectAccount {
   id: string;
-  user_id: string;
-  display_name: string;
-  email: string;
-  phone: string | null;
+  project_id: string;
+  account_name: string | null;
   descriptor: string | null;
   company_name: string | null;
   person_name: string | null;
+  phone: string | null;
+  email: string | null;
+  link: string | null;
   username: string | null;
-  password_hash: string | null;
+  password: string | null;
   account_number: string | null;
   notes: string | null;
-  is_admin: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -30,149 +32,109 @@ interface AccountsPageProps {
   userPermission?: ProjectPermission | null;
 }
 
+const COLUMNS: {
+  field: keyof ProjectAccount;
+  label: string;
+  icon?: 'lock' | 'hash';
+  sensitive?: boolean;
+  minWidth?: number;
+}[] = [
+  { field: 'account_name',  label: 'Account',        minWidth: 130 },
+  { field: 'descriptor',    label: 'Descriptor',      minWidth: 120 },
+  { field: 'company_name',  label: 'Company Name',    minWidth: 130 },
+  { field: 'person_name',   label: 'Person Name',     minWidth: 120 },
+  { field: 'phone',         label: 'Phone',           minWidth: 110 },
+  { field: 'email',         label: 'Email',           minWidth: 160 },
+  { field: 'link',          label: 'Link / URL',      minWidth: 140 },
+  { field: 'username',      label: 'USERNAME',        icon: 'lock', sensitive: true, minWidth: 120 },
+  { field: 'password',      label: 'PASSWORD',        icon: 'lock', sensitive: true, minWidth: 120 },
+  { field: 'account_number',label: 'Account Number',  icon: 'hash', sensitive: true, minWidth: 130 },
+  { field: 'notes',         label: 'NOTES',           minWidth: 160 },
+];
+
+// Map common Excel header names → field keys
+const HEADER_MAP: Record<string, keyof ProjectAccount> = {
+  account: 'account_name', 'account name': 'account_name', name: 'account_name',
+  descriptor: 'descriptor',
+  company: 'company_name', 'company name': 'company_name',
+  person: 'person_name', 'person name': 'person_name', contact: 'person_name',
+  phone: 'phone', telephone: 'phone', mobile: 'phone',
+  email: 'email', 'e-mail': 'email',
+  link: 'link', url: 'link', website: 'link',
+  username: 'username', user: 'username', login: 'username',
+  password: 'password', pass: 'password', pwd: 'password',
+  'account number': 'account_number', 'account no': 'account_number', 'acct number': 'account_number', acct: 'account_number',
+  notes: 'notes', note: 'notes', comments: 'notes',
+};
+
 export default function AccountsPage({ selectedProjectId, userPermission }: AccountsPageProps) {
-  const { user } = useAuth();
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
-  const [accounts, setAccounts] = useState<AccountRow[]>([]);
-  const [showCreateUser, setShowCreateUser] = useState(false);
-  const [creatingUser, setCreatingUser] = useState(false);
-  const [createUserError, setCreateUserError] = useState<string | null>(null);
-  const [newUserForm, setNewUserForm] = useState({
-    displayName: '',
-    email: '',
-    phone: '',
-    password: '',
-    descriptor: '',
-    companyName: '',
-    personName: '',
-    username: '',
-    accountNumber: '',
-    notes: '',
-  });
+  const [accounts, setAccounts] = useState<ProjectAccount[]>([]);
+  const [loading, setLoading] = useState(false);
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
   const [visiblePasswords, setVisiblePasswords] = useState<Set<string>>(new Set());
-
-  const displayNameRef = useRef('Unknown');
-  const userEmailRef = useRef('');
+  const [addingRow, setAddingRow] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [importMessage, setImportMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const permLevel = userPermission?.perm_accounts ?? 'Admin';
   const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
 
   useEffect(() => {
-    if (!user) return;
-    userEmailRef.current = user.email || '';
-    supabase
-      .from('accounts')
-      .select('is_admin, display_name')
-      .eq('user_id', user.id)
-      .maybeSingle()
-      .then(({ data }) => {
-        setIsAdmin(data?.is_admin === true);
-        displayNameRef.current = data?.display_name || user.email || 'Unknown';
-      });
-  }, [user]);
-
-  // Load all accounts from the accounts table
-  useEffect(() => {
-    if (!selectedProjectId || isAdmin === null) return;
+    if (!selectedProjectId) { setAccounts([]); return; }
     loadAccounts();
-  }, [selectedProjectId, isAdmin]);
+  }, [selectedProjectId]);
 
   const loadAccounts = async () => {
+    if (!selectedProjectId) return;
+    setLoading(true);
     const { data, error } = await supabase
-      .from('accounts')
+      .from('project_accounts')
       .select('*')
+      .eq('project_id', selectedProjectId)
       .order('created_at', { ascending: true });
-    if (!error && data) {
-      setAccounts(data as AccountRow[]);
+    setLoading(false);
+    if (error) {
+      console.error('Error loading project accounts:', error);
+      setImportMessage({ text: `Failed to load accounts: ${error.message ?? error.code ?? 'RLS policy blocked the request'}`, ok: false });
+      return;
+    }
+    setAccounts((data ?? []) as ProjectAccount[]);
+  };
+
+  // Add a blank row
+  const handleAddRow = async () => {
+    if (!selectedProjectId) return;
+    setAddingRow(true);
+    setImportMessage(null);
+    const { data, error } = await supabase
+      .from('project_accounts')
+      .insert({ project_id: selectedProjectId })
+      .select()
+      .single();
+    setAddingRow(false);
+    if (error) {
+      console.error('Error adding row:', error);
+      setImportMessage({ text: `Failed to add row: ${error.message ?? error.code ?? 'RLS policy blocked the request'}`, ok: false });
+      return;
+    }
+    if (data) {
+      setAccounts((prev) => [...prev, data as ProjectAccount]);
     }
   };
 
-  const log = (action: string) => {
-    if (!user || !selectedProjectId) return;
-    logUserAction({
-      projectId: selectedProjectId,
-      userId: user.id,
-      userName: displayNameRef.current,
-      userEmail: userEmailRef.current,
-      action,
-    });
-  };
-
-  const handleCreateUserAccount = async () => {
-    if (!user || !isAdmin || !selectedProjectId) return;
-    setCreatingUser(true);
-    setCreateUserError(null);
-
-    const email = newUserForm.email.trim().toLowerCase();
-    const displayName = newUserForm.displayName.trim();
-    const password = newUserForm.password;
-    const phone = newUserForm.phone.trim();
-
-    if (!email || !displayName || password.length < 6) {
-      setCreateUserError('Email, display name, and password (min 6 chars) are required.');
-      setCreatingUser(false);
-      return;
-    }
-
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData.session?.access_token;
-    if (!token) {
-      setCreateUserError('Missing admin session. Please sign in again.');
-      setCreatingUser(false);
-      return;
-    }
-
-    const res = await fetch('/api/admin/create-user', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        projectId: selectedProjectId,
-        email,
-        password,
-        displayName,
-        phone: phone || null,
-        descriptor: newUserForm.descriptor.trim() || null,
-        companyName: newUserForm.companyName.trim() || null,
-        personName: newUserForm.personName.trim() || null,
-        username: newUserForm.username.trim() || null,
-        accountNumber: newUserForm.accountNumber.trim() || null,
-        notes: newUserForm.notes.trim() || null,
-      }),
-    });
-
-    const json = await res.json().catch(() => ({} as { error?: string }));
-    if (!res.ok) {
-      setCreateUserError(json.error ?? 'Failed to create user account.');
-      setCreatingUser(false);
-      return;
-    }
-
-    await loadAccounts();
-    setShowCreateUser(false);
-    setNewUserForm({
-      displayName: '', email: '', phone: '', password: '',
-      descriptor: '', companyName: '', personName: '',
-      username: '', accountNumber: '', notes: '',
-    });
-    log(`Created user account "${displayName}" (${email})`);
-    setCreatingUser(false);
-  };
-
-  const handleDeleteAccount = async (account: AccountRow) => {
-    if (!confirm('Delete this account entry? This will NOT delete the authentication user.')) return;
-    const { error } = await supabase.from('accounts').delete().eq('id', account.id);
+  // Delete a row
+  const handleDelete = async (account: ProjectAccount) => {
+    if (!confirm('Delete this account entry?')) return;
+    const { error } = await supabase.from('project_accounts').delete().eq('id', account.id);
     if (!error) {
       setAccounts((prev) => prev.filter((a) => a.id !== account.id));
-      log(`Deleted account "${account.display_name || 'Untitled'}"`);
     }
   };
 
-  const saveInlineEdit = async (accountId: string, field: string, value: string) => {
+  // Inline edit save
+  const saveEdit = async (accountId: string, field: string, value: string) => {
     setEditingCell(null);
     const account = accounts.find((a) => a.id === accountId);
     if (!account) return;
@@ -180,7 +142,7 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
     if (value === oldValue) return;
 
     const { error } = await supabase
-      .from('accounts')
+      .from('project_accounts')
       .update({ [field]: value || null })
       .eq('id', accountId);
 
@@ -188,158 +150,141 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
       setAccounts((prev) =>
         prev.map((a) => (a.id === accountId ? { ...a, [field]: value || null } : a))
       );
-      const label = columns.find((c) => c.field === field)?.label ?? field;
-      log(`Updated ${label} on account "${account.display_name || 'Untitled'}"`);
     }
   };
 
-  const togglePasswordVisibility = (accountId: string) => {
+  const togglePassword = (id: string) => {
     setVisiblePasswords((prev) => {
       const next = new Set(prev);
-      if (next.has(accountId)) next.delete(accountId);
-      else next.add(accountId);
+      next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
   };
 
-  // Column definitions — maps to `accounts` table fields
-  const columns: { field: string; label: string; icon?: 'lock' | 'hash'; sensitive?: boolean; readonly?: boolean }[] = [
-    { field: 'display_name', label: 'Account' },
-    { field: 'descriptor', label: 'Descriptor' },
-    { field: 'company_name', label: 'Company Name' },
-    { field: 'person_name', label: 'Person Name' },
-    { field: 'phone', label: 'Phone' },
-    { field: 'email', label: 'Email' },
-    { field: 'username', label: 'USERNAME', icon: 'lock', sensitive: true },
-    { field: 'password_hash', label: 'PASSWORD', icon: 'lock', sensitive: true, readonly: true },
-    { field: 'account_number', label: 'Account Number', icon: 'hash', sensitive: true },
-    { field: 'notes', label: 'NOTES' },
-  ];
+  // Excel / CSV upload
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedProjectId) return;
+    e.target.value = '';
+    setUploading(true);
+    setImportMessage(null);
 
-  const EditableCell = ({
-    account,
-    field,
-    displayValue,
-    isReadonly,
-  }: {
-    account: AccountRow;
-    field: string;
-    displayValue: string;
-    isReadonly?: boolean;
-  }) => {
-    const isEditing = editingCell?.id === account.id && editingCell?.field === field;
+    try {
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: '' });
 
-    if (isEditing && !isReadonly) {
-      return (
-        <input
-          autoFocus
-          type="text"
-          value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
-          onBlur={() => saveInlineEdit(account.id, field, editValue)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') saveInlineEdit(account.id, field, editValue);
-            if (e.key === 'Escape') setEditingCell(null);
-          }}
-          className="w-full px-1 py-0.5 bg-background border border-input rounded text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-        />
-      );
+      if (rows.length === 0) {
+        setImportMessage({ text: 'No data rows found in the file.', ok: false });
+        setUploading(false);
+        return;
+      }
+
+      // Map headers to fields
+      const firstRow = rows[0];
+      const headerToField: Record<string, keyof ProjectAccount> = {};
+      for (const rawHeader of Object.keys(firstRow)) {
+        const normalized = rawHeader.trim().toLowerCase();
+        const mapped = HEADER_MAP[normalized];
+        if (mapped) headerToField[rawHeader] = mapped;
+      }
+
+      const inserts = rows.map((row) => {
+        const entry: Record<string, string | null> = {
+          project_id: selectedProjectId,
+        };
+        for (const [rawHeader, field] of Object.entries(headerToField)) {
+          const val = String(row[rawHeader] ?? '').trim();
+          entry[field as string] = val || null;
+        }
+        return entry;
+      });
+
+      const { error } = await supabase.from('project_accounts').insert(inserts);
+      if (error) {
+        setImportMessage({ text: `Import failed: ${error.message}`, ok: false });
+      } else {
+        await loadAccounts();
+        setImportMessage({ text: `Imported ${inserts.length} row${inserts.length !== 1 ? 's' : ''} successfully.`, ok: true });
+      }
+    } catch {
+      setImportMessage({ text: 'Failed to parse file. Please use .xlsx or .csv format.', ok: false });
     }
 
-    if (!canEdit || isReadonly) {
-      return <span className="text-xs">{displayValue || <span className="text-muted-foreground/40">-</span>}</span>;
-    }
-
-    return (
-      <span
-        onClick={() => {
-          setEditingCell({ id: account.id, field });
-          setEditValue(displayValue);
-        }}
-        className="cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded text-xs block min-h-[1.25rem]"
-      >
-        {displayValue || <span className="text-muted-foreground/40">-</span>}
-      </span>
-    );
-  };
-
-  const renderCell = (account: AccountRow, col: typeof columns[number]) => {
-    const value = (account as unknown as Record<string, string | null>)[col.field] ?? '';
-
-    // Password field — show masked, not editable (managed by Supabase Auth)
-    if (col.field === 'password_hash') {
-      const display = value && value !== 'managed_by_supabase_auth' ? value : '';
-      const isVisible = visiblePasswords.has(account.id);
-      const masked = display ? '••••••' : 'Auth managed';
-
-      return (
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-muted-foreground">{isVisible ? display || 'Auth managed' : masked}</span>
-          {display && (
-            <button
-              onClick={() => togglePasswordVisibility(account.id)}
-              className="text-muted-foreground hover:text-foreground shrink-0"
-              title={isVisible ? 'Hide' : 'Show'}
-            >
-              {isVisible ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-            </button>
-          )}
-        </div>
-      );
-    }
-
-    return <EditableCell account={account} field={col.field} displayValue={value} isReadonly={col.readonly} />;
+    setUploading(false);
   };
 
   if (!selectedProjectId) {
     return (
       <div className="p-8 text-center text-muted-foreground">
-        Select a project to view accounts.
-      </div>
-    );
-  }
-
-  if (isAdmin === false) {
-    return (
-      <div className="p-8 text-center text-muted-foreground">
-        Access denied. Accounts is restricted to admins only.
+        Select a project to view the account vault.
       </div>
     );
   }
 
   return (
-    <div className="p-4 sm:p-6 max-w-[1600px] mx-auto">
+    <div className="p-4 sm:p-6 max-w-[1800px] mx-auto">
       {/* Security Notice */}
-      <div className="mb-6 flex items-center gap-2 text-amber-500 dark:text-amber-400">
+      <div className="mb-4 flex items-center gap-2 text-amber-500 dark:text-amber-400">
         <ShieldAlert className="h-4 w-4 shrink-0" />
         <span className="text-sm font-medium">
-          This page is highly secure and encrypted - only authorized users can view.
+          This page is highly secure — only authorized project members can view.
         </span>
       </div>
 
-      {/* Table */}
-      <div className="flex items-center justify-between mb-2">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <h2 className="text-sm font-semibold">Project Account Vault</h2>
-        <div className="flex items-center gap-3">
-          {isAdmin && (
+        {canEdit && (
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => setShowCreateUser(true)}
-              className="inline-flex items-center gap-2 text-xs sm:text-sm font-semibold text-accent hover:text-accent/80 transition-colors"
+              onClick={handleAddRow}
+              disabled={addingRow}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:text-accent/80 transition-colors disabled:opacity-50"
             >
-              <UserPlus className="h-4 w-4" />
-              Create User Account
+              {addingRow ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
+              Add Row
             </button>
-          )}
-        </div>
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:text-accent/80 transition-colors disabled:opacity-50"
+              title="Upload an Excel (.xlsx) or CSV file. Columns are matched by header name."
+            >
+              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              Upload Excel / CSV
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+          </div>
+        )}
       </div>
+
+      {/* Import status message */}
+      {importMessage && (
+        <div className={`mb-3 flex items-center justify-between gap-2 text-xs px-3 py-2 rounded-lg border ${importMessage.ok ? 'bg-green-50 dark:bg-green-950/20 border-green-500/30 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-950/20 border-red-500/30 text-destructive'}`}>
+          <span>{importMessage.text}</span>
+          <button onClick={() => setImportMessage(null)}><X className="h-3 w-3" /></button>
+        </div>
+      )}
+
+      {/* Table */}
       <div className="border border-border rounded-lg overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="text-sm border-collapse" style={{ tableLayout: 'auto', minWidth: '100%' }}>
           <thead>
             <tr className="bg-muted/50 border-b border-border">
-              {columns.map((col) => (
+              {COLUMNS.map((col) => (
                 <th
                   key={col.field}
                   className="px-3 py-2 text-left text-xs font-semibold text-foreground whitespace-nowrap"
+                  style={{ minWidth: col.minWidth }}
                 >
                   <div className="flex items-center gap-1">
                     {col.icon === 'lock' && <Lock className="h-3 w-3 text-amber-500" />}
@@ -348,35 +293,64 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
                   </div>
                 </th>
               ))}
-              {canEdit && isAdmin && (
-                <th className="px-3 py-2 text-xs font-semibold text-foreground w-10"></th>
-              )}
+              {canEdit && <th className="px-3 py-2 w-8" />}
             </tr>
           </thead>
           <tbody>
-            {accounts.length === 0 ? (
+            {loading ? (
               <tr>
-                <td
-                  colSpan={columns.length + (canEdit && isAdmin ? 1 : 0)}
-                  className="px-3 py-8 text-center text-muted-foreground text-sm"
-                >
-                  No accounts yet.
+                <td colSpan={COLUMNS.length + (canEdit ? 1 : 0)} className="px-3 py-8 text-center">
+                  <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
+                </td>
+              </tr>
+            ) : accounts.length === 0 ? (
+              <tr>
+                <td colSpan={COLUMNS.length + (canEdit ? 1 : 0)} className="px-3 py-8 text-center text-muted-foreground text-sm">
+                  No entries yet. Click &quot;Add Row&quot; or upload a file to get started.
                 </td>
               </tr>
             ) : (
               accounts.map((account) => (
-                <tr key={account.id} className="border-b border-border hover:bg-muted/30">
-                  {columns.map((col) => (
-                    <td key={col.field} className="px-3 py-2 min-w-[100px]">
-                      {renderCell(account, col)}
+                <tr key={account.id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                  {COLUMNS.map((col) => (
+                    <td key={col.field} className="px-3 py-1.5">
+                      {col.field === 'password' ? (
+                        <PasswordCell
+                          account={account}
+                          visible={visiblePasswords.has(account.id)}
+                          onToggle={() => togglePassword(account.id)}
+                          editing={editingCell?.id === account.id && editingCell?.field === 'password'}
+                          editValue={editValue}
+                          canEdit={canEdit}
+                          onStartEdit={() => { setEditingCell({ id: account.id, field: 'password' }); setEditValue(account.password ?? ''); }}
+                          onEditChange={setEditValue}
+                          onSave={(v) => saveEdit(account.id, 'password', v)}
+                          onCancel={() => setEditingCell(null)}
+                        />
+                      ) : (
+                        <EditableCell
+                          value={(account as unknown as Record<string, string | null>)[col.field] ?? ''}
+                          editing={editingCell?.id === account.id && editingCell?.field === col.field}
+                          editValue={editValue}
+                          canEdit={canEdit}
+                          onStartEdit={() => {
+                            const v = (account as unknown as Record<string, string | null>)[col.field] ?? '';
+                            setEditingCell({ id: account.id, field: col.field });
+                            setEditValue(v);
+                          }}
+                          onEditChange={setEditValue}
+                          onSave={(v) => saveEdit(account.id, col.field, v)}
+                          onCancel={() => setEditingCell(null)}
+                        />
+                      )}
                     </td>
                   ))}
-                  {canEdit && isAdmin && (
-                    <td className="px-3 py-2">
+                  {canEdit && (
+                    <td className="px-2 py-1.5">
                       <button
-                        onClick={() => handleDeleteAccount(account)}
+                        onClick={() => handleDelete(account)}
                         className="text-muted-foreground hover:text-destructive transition-colors"
-                        title="Delete account"
+                        title="Delete row"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -388,110 +362,111 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
           </tbody>
         </table>
       </div>
-      {createUserError && <p className="mt-2 text-xs text-destructive">{createUserError}</p>}
 
-      {showCreateUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">Create User Account</h2>
-              <button onClick={() => setShowCreateUser(false)} className="p-1 hover:bg-muted rounded">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      {/* Column hint */}
+      <p className="mt-2 text-[10px] text-muted-foreground/60">
+        Excel/CSV column headers recognised: Account, Descriptor, Company Name, Person Name, Phone, Email, Link, Username, Password, Account Number, Notes
+      </p>
+    </div>
+  );
+}
 
-            <div className="space-y-3">
-              <input
-                type="text"
-                placeholder="Display name *"
-                value={newUserForm.displayName}
-                onChange={(e) => setNewUserForm((prev) => ({ ...prev, displayName: e.target.value }))}
-                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
-              />
-              <input
-                type="email"
-                placeholder="Email *"
-                value={newUserForm.email}
-                onChange={(e) => setNewUserForm((prev) => ({ ...prev, email: e.target.value }))}
-                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
-              />
-              <input
-                type="password"
-                placeholder="Password (min 6 chars) *"
-                value={newUserForm.password}
-                onChange={(e) => setNewUserForm((prev) => ({ ...prev, password: e.target.value }))}
-                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
-              />
-              <input
-                type="text"
-                placeholder="Phone (optional)"
-                value={newUserForm.phone}
-                onChange={(e) => setNewUserForm((prev) => ({ ...prev, phone: e.target.value }))}
-                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
-              />
-              <input
-                type="text"
-                placeholder="Descriptor (optional)"
-                value={newUserForm.descriptor}
-                onChange={(e) => setNewUserForm((prev) => ({ ...prev, descriptor: e.target.value }))}
-                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
-              />
-              <input
-                type="text"
-                placeholder="Company name (optional)"
-                value={newUserForm.companyName}
-                onChange={(e) => setNewUserForm((prev) => ({ ...prev, companyName: e.target.value }))}
-                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
-              />
-              <input
-                type="text"
-                placeholder="Person name (optional)"
-                value={newUserForm.personName}
-                onChange={(e) => setNewUserForm((prev) => ({ ...prev, personName: e.target.value }))}
-                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
-              />
-              <input
-                type="text"
-                placeholder="Username (optional)"
-                value={newUserForm.username}
-                onChange={(e) => setNewUserForm((prev) => ({ ...prev, username: e.target.value }))}
-                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
-              />
-              <input
-                type="text"
-                placeholder="Account number (optional)"
-                value={newUserForm.accountNumber}
-                onChange={(e) => setNewUserForm((prev) => ({ ...prev, accountNumber: e.target.value }))}
-                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
-              />
-              <textarea
-                placeholder="Notes (optional)"
-                value={newUserForm.notes}
-                onChange={(e) => setNewUserForm((prev) => ({ ...prev, notes: e.target.value }))}
-                rows={2}
-                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm resize-none"
-              />
-              {createUserError && <p className="text-xs text-destructive">{createUserError}</p>}
-            </div>
+// ── Sub-components ────────────────────────────────────────────────────────────
 
-            <div className="flex items-center gap-3 mt-4">
-              <button
-                onClick={handleCreateUserAccount}
-                disabled={creatingUser}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50"
-              >
-                {creatingUser ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-                Create User
-              </button>
-              <button
-                onClick={() => setShowCreateUser(false)}
-                className="px-4 py-2 border border-input rounded-lg text-sm font-semibold hover:bg-muted"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
+function EditableCell({
+  value, editing, editValue, canEdit,
+  onStartEdit, onEditChange, onSave, onCancel,
+}: {
+  value: string;
+  editing: boolean;
+  editValue: string;
+  canEdit: boolean;
+  onStartEdit: () => void;
+  onEditChange: (v: string) => void;
+  onSave: (v: string) => void;
+  onCancel: () => void;
+}) {
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="text"
+        value={editValue}
+        onChange={(e) => onEditChange(e.target.value)}
+        onBlur={() => onSave(editValue)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onSave(editValue);
+          if (e.key === 'Escape') onCancel();
+        }}
+        className="w-full min-w-[80px] px-1 py-0.5 bg-background border border-input rounded text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+      />
+    );
+  }
+  if (!canEdit) {
+    return <span className="text-xs">{value || <span className="text-muted-foreground/40">—</span>}</span>;
+  }
+  return (
+    <span
+      onClick={onStartEdit}
+      className="cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded text-xs block min-h-[1.25rem] min-w-[60px]"
+    >
+      {value || <span className="text-muted-foreground/30">—</span>}
+    </span>
+  );
+}
+
+function PasswordCell({
+  account, visible, onToggle, editing, editValue, canEdit,
+  onStartEdit, onEditChange, onSave, onCancel,
+}: {
+  account: ProjectAccount;
+  visible: boolean;
+  onToggle: () => void;
+  editing: boolean;
+  editValue: string;
+  canEdit: boolean;
+  onStartEdit: () => void;
+  onEditChange: (v: string) => void;
+  onSave: (v: string) => void;
+  onCancel: () => void;
+}) {
+  const stored = account.password ?? '';
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="text"
+        value={editValue}
+        onChange={(e) => onEditChange(e.target.value)}
+        onBlur={() => onSave(editValue)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onSave(editValue);
+          if (e.key === 'Escape') onCancel();
+        }}
+        className="w-full min-w-[80px] px-1 py-0.5 bg-background border border-input rounded text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+      />
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      {canEdit ? (
+        <span
+          onClick={onStartEdit}
+          className="cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded text-xs block min-w-[60px]"
+        >
+          {stored ? (visible ? stored : '••••••') : <span className="text-muted-foreground/30">—</span>}
+        </span>
+      ) : (
+        <span className="text-xs text-muted-foreground">
+          {stored ? (visible ? stored : '••••••') : '—'}
+        </span>
+      )}
+      {stored && (
+        <button onClick={onToggle} className="text-muted-foreground hover:text-foreground shrink-0" title={visible ? 'Hide' : 'Show'}>
+          {visible ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+        </button>
       )}
     </div>
   );
