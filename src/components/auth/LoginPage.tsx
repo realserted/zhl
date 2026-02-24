@@ -30,12 +30,6 @@ export default function LoginPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [phone, setPhone] = useState('');
-  const [descriptor, setDescriptor] = useState('');
-  const [companyName, setCompanyName] = useState('');
-  const [personName, setPersonName] = useState('');
-  const [username, setUsername] = useState('');
-  const [accountNumber, setAccountNumber] = useState('');
-  const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [signupCooldownNotice, setSignupCooldownNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -48,9 +42,8 @@ export default function LoginPage() {
   const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
   const [lockoutCountdown, setLockoutCountdown] = useState(0);
   const [signUpCooldownUntil, setSignUpCooldownUntil] = useState<number | null>(null);
-  const [signUpCooldownCountdown, setSignUpCooldownCountdown] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const signUpTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const signUpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -81,29 +74,20 @@ export default function LoginPage() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [lockoutUntil]);
 
-  // Countdown timer for signup cooldown (email rate limits)
+  // Clear signup cooldown notice once the cooldown period expires
   useEffect(() => {
     if (!signUpCooldownUntil) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSignUpCooldownCountdown(0);
       setSignupCooldownNotice(null);
       return;
     }
-    const tick = () => {
-      const remaining = Math.max(0, Math.ceil((signUpCooldownUntil - Date.now()) / 1000));
-      setSignUpCooldownCountdown(remaining);
-      if (remaining <= 0) {
-        setSignUpCooldownUntil(null);
-        if (signUpTimerRef.current) clearInterval(signUpTimerRef.current);
-      }
-    };
-    tick();
-    signUpTimerRef.current = setInterval(tick, 1000);
-    return () => { if (signUpTimerRef.current) clearInterval(signUpTimerRef.current); };
+    const delay = Math.max(0, signUpCooldownUntil - Date.now());
+    signUpTimerRef.current = setTimeout(() => {
+      setSignUpCooldownUntil(null);
+    }, delay);
+    return () => { if (signUpTimerRef.current) clearTimeout(signUpTimerRef.current); };
   }, [signUpCooldownUntil]);
 
   const isLocked = lockoutCountdown > 0;
-  const isSignUpCooldown = signUpCooldownCountdown > 0;
 
   // Password strength score (0-5)
   const strengthScore = PASSWORD_RULES.filter((r) => r.test(password)).length;
@@ -117,13 +101,7 @@ export default function LoginPage() {
     setError(null);
 
     // Check cooldown/lockout
-    if (isSignUp) {
-      if (isSignUpCooldown) {
-        setError(null);
-        setSignupCooldownNotice(`Please wait ${signUpCooldownCountdown} seconds before trying signup again.`);
-        return;
-      }
-    } else {
+    if (!isSignUp) {
       if (isLocked) {
         setError(`Too many failed attempts. Try again in ${lockoutCountdown} seconds.`);
         return;
@@ -164,14 +142,7 @@ export default function LoginPage() {
       }
 
       setLoading(true);
-      const { error } = await signUp(trimmedEmail, password, trimmedName, phone.trim(), {
-        descriptor: descriptor.trim(),
-        companyName: companyName.trim(),
-        personName: personName.trim(),
-        username: username.trim(),
-        accountNumber: accountNumber.trim(),
-        notes: notes.trim(),
-      });
+      const { error } = await signUp(trimmedEmail, password, trimmedName, phone.trim());
       if (error) {
         const normalized = error.toLowerCase();
         const isRateLimitError =
@@ -234,12 +205,6 @@ export default function LoginPage() {
                 setConfirmPassword('');
                 setDisplayName('');
                 setPhone('');
-                setDescriptor('');
-                setCompanyName('');
-                setPersonName('');
-                setUsername('');
-                setAccountNumber('');
-                setNotes('');
               }}
               className="text-sm text-green-400 hover:underline font-medium"
             >
@@ -312,90 +277,6 @@ export default function LoginPage() {
                     placeholder="(555) 123-4567"
                     maxLength={20}
                     className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="descriptor" className="block text-sm font-medium text-foreground mb-1.5">
-                    Descriptor <span className="text-muted-foreground font-normal">(optional)</span>
-                  </label>
-                  <input
-                    id="descriptor"
-                    type="text"
-                    value={descriptor}
-                    onChange={(e) => setDescriptor(e.target.value)}
-                    placeholder="e.g. Property Manager"
-                    maxLength={255}
-                    className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="companyName" className="block text-sm font-medium text-foreground mb-1.5">
-                    Company Name <span className="text-muted-foreground font-normal">(optional)</span>
-                  </label>
-                  <input
-                    id="companyName"
-                    type="text"
-                    value={companyName}
-                    onChange={(e) => setCompanyName(e.target.value)}
-                    placeholder="Company LLC"
-                    maxLength={255}
-                    className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="personName" className="block text-sm font-medium text-foreground mb-1.5">
-                    Person Name <span className="text-muted-foreground font-normal">(optional)</span>
-                  </label>
-                  <input
-                    id="personName"
-                    type="text"
-                    value={personName}
-                    onChange={(e) => setPersonName(e.target.value)}
-                    placeholder="Full legal name"
-                    maxLength={255}
-                    className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="username" className="block text-sm font-medium text-foreground mb-1.5">
-                    Username <span className="text-muted-foreground font-normal">(optional)</span>
-                  </label>
-                  <input
-                    id="username"
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="Username"
-                    maxLength={100}
-                    className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="accountNumber" className="block text-sm font-medium text-foreground mb-1.5">
-                    Account Number <span className="text-muted-foreground font-normal">(optional)</span>
-                  </label>
-                  <input
-                    id="accountNumber"
-                    type="text"
-                    value={accountNumber}
-                    onChange={(e) => setAccountNumber(e.target.value)}
-                    placeholder="Account #"
-                    maxLength={100}
-                    className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="notes" className="block text-sm font-medium text-foreground mb-1.5">
-                    Notes <span className="text-muted-foreground font-normal">(optional)</span>
-                  </label>
-                  <textarea
-                    id="notes"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Additional notes..."
-                    maxLength={500}
-                    rows={2}
-                    className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
                   />
                 </div>
               </>
@@ -525,12 +406,10 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={loading || isLocked || (isSignUp && isSignUpCooldown)}
+              disabled={loading || isLocked}
               className="w-full py-2.5 bg-black text-green-400 rounded-lg text-sm font-semibold hover:bg-gray-900 transition-colors disabled:opacity-50 border border-green-400"
             >
-              {isSignUp && isSignUpCooldown
-                ? `Signup Cooldown (${signUpCooldownCountdown}s)`
-                : isLocked
+              {isLocked
                 ? `Locked (${lockoutCountdown}s)`
                 : loading
                 ? 'Please wait...'
