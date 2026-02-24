@@ -153,7 +153,7 @@ export default function LoginPage() {
           setSignUpCooldownUntil(Date.now() + SIGNUP_COOLDOWN_SECONDS * 1000);
           setError(null);
           setSignupCooldownNotice(
-            `Signup is cooling down for ${SIGNUP_COOLDOWN_SECONDS} seconds. If you already signed up, check your email inbox.`
+            `Email sending is rate limited by the server. Please wait a few minutes and try again, or ask an admin to disable email confirmation in Supabase → Authentication → Settings.`
           );
         } else {
           setSignupCooldownNotice(null);

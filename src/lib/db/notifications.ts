@@ -115,7 +115,15 @@ export async function deleteAllNotifications(userId: string): Promise<boolean> {
   return true;
 }
 
-/** Create a notification. */
+/** Create a notification for any user.
+ *
+ *  Uses the `create_notification_for_user` SECURITY DEFINER RPC so that
+ *  project owners can notify other users even though RLS only allows each
+ *  user to insert notifications for themselves.
+ *
+ *  Requires migration 20260224000003_create_notification_rpc.sql to be
+ *  applied in Supabase.
+ */
 export async function createNotification(params: {
   userId: string;
   type: string;
@@ -124,13 +132,13 @@ export async function createNotification(params: {
   relatedId?: string;
   relatedType?: string;
 }): Promise<boolean> {
-  const { error } = await supabase.from('notifications').insert({
-    user_id: params.userId,
-    type: params.type,
-    title: params.title,
-    message: params.message,
-    related_id: params.relatedId ?? null,
-    related_type: params.relatedType ?? null,
+  const { error } = await supabase.rpc('create_notification_for_user', {
+    p_user_id: params.userId,
+    p_type: params.type,
+    p_title: params.title,
+    p_message: params.message,
+    p_related_id: params.relatedId ?? null,
+    p_related_type: params.relatedType ?? null,
   });
 
   if (error) {

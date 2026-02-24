@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import NavLogo from './NavLogo';
 import NavTabs from './NavTabs';
 import NavActions from './NavActions';
@@ -19,13 +20,15 @@ interface NavbarProps {
   projects: Project[];
   selectedProject: Project | null;
   onProjectChange: (project: Project) => void;
-  onTabChange?: (tabId: string) => void;
   userPermission?: ProjectPermission | null;
 }
 
-export default function Navbar({ projects, selectedProject, onProjectChange, onTabChange, userPermission }: NavbarProps) {
+export default function Navbar({ projects, selectedProject, onProjectChange, userPermission }: NavbarProps) {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('overview');
+  const router = useRouter();
+  const pathname = usePathname();
+  // Derive active tab from the current pathname: /taskers → 'taskers', / → 'overview'
+  const activeTab = pathname === '/' ? 'overview' : pathname.replace(/^\//, '');
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [displayName, setDisplayName] = useState<string>('');
@@ -216,8 +219,7 @@ export default function Navbar({ projects, selectedProject, onProjectChange, onT
     : allTabs;
 
   const handleTabChange = (tabId: string) => {
-    setActiveTab(tabId);
-    onTabChange?.(tabId);
+    router.push(`/${tabId}`, { scroll: false });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
