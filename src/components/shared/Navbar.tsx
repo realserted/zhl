@@ -10,6 +10,7 @@ import { ArrowLeft, ChevronDown, Bell, Loader2 } from 'lucide-react';
 import { Project } from '@/lib/types/project';
 import { ProjectPermission } from '@/lib/types/project';
 import { Notification } from '@/lib/types/notification';
+import { Tasker } from '@/lib/types/tasker';
 import { getNotifications, getUnreadCount, markAsRead, markAllAsRead, deleteAllNotifications } from '@/lib/db/notifications';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase/client';
@@ -27,7 +28,11 @@ export default function Navbar({ projects, selectedProject, onProjectChange, onT
   const [activeTab, setActiveTab] = useState('overview');
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [displayName, setDisplayName] = useState<string>('');
   const projectDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Tasker alert counts for the TASKERS badge
+  const [taskerAlerts, setTaskerAlerts] = useState({ dueSoon: 0, overdue: 0, issues: 0, help: 0 });
 
   // Notifications
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -40,10 +45,13 @@ export default function Navbar({ projects, selectedProject, onProjectChange, onT
     if (!user) return;
     supabase
       .from('accounts')
-      .select('is_admin')
+      .select('is_admin, display_name')
       .eq('user_id', user.id)
       .maybeSingle()
-      .then(({ data }) => setIsAdmin(data?.is_admin === true));
+      .then(({ data }) => {
+        setIsAdmin(data?.is_admin === true);
+        setDisplayName(data?.display_name ?? '');
+      });
   }, [user]);
 
   // Close dropdowns when clicking outside
@@ -69,6 +77,58 @@ export default function Navbar({ projects, selectedProject, onProjectChange, onT
     const interval = setInterval(fetch, 30000);
     return () => clearInterval(interval);
   }, [user]);
+
+  // Compute tasker alert counts for badge whenever the selected project changes
+  useEffect(() => {
+    if (!user || !selectedProject) {
+      setTaskerAlerts({ dueSoon: 0, overdue: 0, issues: 0, help: 0 });
+      return;
+    }
+    supabase
+      .from('taskers')
+      .select('*')
+      .eq('project_id', selectedProject.id)
+      .not('status', 'in', '("Archived","Complete")')
+      .then(({ data }) => {
+        if (!data) return;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const isAssigned = (t: Tasker) =>
+          t.responsible === user.id ||
+          t.cc === user.id ||
+          t.got_the_ball === user.id ||
+          t.help_request_user === user.id ||
+          t.responsible_name === displayName ||
+          t.cc_name === displayName ||
+          t.got_the_ball_name === displayName;
+
+        const getDays = (dueDateStr: string | null) => {
+          if (!dueDateStr) return null;
+          const due = new Date(dueDateStr + 'T00:00:00');
+          return Math.round((due.getTime() - today.getTime()) / 86_400_000);
+        };
+
+        let dueSoon = 0, overdue = 0, issues = 0, help = 0;
+        for (const t of data as Tasker[]) {
+          const days = getDays(t.due_date);
+          const assigned = isAssigned(t);
+
+          if (assigned) {
+            if (days !== null && days >= 1 && days <= 7) dueSoon++;
+            if (days !== null && days < 0) overdue++;
+            if (t.issues && t.issues.trim()) issues++;
+          }
+
+          // Help: tasks where this user is on help (regardless of other roles)
+          if (
+            t.help_request_user === user.id ||
+            t.help_request_user_name === displayName
+          ) help++;
+        }
+        setTaskerAlerts({ dueSoon, overdue, issues, help });
+      });
+  }, [user, selectedProject, displayName]);
 
   // Load full list when dropdown opens
   useEffect(() => {
@@ -121,10 +181,18 @@ export default function Navbar({ projects, selectedProject, onProjectChange, onT
     }
   };
 
+  // Build dynamic TASKERS badge from alert counts
+  const taskerBadgeParts: string[] = [];
+  if (taskerAlerts.overdue > 0)  taskerBadgeParts.push(`${taskerAlerts.overdue} overdue`);
+  if (taskerAlerts.dueSoon > 0)  taskerBadgeParts.push(`${taskerAlerts.dueSoon} due soon`);
+  if (taskerAlerts.issues > 0)   taskerBadgeParts.push(`${taskerAlerts.issues} issue${taskerAlerts.issues !== 1 ? 's' : ''}`);
+  if (taskerAlerts.help > 0)     taskerBadgeParts.push(`${taskerAlerts.help} help`);
+  const taskerBadge = taskerBadgeParts.length > 0 ? taskerBadgeParts.join(' · ') : undefined;
+
   // Tab definitions with their corresponding permission key
   const allTabs = [
     { id: 'overview',   label: 'OVERVIEW',              permKey: null },
-    { id: 'taskers',    label: 'TASKERS',               permKey: 'perm_taskers',   badge: '2 due soon' },
+    { id: 'taskers',    label: 'TASKERS',               permKey: 'perm_taskers',   badge: taskerBadge },
     { id: 'unitdata',   label: 'UNIT DATA',             permKey: 'perm_unit_data', badge: '2 Issues' },
     { id: 'files',      label: 'FILES',                 permKey: 'perm_files' },
     ...(isAdmin ? [{ id: 'accounts', label: 'ACCOUNTS', permKey: null }] : []),
