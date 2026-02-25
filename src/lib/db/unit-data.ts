@@ -74,6 +74,27 @@ export async function createField(
   return data;
 }
 
+export async function updateCategory(categoryId: string, name: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('unit_data_categories')
+    .update({ name })
+    .eq('id', categoryId);
+  if (error) { console.error('Error updating category:', error.message, error.code, error.details); return false; }
+  return true;
+}
+
+export async function updateField(
+  fieldId: string,
+  updates: { name?: string; tooltip?: string | null; is_file_link?: boolean; is_hyperlink?: boolean }
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('unit_data_fields')
+    .update(updates)
+    .eq('id', fieldId);
+  if (error) { console.error('Error updating field:', error.message, error.code, error.details); return false; }
+  return true;
+}
+
 export async function deleteCategory(categoryId: string): Promise<boolean> {
   const { error } = await supabase.from('unit_data_categories').delete().eq('id', categoryId);
   if (error) { console.error('Error deleting category:', error.message, error.code, error.details); return false; }

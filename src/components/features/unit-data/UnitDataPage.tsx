@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Loader2, Trash2, X, Link, Upload, FileSpreadsheet } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Loader2, Trash2, X, Link, Upload, FileSpreadsheet, Pencil } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase/client';
 import { CategoryWithFields, UnitDataField, UnitDataRow, UnitDataValue, ViewName } from '@/lib/types/unit-data';
@@ -12,6 +12,8 @@ import {
   getValues,
   createCategory,
   createField,
+  updateCategory,
+  updateField,
   createRow,
   deleteRow,
   deleteCategory,
@@ -58,6 +60,12 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
   const [viewNotice, setViewNotice] = useState('');
   const [allowUserCustomization, setAllowUserCustomization] = useState(false);
   const [newRowIds, setNewRowIds] = useState<Set<string>>(new Set());
+
+  // Inline rename state (sidebar)
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [editingCategoryName, setEditingCategoryName] = useState('');
+  const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
+  const [editingFieldName, setEditingFieldName] = useState('');
 
   // UI state
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -369,6 +377,39 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
     if (ok) {
       setCategories((prev) => prev.filter((c) => c.id !== categoryId));
       log(`Deleted category "${cat.name}"`);
+    }
+  };
+
+  // Rename category
+  const handleRenameCategory = async (categoryId: string, name: string) => {
+    const trimmed = name.trim();
+    setEditingCategoryId(null);
+    if (!trimmed) return;
+    const cat = categories.find((c) => c.id === categoryId);
+    if (!cat || cat.name === trimmed) return;
+    const ok = await updateCategory(categoryId, trimmed);
+    if (ok) {
+      setCategories((prev) => prev.map((c) => c.id === categoryId ? { ...c, name: trimmed } : c));
+      log(`Renamed category "${cat.name}" to "${trimmed}"`);
+    }
+  };
+
+  // Rename field
+  const handleRenameField = async (fieldId: string, name: string) => {
+    const trimmed = name.trim();
+    setEditingFieldId(null);
+    if (!trimmed) return;
+    const field = categories.flatMap((c) => c.fields).find((f) => f.id === fieldId);
+    if (!field || field.name === trimmed) return;
+    const ok = await updateField(fieldId, { name: trimmed });
+    if (ok) {
+      setCategories((prev) =>
+        prev.map((c) => ({
+          ...c,
+          fields: c.fields.map((f) => f.id === fieldId ? { ...f, name: trimmed } : f),
+        }))
+      );
+      log(`Renamed field "${field.name}" to "${trimmed}"`);
     }
   };
 
@@ -685,8 +726,8 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
 
                 return (
                   <div key={cat.id} className={`border-l-2 border-dotted ${color} pl-3`}>
-                    {/* Category checkbox + delete */}
-                    <div className="flex items-center gap-2 mb-1">
+                    {/* Category checkbox + rename + delete */}
+                    <div className="flex items-center gap-2 mb-1 group/cat">
                       <label className={`flex items-center gap-2 flex-1 min-w-0 ${canToggleFields ? 'cursor-pointer' : 'cursor-default'}`}>
                         <input
                           type="checkbox"
@@ -696,12 +737,37 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                           disabled={!canToggleFields}
                           className="rounded border-input flex-shrink-0"
                         />
-                        <span className="text-xs font-semibold text-accent truncate">{cat.name}</span>
+                        {editingCategoryId === cat.id ? (
+                          <input
+                            autoFocus
+                            type="text"
+                            value={editingCategoryName}
+                            onChange={(e) => setEditingCategoryName(e.target.value)}
+                            onBlur={() => handleRenameCategory(cat.id, editingCategoryName)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleRenameCategory(cat.id, editingCategoryName);
+                              if (e.key === 'Escape') setEditingCategoryId(null);
+                            }}
+                            onClick={(e) => e.preventDefault()}
+                            className="text-xs font-semibold text-accent bg-background border border-input rounded px-1 py-0.5 w-full focus:outline-none focus:ring-1 focus:ring-ring"
+                          />
+                        ) : (
+                          <span className="text-xs font-semibold text-accent truncate">{cat.name}</span>
+                        )}
                       </label>
+                      {canEdit && editingCategoryId !== cat.id && (
+                        <button
+                          onClick={() => { setEditingCategoryId(cat.id); setEditingCategoryName(cat.name); }}
+                          className="p-0.5 text-muted-foreground hover:text-accent transition-colors flex-shrink-0 opacity-0 group-hover/cat:opacity-100"
+                          title={`Rename "${cat.name}"`}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      )}
                       {canEdit && (
                         <button
                           onClick={() => handleDeleteCategory(cat.id)}
-                          className="p-0.5 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0"
+                          className="p-0.5 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0 opacity-0 group-hover/cat:opacity-100"
                           title={`Delete "${cat.name}"`}
                         >
                           <Trash2 className="h-3 w-3" />
@@ -712,18 +778,51 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                     {/* Field checkboxes */}
                     <div className="ml-4 space-y-0.5">
                       {cat.fields.map((field) => (
-                        <label key={field.id} className={`flex items-center gap-2 ${canToggleFields ? 'cursor-pointer' : 'cursor-default'}`}>
-                          <input
-                            type="checkbox"
-                            checked={field.visible}
-                            onChange={() => toggleField(field.id)}
-                            disabled={!canToggleFields}
-                            className="rounded border-input"
-                          />
-                          <span className={`text-xs ${field.visible ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
-                            {field.name}
-                          </span>
-                        </label>
+                        <div key={field.id} className="flex items-center gap-1 group/field">
+                          <label className={`flex items-center gap-2 flex-1 min-w-0 ${canToggleFields ? 'cursor-pointer' : 'cursor-default'}`}>
+                            <input
+                              type="checkbox"
+                              checked={field.visible}
+                              onChange={() => toggleField(field.id)}
+                              disabled={!canToggleFields}
+                              className="rounded border-input flex-shrink-0"
+                            />
+                            {editingFieldId === field.id ? (
+                              <input
+                                autoFocus
+                                type="text"
+                                value={editingFieldName}
+                                onChange={(e) => setEditingFieldName(e.target.value)}
+                                onBlur={() => handleRenameField(field.id, editingFieldName)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleRenameField(field.id, editingFieldName);
+                                  if (e.key === 'Escape') setEditingFieldId(null);
+                                }}
+                                onClick={(e) => e.preventDefault()}
+                                className="text-xs bg-background border border-input rounded px-1 py-0.5 w-full focus:outline-none focus:ring-1 focus:ring-ring"
+                              />
+                            ) : (
+                              <span className={`text-xs flex items-center gap-1 ${field.visible ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+                                {field.name}
+                                {field.is_file_link && (
+                                  <Upload className="h-3 w-3 text-muted-foreground flex-shrink-0" title="Shows to indicate a linked file column" />
+                                )}
+                                {field.is_hyperlink && (
+                                  <Link className="h-3 w-3 text-muted-foreground flex-shrink-0" title="Shows to indicate a linked file column" />
+                                )}
+                              </span>
+                            )}
+                          </label>
+                          {canEdit && editingFieldId !== field.id && (
+                            <button
+                              onClick={() => { setEditingFieldId(field.id); setEditingFieldName(field.name); }}
+                              className="p-0.5 text-muted-foreground hover:text-accent transition-colors flex-shrink-0 opacity-0 group-hover/field:opacity-100"
+                              title={`Rename "${field.name}"`}
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
                       ))}
                     </div>
                   </div>
