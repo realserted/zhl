@@ -377,22 +377,6 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
     }
   };
 
-  // Delete category
-  const handleDeleteCategory = async (categoryId: string) => {
-    if (!user || !selectedProjectId) return;
-    const cat = categories.find((c) => c.id === categoryId);
-    if (!cat) return;
-
-    const confirmed = window.confirm(`Delete category "${cat.name}" and all its fields? This cannot be undone.`);
-    if (!confirmed) return;
-
-    const ok = await deleteCategory(categoryId);
-    if (ok) {
-      setCategories((prev) => prev.filter((c) => c.id !== categoryId));
-      log(`Deleted category "${cat.name}"`);
-    }
-  };
-
   // Rename category
   const handleRenameCategory = async (categoryId: string, name: string) => {
     const trimmed = name.trim();
