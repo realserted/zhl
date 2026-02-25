@@ -9,6 +9,8 @@ import { logUserAction } from '@/lib/db/user-logs';
 import { AdminRequest, getAdminRequests, resolveAdminRequest, deleteAdminRequest } from '@/lib/db/admin-requests';
 import { getAllBackupRequests, updateBackupRequestStatus } from '@/lib/db/files';
 import { ProjectFileBackupRequest } from '@/lib/types/files';
+import { UnitDataRecoveryRequest, getRecoveryRequests, resolveRecoveryRequest } from '@/lib/db/unit-data-recovery';
+import { restoreField, restoreCategory } from '@/lib/db/unit-data';
 
 const STATUS_OPTIONS = ['Critical', 'Problematic', 'Needs Attention', 'Good', 'Excellent'] as const;
 
@@ -58,6 +60,8 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [backupRequests, setBackupRequests] = useState<(ProjectFileBackupRequest & { project_name: string })[]>([]);
   const [loadingBackupRequests, setLoadingBackupRequests] = useState(false);
+  const [recoveryRequests, setRecoveryRequests] = useState<UnitDataRecoveryRequest[]>([]);
+  const [loadingRecoveryRequests, setLoadingRecoveryRequests] = useState(false);
 
   // Check if user is admin
   useEffect(() => {
@@ -80,6 +84,8 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
     getAdminRequests().then((data) => { setRequests(data); setLoadingRequests(false); });
     setLoadingBackupRequests(true);
     getAllBackupRequests().then((data) => { setBackupRequests(data); setLoadingBackupRequests(false); });
+    setLoadingRecoveryRequests(true);
+    getRecoveryRequests().then((data) => { setRecoveryRequests(data); setLoadingRecoveryRequests(false); });
   }, [isAdmin]);
 
   const loadProjects = async () => {
@@ -175,6 +181,18 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
   const handleBackupRequestStatus = async (id: string, status: ProjectFileBackupRequest['status']) => {
     const ok = await updateBackupRequestStatus(id, status);
     if (ok) setBackupRequests((prev) => prev.map((r) => r.id === id ? { ...r, status } : r));
+  };
+
+  const handleRecoveryRequest = async (req: UnitDataRecoveryRequest, action: 'approved' | 'rejected') => {
+    if (!user) return;
+    if (action === 'approved') {
+      const restored = req.item_type === 'category'
+        ? await restoreCategory(req.item_id)
+        : await restoreField(req.item_id);
+      if (!restored) return;
+    }
+    const ok = await resolveRecoveryRequest(req.id, action, user.id);
+    if (ok) setRecoveryRequests((prev) => prev.map((r) => r.id === req.id ? { ...r, status: action, resolved_at: new Date().toISOString(), resolved_by: user.id } : r));
   };
 
   const selectClass = 'border border-input rounded px-2 py-1 bg-background text-foreground text-xs';
@@ -398,9 +416,9 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
         <section>
           <h2 className="text-lg font-bold mb-6 pb-3 border-b border-border">
             Requests
-            {(requests.filter((r) => r.status === 'pending').length + backupRequests.filter((r) => r.status === 'pending').length) > 0 && (
+            {(requests.filter((r) => r.status === 'pending').length + backupRequests.filter((r) => r.status === 'pending').length + recoveryRequests.filter((r) => r.status === 'pending').length) > 0 && (
               <span className="ml-2 text-xs bg-red-500 text-white px-2 py-0.5 rounded-full font-semibold">
-                {requests.filter((r) => r.status === 'pending').length + backupRequests.filter((r) => r.status === 'pending').length} new
+                {requests.filter((r) => r.status === 'pending').length + backupRequests.filter((r) => r.status === 'pending').length + recoveryRequests.filter((r) => r.status === 'pending').length} new
               </span>
             )}
           </h2>
@@ -515,6 +533,71 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
                             </button>
                             <button
                               onClick={() => handleBackupRequestStatus(req.id, 'rejected')}
+                              title="Reject"
+                              className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+          {/* Unit Data Recovery Requests subsection */}
+          <div className="mt-8">
+            <h3 className="text-base font-semibold mb-4 pb-2 border-b border-border flex items-center gap-2">
+              Unit Data Recovery Requests
+              {recoveryRequests.filter((r) => r.status === 'pending').length > 0 && (
+                <span className="text-xs bg-purple-500 text-white px-2 py-0.5 rounded-full font-semibold">
+                  {recoveryRequests.filter((r) => r.status === 'pending').length} pending
+                </span>
+              )}
+            </h3>
+            <div className="ml-6 space-y-3">
+              {loadingRecoveryRequests ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading recovery requests...
+                </div>
+              ) : recoveryRequests.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4">No recovery requests yet.</p>
+              ) : (
+                recoveryRequests.map((req) => {
+                  const statusColors: Record<string, string> = {
+                    pending:  'bg-purple-500/10 text-purple-600 dark:text-purple-400',
+                    approved: 'bg-green-500/10 text-green-600 dark:text-green-400',
+                    rejected: 'bg-red-500/10 text-red-600 dark:text-red-400',
+                  };
+                  return (
+                    <div key={req.id} className={`border border-input rounded-lg p-4 transition-colors ${req.status !== 'pending' ? 'opacity-60' : 'hover:bg-muted/30'}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="text-xs font-semibold text-foreground">{req.requester_name || 'Unknown'}</span>
+                            <span className="text-xs text-muted-foreground capitalize">{req.item_type}:</span>
+                            <span className="text-xs font-medium text-accent">{req.item_name}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${statusColors[req.status]}`}>
+                              {req.status}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(req.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                        {req.status === 'pending' && (
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <button
+                              onClick={() => handleRecoveryRequest(req, 'approved')}
+                              title="Approve & restore"
+                              className="p-1.5 text-muted-foreground hover:text-green-600 dark:hover:text-green-400 transition-colors"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleRecoveryRequest(req, 'rejected')}
                               title="Reject"
                               className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
                             >

@@ -14,6 +14,7 @@ export async function getCategories(projectId: string): Promise<CategoryWithFiel
     .from('unit_data_categories')
     .select('*')
     .eq('project_id', projectId)
+    .is('deleted_at', null)
     .order('sort_order');
 
   if (!cats || cats.length === 0) return [];
@@ -22,6 +23,7 @@ export async function getCategories(projectId: string): Promise<CategoryWithFiel
     .from('unit_data_fields')
     .select('*')
     .eq('project_id', projectId)
+    .is('deleted_at', null)
     .order('sort_order');
 
   const fieldMap = new Map<string, UnitDataField[]>();
@@ -95,10 +97,85 @@ export async function updateField(
   return true;
 }
 
+export async function deleteField(fieldId: string): Promise<boolean> {
+  const { error } = await supabase.from('unit_data_fields').delete().eq('id', fieldId);
+  if (error) { console.error('Error deleting field:', error.message, error.code, error.details); return false; }
+  return true;
+}
+
 export async function deleteCategory(categoryId: string): Promise<boolean> {
   const { error } = await supabase.from('unit_data_categories').delete().eq('id', categoryId);
   if (error) { console.error('Error deleting category:', error.message, error.code, error.details); return false; }
   return true;
+}
+
+// ── Soft delete / restore ──
+
+export async function softDeleteCategory(categoryId: string, userId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('unit_data_categories')
+    .update({ deleted_at: new Date().toISOString(), deleted_by: userId })
+    .eq('id', categoryId);
+  if (error) { console.error('Error soft deleting category:', error.message); return false; }
+  return true;
+}
+
+export async function softDeleteField(fieldId: string, userId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('unit_data_fields')
+    .update({ deleted_at: new Date().toISOString(), deleted_by: userId })
+    .eq('id', fieldId);
+  if (error) { console.error('Error soft deleting field:', error.message); return false; }
+  return true;
+}
+
+export async function restoreCategory(categoryId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('unit_data_categories')
+    .update({ deleted_at: null, deleted_by: null })
+    .eq('id', categoryId);
+  if (error) { console.error('Error restoring category:', error.message); return false; }
+  return true;
+}
+
+export async function restoreField(fieldId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('unit_data_fields')
+    .update({ deleted_at: null, deleted_by: null })
+    .eq('id', fieldId);
+  if (error) { console.error('Error restoring field:', error.message); return false; }
+  return true;
+}
+
+export interface DeletedItem {
+  id: string;
+  name: string;
+  type: 'field' | 'category';
+  deleted_at: string;
+  parent_name?: string; // for fields: the category name (including deleted categories)
+}
+
+export async function getDeletedItems(projectId: string): Promise<DeletedItem[]> {
+  const [{ data: cats }, { data: fields }, { data: allCats }] = await Promise.all([
+    supabase.from('unit_data_categories').select('id, name, deleted_at').eq('project_id', projectId).not('deleted_at', 'is', null),
+    supabase.from('unit_data_fields').select('id, name, deleted_at, category_id').eq('project_id', projectId).not('deleted_at', 'is', null),
+    supabase.from('unit_data_categories').select('id, name').eq('project_id', projectId),
+  ]);
+
+  const catNameMap = new Map<string, string>((allCats ?? []).map((c: { id: string; name: string }) => [c.id, c.name]));
+
+  const deletedCats: DeletedItem[] = (cats ?? []).map((c: { id: string; name: string; deleted_at: string }) => ({
+    id: c.id, name: c.name, type: 'category' as const, deleted_at: c.deleted_at,
+  }));
+
+  const deletedFields: DeletedItem[] = (fields ?? []).map((f: { id: string; name: string; deleted_at: string; category_id: string }) => ({
+    id: f.id, name: f.name, type: 'field' as const, deleted_at: f.deleted_at,
+    parent_name: catNameMap.get(f.category_id),
+  }));
+
+  return [...deletedCats, ...deletedFields].sort((a, b) =>
+    new Date(b.deleted_at).getTime() - new Date(a.deleted_at).getTime()
+  );
 }
 
 export async function updateFieldVisibility(fieldId: string, visible: boolean): Promise<boolean> {

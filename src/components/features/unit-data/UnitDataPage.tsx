@@ -16,10 +16,16 @@ import {
   updateField,
   createRow,
   deleteRow,
-  deleteCategory,
+  softDeleteField,
+  softDeleteCategory,
+  restoreField,
+  restoreCategory,
+  getDeletedItems,
+  DeletedItem,
   upsertValue,
   getCurrentFieldVisibility,
 } from '@/lib/db/unit-data';
+import { createRecoveryRequest } from '@/lib/db/unit-data-recovery';
 import { getView, getProjectViews, saveView } from '@/lib/db/unit-data-views';
 import { getProjectSettings } from '@/lib/db/project-settings';
 import { logUserAction } from '@/lib/db/user-logs';
@@ -60,6 +66,10 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
   const [viewNotice, setViewNotice] = useState('');
   const [allowUserCustomization, setAllowUserCustomization] = useState(false);
   const [newRowIds, setNewRowIds] = useState<Set<string>>(new Set());
+
+  // Deleted items (soft-deleted)
+  const [deletedItems, setDeletedItems] = useState<DeletedItem[]>([]);
+  const [showDeleted, setShowDeleted] = useState(false);
 
   // Inline rename state (sidebar)
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
@@ -203,6 +213,9 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
 
     setHasUnsavedChanges(false);
     setLoading(false);
+
+    // Load soft-deleted items for the trash section
+    getDeletedItems(projectId).then(setDeletedItems);
   };
 
   /** Apply a view config to categories. null config = show all. */
@@ -411,6 +424,69 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
       );
       log(`Renamed field "${field.name}" to "${trimmed}"`);
     }
+  };
+
+  // Soft-delete field
+  const handleDeleteField = async (fieldId: string) => {
+    if (!user) return;
+    const field = categories.flatMap((c) => c.fields).find((f) => f.id === fieldId);
+    if (!field) return;
+    if (!window.confirm(`Delete field "${field.name}"? It will move to Deleted Items and can be recovered.`)) return;
+    const ok = await softDeleteField(fieldId, user.id);
+    if (ok) {
+      setCategories((prev) =>
+        prev.map((c) => ({ ...c, fields: c.fields.filter((f) => f.id !== fieldId) }))
+      );
+      setDeletedItems((prev) => [
+        { id: fieldId, name: field.name, type: 'field', deleted_at: new Date().toISOString() },
+        ...prev,
+      ]);
+      log(`Soft-deleted field "${field.name}"`);
+    }
+  };
+
+  // Soft-delete category
+  const handleSoftDeleteCategory = async (categoryId: string) => {
+    if (!user) return;
+    const cat = categories.find((c) => c.id === categoryId);
+    if (!cat) return;
+    if (!window.confirm(`Delete category "${cat.name}"? It will move to Deleted Items and can be recovered.`)) return;
+    const ok = await softDeleteCategory(categoryId, user.id);
+    if (ok) {
+      setCategories((prev) => prev.filter((c) => c.id !== categoryId));
+      setDeletedItems((prev) => [
+        { id: categoryId, name: cat.name, type: 'category', deleted_at: new Date().toISOString() },
+        ...prev,
+      ]);
+      log(`Soft-deleted category "${cat.name}"`);
+    }
+  };
+
+  // Restore a deleted item (admin/owner only)
+  const handleRestoreItem = async (item: DeletedItem) => {
+    const ok = item.type === 'category'
+      ? await restoreCategory(item.id)
+      : await restoreField(item.id);
+    if (ok) {
+      setDeletedItems((prev) => prev.filter((d) => d.id !== item.id));
+      // Reload full data so the restored item appears in the table
+      if (selectedProjectId) loadData(selectedProjectId);
+      log(`Restored ${item.type} "${item.name}"`);
+    }
+  };
+
+  // Request recovery (non-owner users)
+  const handleRequestRecovery = async (item: DeletedItem) => {
+    if (!user || !selectedProjectId) return;
+    const ok = await createRecoveryRequest(
+      selectedProjectId,
+      user.id,
+      displayNameRef.current || user.email || 'Unknown',
+      item.type,
+      item.id,
+      item.name
+    );
+    if (ok) alert(`Recovery request for "${item.name}" sent to admin.`);
   };
 
   // Save cell edit
@@ -766,7 +842,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                       )}
                       {canEdit && (
                         <button
-                          onClick={() => handleDeleteCategory(cat.id)}
+                          onClick={() => handleSoftDeleteCategory(cat.id)}
                           className="p-0.5 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0 opacity-0 group-hover/cat:opacity-100"
                           title={`Delete "${cat.name}"`}
                         >
@@ -814,13 +890,22 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                             )}
                           </label>
                           {canEdit && editingFieldId !== field.id && (
-                            <button
-                              onClick={() => { setEditingFieldId(field.id); setEditingFieldName(field.name); }}
-                              className="p-0.5 text-muted-foreground hover:text-accent transition-colors flex-shrink-0 opacity-0 group-hover/field:opacity-100"
-                              title={`Rename "${field.name}"`}
-                            >
-                              <Pencil className="h-3 w-3" />
-                            </button>
+                            <>
+                              <button
+                                onClick={() => { setEditingFieldId(field.id); setEditingFieldName(field.name); }}
+                                className="p-0.5 text-muted-foreground hover:text-accent transition-colors flex-shrink-0 opacity-0 group-hover/field:opacity-100"
+                                title={`Rename "${field.name}"`}
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteField(field.id)}
+                                className="p-0.5 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0 opacity-0 group-hover/field:opacity-100"
+                                title={`Delete "${field.name}"`}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </>
                           )}
                         </div>
                       ))}
@@ -829,6 +914,53 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                 );
               })}
             </div>
+
+            {/* Deleted Items */}
+            {deletedItems.length > 0 && (
+              <div className="mt-4 pt-3 border-t border-border">
+                <button
+                  onClick={() => setShowDeleted(!showDeleted)}
+                  className="flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground mb-2 w-full"
+                >
+                  <Trash2 className="h-3 w-3" />
+                  Deleted Items ({deletedItems.length})
+                  {showDeleted ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+                </button>
+                {showDeleted && (
+                  <div className="space-y-1">
+                    {deletedItems.map((item) => (
+                      <div key={item.id} className="flex items-center gap-1 py-0.5">
+                        <div className="flex-1 min-w-0">
+                          <span className="text-xs text-muted-foreground truncate block">
+                            {item.name}
+                            <span className="text-[10px] ml-1 opacity-60">
+                              ({item.type}{item.parent_name ? ` · ${item.parent_name}` : ''})
+                            </span>
+                          </span>
+                        </div>
+                        {isOwner ? (
+                          <button
+                            onClick={() => handleRestoreItem(item)}
+                            className="text-[10px] text-accent hover:underline flex-shrink-0 px-1"
+                            title="Restore"
+                          >
+                            Restore
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleRequestRecovery(item)}
+                            className="text-[10px] text-muted-foreground hover:text-accent flex-shrink-0 px-1"
+                            title="Request recovery from admin"
+                          >
+                            Request
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
