@@ -16,6 +16,12 @@ import {
 } from '@/lib/db/projects';
 import { logUserAction } from '@/lib/db/user-logs';
 import { createNotification } from '@/lib/db/notifications';
+import {
+  getProjectSettings,
+  saveProjectSettings,
+  DEFAULT_PROJECT_SETTINGS,
+  type ProjectSettings,
+} from '@/lib/db/project-settings';
 
 type EditingField = 'displayName' | 'phone' | 'email' | 'password' | null;
 
@@ -327,11 +333,111 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
 
   const selectClass = 'border border-input rounded px-2 py-1 bg-background text-foreground text-xs';
 
-  const [statusThresholds, setStatusThresholds] = useState({
-    taskersWithoutComments: { critical: 5, problematic: 3, good: 1 },
-    overdueTaskers: { critical: 5, problematic: 3, good: 1 },
-    unitDataComplete: { critical: 70, problematic: 80, good: 95 },
-  });
+  // ── Project settings (thresholds + feature flags) ──────────────────────────
+  const [projectSettings, setProjectSettings] = useState<Omit<ProjectSettings, 'id' | 'project_id'>>(
+    DEFAULT_PROJECT_SETTINGS
+  );
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  // Load settings whenever the selected project changes
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    getProjectSettings(selectedProjectId).then((s) => {
+      setProjectSettings(s);
+    });
+  }, [selectedProjectId]);
+
+  // ── Current metrics (real data for STATUS THRESHOLDS) ──────────────────────
+  const [currentMetrics, setCurrentMetrics] = useState<{
+    overdueCount: number | null;
+    noCommentsCount: number | null;
+    unitDataPercent: number | null;
+  }>({ overdueCount: null, noCommentsCount: null, unitDataPercent: null });
+
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setCurrentMetrics({ overdueCount: null, noCommentsCount: null, unitDataPercent: null });
+      return;
+    }
+    const today = new Date().toISOString().split('T')[0];
+    (async () => {
+      // 1. Overdue active taskers
+      const { count: overdueCount } = await supabase
+        .from('taskers')
+        .select('*', { count: 'exact', head: true })
+        .eq('project_id', selectedProjectId)
+        .not('status', 'in', '("Archived","Complete")')
+        .not('due_date', 'is', null)
+        .lt('due_date', today);
+
+      // 2. Active taskers without any comments
+      const { data: activeTaskers } = await supabase
+        .from('taskers')
+        .select('id')
+        .eq('project_id', selectedProjectId)
+        .not('status', 'in', '("Archived","Complete")');
+      const activeIds = (activeTaskers ?? []).map((t: { id: string }) => t.id);
+      let noCommentsCount = activeIds.length;
+      if (activeIds.length > 0) {
+        const { data: commentedRows } = await supabase
+          .from('tasker_logs')
+          .select('tasker_id')
+          .in('tasker_id', activeIds)
+          .eq('type', 'comment');
+        const commentedSet = new Set((commentedRows ?? []).map((r: { tasker_id: string }) => r.tasker_id));
+        noCommentsCount = activeIds.filter((id: string) => !commentedSet.has(id)).length;
+      }
+
+      // 3. Unit data % complete
+      const { data: projectRows } = await supabase
+        .from('unit_data_rows')
+        .select('id')
+        .eq('project_id', selectedProjectId);
+      const rowIds = (projectRows ?? []).map((r: { id: string }) => r.id);
+      let unitDataPercent: number | null = null;
+      if (rowIds.length === 0) {
+        unitDataPercent = 100;
+      } else {
+        const { count: fieldCount } = await supabase
+          .from('unit_data_fields')
+          .select('*', { count: 'exact', head: true })
+          .eq('project_id', selectedProjectId);
+        const totalPossible = rowIds.length * (fieldCount ?? 0);
+        if (totalPossible > 0) {
+          const { count: valueCount } = await supabase
+            .from('unit_data_values')
+            .select('*', { count: 'exact', head: true })
+            .in('row_id', rowIds)
+            .not('value', 'is', null);
+          unitDataPercent = Math.round(((valueCount ?? 0) / totalPossible) * 100);
+        } else {
+          unitDataPercent = 100;
+        }
+      }
+
+      setCurrentMetrics({ overdueCount: overdueCount ?? 0, noCommentsCount, unitDataPercent });
+    })();
+  }, [selectedProjectId]);
+
+  /** Save a single numeric threshold field and update local state. */
+  const saveThreshold = async (field: keyof Omit<ProjectSettings, 'id' | 'project_id'>, rawValue: string) => {
+    if (!selectedProjectId || !isProjectOwner) return;
+    const num = parseInt(rawValue, 10);
+    if (isNaN(num) || num < 0) return;
+    setSavingSettings(true);
+    const ok = await saveProjectSettings(selectedProjectId, { [field]: num });
+    if (ok) setProjectSettings((prev) => ({ ...prev, [field]: num }));
+    setSavingSettings(false);
+  };
+
+  /** Toggle allow_user_customization and persist. */
+  const setAllowCustomization = async (value: boolean) => {
+    if (!selectedProjectId || !isProjectOwner) return;
+    setSavingSettings(true);
+    const ok = await saveProjectSettings(selectedProjectId, { allow_user_customization: value });
+    if (ok) setProjectSettings((prev) => ({ ...prev, allow_user_customization: value }));
+    setSavingSettings(false);
+  };
 
   return (
     <main className="bg-background text-foreground min-h-screen">
@@ -790,53 +896,141 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
 
           {/* STATUS THRESHOLDS SECTION */}
           <div className="mb-8 ml-6">
-            <h3 className="text-lg font-bold mb-4 bg-muted px-3 py-2 rounded">STATUS THRESHOLDS</h3>
-            <div className="overflow-x-auto border border-input rounded-lg">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-muted border-b border-input">
-                    <th className="px-4 py-3 text-left font-semibold">Metric</th>
-                    <th className="px-4 py-3 text-center font-semibold">Critical</th>
-                    <th className="px-4 py-3 text-center font-semibold">Problematic</th>
-                    <th className="px-4 py-3 text-center font-semibold">Good</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="border-b border-input hover:bg-muted/50">
-                    <td className="px-4 py-3">Taskers without comments</td>
-                    <td className="px-4 py-3 text-center">{statusThresholds.taskersWithoutComments.critical}</td>
-                    <td className="px-4 py-3 text-center">{statusThresholds.taskersWithoutComments.problematic}</td>
-                    <td className="px-4 py-3 text-center">{statusThresholds.taskersWithoutComments.good}</td>
-                  </tr>
-                  <tr className="border-b border-input hover:bg-muted/50">
-                    <td className="px-4 py-3">Overdue taskers</td>
-                    <td className="px-4 py-3 text-center">{statusThresholds.overdueTaskers.critical}</td>
-                    <td className="px-4 py-3 text-center">{statusThresholds.overdueTaskers.problematic}</td>
-                    <td className="px-4 py-3 text-center">{statusThresholds.overdueTaskers.good}</td>
-                  </tr>
-                  <tr className="border-b border-input hover:bg-muted/50">
-                    <td className="px-4 py-3">Unit Data % Complete</td>
-                    <td className="px-4 py-3 text-center">{statusThresholds.unitDataComplete.critical}</td>
-                    <td className="px-4 py-3 text-center">{statusThresholds.unitDataComplete.problematic}</td>
-                    <td className="px-4 py-3 text-center">{statusThresholds.unitDataComplete.good}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            <h3 className="text-lg font-bold mb-4 bg-muted px-3 py-2 rounded flex items-center gap-3">
+              STATUS THRESHOLDS
+              {savingSettings && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
+            </h3>
+            {!selectedProjectId ? (
+              <p className="text-sm text-muted-foreground px-1">Select a project to configure thresholds.</p>
+            ) : (
+              <>
+                <p className="text-xs text-muted-foreground mb-3 px-1">
+                  {isProjectOwner
+                    ? 'Click any value to edit it. Changes save automatically.'
+                    : 'Only the project owner can edit thresholds.'}
+                </p>
+                <div className="overflow-x-auto border border-input rounded-lg">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-muted border-b border-input">
+                        <th className="px-4 py-3 text-left font-semibold">Metric</th>
+                        <th className="px-4 py-3 text-center font-semibold text-red-500">Critical</th>
+                        <th className="px-4 py-3 text-center font-semibold text-orange-500">Problematic</th>
+                        <th className="px-4 py-3 text-center font-semibold text-green-500">Good</th>
+                        <th className="px-4 py-3 text-center font-semibold text-muted-foreground">Current</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {([
+                        {
+                          label: 'Taskers without comments',
+                          critical:    'threshold_tw_comments_critical'    as const,
+                          problematic: 'threshold_tw_comments_problematic' as const,
+                          good:        'threshold_tw_comments_good'        as const,
+                        },
+                        {
+                          label: 'Overdue taskers',
+                          critical:    'threshold_overdue_critical'    as const,
+                          problematic: 'threshold_overdue_problematic' as const,
+                          good:        'threshold_overdue_good'        as const,
+                        },
+                        {
+                          label: 'Unit Data % Complete',
+                          critical:    'threshold_unit_data_critical'    as const,
+                          problematic: 'threshold_unit_data_problematic' as const,
+                          good:        'threshold_unit_data_good'        as const,
+                        },
+                      ] as const).map((row) => (
+                        <tr key={row.label} className="border-b border-input hover:bg-muted/50">
+                          <td className="px-4 py-3">{row.label}</td>
+                          {([
+                            { key: row.critical,    color: 'text-red-500' },
+                            { key: row.problematic, color: 'text-orange-500' },
+                            { key: row.good,        color: 'text-green-500' },
+                          ] as const).map(({ key, color }) => (
+                            <td key={key} className="px-4 py-2 text-center">
+                              <input
+                                type="number"
+                                min={0}
+                                disabled={!isProjectOwner}
+                                defaultValue={projectSettings[key]}
+                                key={`${selectedProjectId}-${key}-${projectSettings[key]}`}
+                                onBlur={(e) => saveThreshold(key, e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                                }}
+                                className={`w-16 text-center px-2 py-1 rounded border border-input bg-background text-sm font-semibold ${color} focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60 disabled:cursor-default`}
+                              />
+                            </td>
+                          ))}
+                          <td className="px-4 py-2 text-center">
+                            {row.label === 'Taskers without comments' ? (
+                              currentMetrics.noCommentsCount !== null ? (
+                                <span className={`text-sm font-semibold ${
+                                  currentMetrics.noCommentsCount >= projectSettings.threshold_tw_comments_critical ? 'text-red-500' :
+                                  currentMetrics.noCommentsCount >= projectSettings.threshold_tw_comments_problematic ? 'text-orange-500' :
+                                  'text-green-500'
+                                }`}>{currentMetrics.noCommentsCount}</span>
+                              ) : <span className="text-xs text-muted-foreground">—</span>
+                            ) : row.label === 'Overdue taskers' ? (
+                              currentMetrics.overdueCount !== null ? (
+                                <span className={`text-sm font-semibold ${
+                                  currentMetrics.overdueCount >= projectSettings.threshold_overdue_critical ? 'text-red-500' :
+                                  currentMetrics.overdueCount >= projectSettings.threshold_overdue_problematic ? 'text-orange-500' :
+                                  'text-green-500'
+                                }`}>{currentMetrics.overdueCount}</span>
+                              ) : <span className="text-xs text-muted-foreground">—</span>
+                            ) : (
+                              currentMetrics.unitDataPercent !== null ? (
+                                <span className={`text-sm font-semibold ${
+                                  currentMetrics.unitDataPercent <= projectSettings.threshold_unit_data_critical ? 'text-red-500' :
+                                  currentMetrics.unitDataPercent <= projectSettings.threshold_unit_data_problematic ? 'text-orange-500' :
+                                  'text-green-500'
+                                }`}>{currentMetrics.unitDataPercent}%</span>
+                              ) : <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
 
           {/* UNIT DATA SECTION */}
           <div className="mb-8 ml-6">
             <h3 className="text-lg font-bold mb-3 px-3 py-2 rounded">UNIT DATA</h3>
             <div className="ml-4">
-              <label className="flex items-center gap-2 py-2">
-                <input type="checkbox" className="w-4 h-4" />
-                <span>Allow Users to customize their display</span>
-              </label>
-              <div className="flex gap-4 ml-6 text-sm">
-                <button className="px-3 py-1 rounded border border-input hover:bg-muted transition-colors">Yes</button>
-                <button className="px-3 py-1 rounded border border-input hover:bg-muted transition-colors">No</button>
+              <p className="text-sm font-medium mb-3">Allow Users to customize their display</p>
+              <div className="flex gap-3 text-sm">
+                <button
+                  disabled={!isProjectOwner || !selectedProjectId}
+                  onClick={() => setAllowCustomization(true)}
+                  className={`px-4 py-1.5 rounded border font-semibold transition-colors disabled:opacity-50 disabled:cursor-default ${
+                    projectSettings.allow_user_customization
+                      ? 'border-green-500 bg-green-500/10 text-green-600 dark:text-green-400'
+                      : 'border-input text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  Yes
+                </button>
+                <button
+                  disabled={!isProjectOwner || !selectedProjectId}
+                  onClick={() => setAllowCustomization(false)}
+                  className={`px-4 py-1.5 rounded border font-semibold transition-colors disabled:opacity-50 disabled:cursor-default ${
+                    !projectSettings.allow_user_customization
+                      ? 'border-red-500 bg-red-500/10 text-red-600 dark:text-red-400'
+                      : 'border-input text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  No
+                </button>
               </div>
+              {!isProjectOwner && selectedProjectId && (
+                <p className="text-xs text-muted-foreground mt-2">Only the project owner can change this.</p>
+              )}
             </div>
           </div>
 

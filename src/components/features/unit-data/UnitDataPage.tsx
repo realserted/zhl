@@ -19,6 +19,7 @@ import {
   getCurrentFieldVisibility,
 } from '@/lib/db/unit-data';
 import { getView, getProjectViews, saveView } from '@/lib/db/unit-data-views';
+import { getProjectSettings } from '@/lib/db/project-settings';
 import { logUserAction } from '@/lib/db/user-logs';
 import { ProjectPermission } from '@/lib/types/project';
 import * as XLSX from 'xlsx';
@@ -55,6 +56,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
   const [viewConfigs, setViewConfigs] = useState<Map<ViewMode, Record<string, boolean>>>(new Map());
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [viewNotice, setViewNotice] = useState('');
+  const [allowUserCustomization, setAllowUserCustomization] = useState(false);
   const [newRowIds, setNewRowIds] = useState<Set<string>>(new Set());
 
   // UI state
@@ -132,6 +134,12 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
     const t = setTimeout(() => setViewNotice(''), 3000);
     return () => clearTimeout(t);
   }, [viewNotice]);
+
+  // Load allow_user_customization from project settings
+  useEffect(() => {
+    if (!selectedProjectId) { setAllowUserCustomization(false); return; }
+    getProjectSettings(selectedProjectId).then((s) => setAllowUserCustomization(s.allow_user_customization));
+  }, [selectedProjectId]);
 
   // Load data when project changes
   useEffect(() => {
@@ -596,9 +604,27 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                 </select>
               </div>
             ) : (
-              <div className="mb-2 p-2 bg-muted/30 rounded border border-border">
-                <div className="text-xs text-muted-foreground mb-0.5">Current View:</div>
-                <div className="text-sm font-semibold text-accent">{selectedView}</div>
+              <div className="mb-2">
+                <div className="p-2 bg-muted/30 rounded border border-border mb-1">
+                  <div className="text-xs text-muted-foreground mb-0.5">Current View:</div>
+                  <div className="text-sm font-semibold text-accent">{selectedView}</div>
+                </div>
+                {allowUserCustomization && selectedView !== 'Personal View' && (
+                  <button
+                    onClick={() => handleViewChange('Personal View')}
+                    className="w-full text-xs px-2 py-1 rounded border border-accent text-accent hover:bg-accent/10 transition-colors"
+                  >
+                    Customize My View
+                  </button>
+                )}
+                {allowUserCustomization && selectedView === 'Personal View' && (
+                  <button
+                    onClick={() => handleViewChange(assignedView)}
+                    className="w-full text-xs px-2 py-1 rounded border border-input text-muted-foreground hover:bg-muted transition-colors"
+                  >
+                    Back to {assignedView}
+                  </button>
+                )}
               </div>
             )}
 
