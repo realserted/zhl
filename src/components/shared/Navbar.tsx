@@ -208,15 +208,15 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
     { id: 'settings',   label: 'SETTINGS',              permKey: null },
   ];
 
-  // If the user is a member (not owner), hide tabs where their permission is not granted
+  // Admins and project owners see all tabs; members are filtered by their permission row
   const HIDDEN_PERM_VALUES = new Set(["View / Don't view", 'None', '']);
-  const tabs = userPermission
-    ? allTabs.filter((tab) => {
+  const tabs = (isAdmin || !userPermission)
+    ? allTabs
+    : allTabs.filter((tab) => {
         if (!tab.permKey) return true; // always show non-permission tabs
         const val = (userPermission as unknown as Record<string, string>)[tab.permKey];
         return val && !HIDDEN_PERM_VALUES.has(val);
-      })
-    : allTabs;
+      });
 
   const handleTabChange = (tabId: string) => {
     router.push(`/${tabId}`, { scroll: false });

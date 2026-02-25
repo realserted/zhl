@@ -1,11 +1,14 @@
 'use client';
 
-import { Plus, Upload, Loader2, ShieldAlert } from 'lucide-react';
+import { Plus, Upload, Loader2, ShieldAlert, Check, Trash2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase/client';
 import { Project } from '@/lib/types/project';
 import { logUserAction } from '@/lib/db/user-logs';
+import { AdminRequest, getAdminRequests, resolveAdminRequest, deleteAdminRequest } from '@/lib/db/admin-requests';
+import { getAllBackupRequests, updateBackupRequestStatus } from '@/lib/db/files';
+import { ProjectFileBackupRequest } from '@/lib/types/files';
 
 const STATUS_OPTIONS = ['Critical', 'Problematic', 'Needs Attention', 'Good', 'Excellent'] as const;
 
@@ -51,9 +54,10 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
     'Appfolio Report',
   ]);
 
-  const [requests] = useState([
-    { date: '2/15/2028 16:19:02', message: 'I want Chase bank statements!' },
-  ]);
+  const [requests, setRequests] = useState<AdminRequest[]>([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+  const [backupRequests, setBackupRequests] = useState<(ProjectFileBackupRequest & { project_name: string })[]>([]);
+  const [loadingBackupRequests, setLoadingBackupRequests] = useState(false);
 
   // Check if user is admin
   useEffect(() => {
@@ -68,10 +72,14 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
       });
   }, [user]);
 
-  // Load all projects with owner info
+  // Load all projects with owner info + requests
   useEffect(() => {
     if (!isAdmin) return;
     loadProjects();
+    setLoadingRequests(true);
+    getAdminRequests().then((data) => { setRequests(data); setLoadingRequests(false); });
+    setLoadingBackupRequests(true);
+    getAllBackupRequests().then((data) => { setBackupRequests(data); setLoadingBackupRequests(false); });
   }, [isAdmin]);
 
   const loadProjects = async () => {
@@ -152,6 +160,21 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
       const fieldLabel = field.charAt(0).toUpperCase() + field.slice(1);
       logUserAction({ projectId, userId: user.id, userName: 'AdminJon', userEmail: 'admin@zhl.com', action: `Changed ${fieldLabel} to "${value}" for project "${project.name}"` });
     }
+  };
+
+  const handleResolveRequest = async (id: string) => {
+    const ok = await resolveAdminRequest(id);
+    if (ok) setRequests((prev) => prev.map((r) => r.id === id ? { ...r, status: 'resolved' } : r));
+  };
+
+  const handleDeleteRequest = async (id: string) => {
+    const ok = await deleteAdminRequest(id);
+    if (ok) setRequests((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const handleBackupRequestStatus = async (id: string, status: ProjectFileBackupRequest['status']) => {
+    const ok = await updateBackupRequestStatus(id, status);
+    if (ok) setBackupRequests((prev) => prev.map((r) => r.id === id ? { ...r, status } : r));
   };
 
   const selectClass = 'border border-input rounded px-2 py-1 bg-background text-foreground text-xs';
@@ -373,15 +396,138 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
 
         {/* REQUESTS SECTION */}
         <section>
-          <h2 className="text-lg font-bold mb-6 pb-3 border-b border-border">Requests</h2>
+          <h2 className="text-lg font-bold mb-6 pb-3 border-b border-border">
+            Requests
+            {(requests.filter((r) => r.status === 'pending').length + backupRequests.filter((r) => r.status === 'pending').length) > 0 && (
+              <span className="ml-2 text-xs bg-red-500 text-white px-2 py-0.5 rounded-full font-semibold">
+                {requests.filter((r) => r.status === 'pending').length + backupRequests.filter((r) => r.status === 'pending').length} new
+              </span>
+            )}
+          </h2>
 
-          <div className="ml-6 space-y-4">
-            {requests.map((request, index) => (
-              <div key={index} className="border border-input rounded-lg p-4 hover:bg-muted/30 transition-colors">
-                <p className="text-xs text-muted-foreground mb-2">{request.date}</p>
-                <p className="text-sm font-medium text-foreground">{request.message}</p>
+          <div className="ml-6 space-y-3">
+            {loadingRequests ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                <Loader2 className="w-4 h-4 animate-spin" /> Loading requests...
               </div>
-            ))}
+            ) : requests.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4">No requests yet.</p>
+            ) : (
+              requests.map((request) => (
+                <div
+                  key={request.id}
+                  className={`border rounded-lg p-4 transition-colors ${
+                    request.status === 'resolved'
+                      ? 'border-input bg-muted/20 opacity-60'
+                      : 'border-input hover:bg-muted/30'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className="text-xs font-semibold text-foreground">{request.user_name || 'Unknown'}</span>
+                        {request.user_email && (
+                          <span className="text-xs text-muted-foreground">({request.user_email})</span>
+                        )}
+                        {request.status === 'resolved' && (
+                          <span className="text-[10px] bg-green-500/20 text-green-600 dark:text-green-400 px-1.5 py-0.5 rounded font-semibold">
+                            Resolved
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-2">
+                        {new Date(request.created_at).toLocaleString()}
+                      </p>
+                      <p className="text-sm text-foreground">{request.message}</p>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {request.status === 'pending' && (
+                        <button
+                          onClick={() => handleResolveRequest(request.id)}
+                          title="Mark as resolved"
+                          className="p-1.5 text-muted-foreground hover:text-green-600 dark:hover:text-green-400 transition-colors"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDeleteRequest(request.id)}
+                        title="Delete request"
+                        className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Backup Requests subsection */}
+          <div className="mt-8">
+            <h3 className="text-base font-semibold mb-4 pb-2 border-b border-border flex items-center gap-2">
+              Backup Requests
+              {backupRequests.filter((r) => r.status === 'pending').length > 0 && (
+                <span className="text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full font-semibold">
+                  {backupRequests.filter((r) => r.status === 'pending').length} pending
+                </span>
+              )}
+            </h3>
+            <div className="ml-6 space-y-3">
+              {loadingBackupRequests ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading backup requests...
+                </div>
+              ) : backupRequests.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4">No backup requests yet.</p>
+              ) : (
+                backupRequests.map((req) => {
+                  const statusColors: Record<string, string> = {
+                    pending:   'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+                    approved:  'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+                    fulfilled: 'bg-green-500/10 text-green-600 dark:text-green-400',
+                    rejected:  'bg-red-500/10 text-red-600 dark:text-red-400',
+                  };
+                  return (
+                    <div key={req.id} className={`border border-input rounded-lg p-4 ${req.status !== 'pending' ? 'opacity-60' : 'hover:bg-muted/30'} transition-colors`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="text-xs font-semibold text-foreground">{req.project_name}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${statusColors[req.status]}`}>
+                              {req.status}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mb-2">
+                            {new Date(req.created_at).toLocaleString()}
+                          </p>
+                          <p className="text-sm text-foreground">{req.reason ?? '(no reason provided)'}</p>
+                        </div>
+                        {req.status === 'pending' && (
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <button
+                              onClick={() => handleBackupRequestStatus(req.id, 'fulfilled')}
+                              title="Mark as fulfilled"
+                              className="p-1.5 text-muted-foreground hover:text-green-600 dark:hover:text-green-400 transition-colors"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleBackupRequestStatus(req.id, 'rejected')}
+                              title="Reject"
+                              className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         </section>
       </div>

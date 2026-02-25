@@ -22,6 +22,7 @@ import {
   DEFAULT_PROJECT_SETTINGS,
   type ProjectSettings,
 } from '@/lib/db/project-settings';
+import { submitAdminRequest } from '@/lib/db/admin-requests';
 
 type EditingField = 'displayName' | 'phone' | 'email' | 'password' | null;
 
@@ -42,6 +43,12 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
   const [displayName, setDisplayName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+
+  // Send request to admin
+  const [showRequestForm, setShowRequestForm] = useState(false);
+  const [requestMessage, setRequestMessage] = useState('');
+  const [submittingRequest, setSubmittingRequest] = useState(false);
+  const [requestFeedback, setRequestFeedback] = useState('');
 
   // Editing state
   const [editingField, setEditingField] = useState<EditingField>(null);
@@ -91,6 +98,20 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
     setEditValue('');
     setNewPassword('');
     setConfirmPassword('');
+  };
+
+  const handleSubmitRequest = async () => {
+    if (!user || !requestMessage.trim()) return;
+    setSubmittingRequest(true);
+    const ok = await submitAdminRequest(user.id, displayName, email, requestMessage.trim());
+    if (ok) {
+      setRequestFeedback('Request sent to admin!');
+      setRequestMessage('');
+      setTimeout(() => { setShowRequestForm(false); setRequestFeedback(''); }, 2500);
+    } else {
+      setRequestFeedback('Failed to send. Please try again.');
+    }
+    setSubmittingRequest(false);
   };
 
   const saveField = async (field: EditingField) => {
@@ -553,6 +574,49 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
               ) : (
                 <button onClick={() => startEdit('password')} className="w-full text-left text-sm sm:text-base hover:text-accent transition-colors">
                   Change Password
+                </button>
+              )}
+            </div>
+
+            {/* Send Request to Admin */}
+            <div className="py-2 px-3 sm:px-4 rounded border border-transparent">
+              {showRequestForm ? (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Send Request to Admin</label>
+                  <textarea
+                    value={requestMessage}
+                    onChange={(e) => setRequestMessage(e.target.value)}
+                    className={inputClass}
+                    rows={3}
+                    placeholder="Describe what you need (e.g. add a Chase bank statement template, request a feature...)"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleSubmitRequest}
+                      disabled={submittingRequest || !requestMessage.trim()}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent text-accent-foreground rounded-lg text-xs font-semibold hover:opacity-90 disabled:opacity-50"
+                    >
+                      {submittingRequest ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Send
+                    </button>
+                    <button
+                      onClick={() => { setShowRequestForm(false); setRequestMessage(''); setRequestFeedback(''); }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-input rounded-lg text-xs font-semibold hover:bg-muted"
+                    >
+                      <X className="w-3 h-3" /> Cancel
+                    </button>
+                  </div>
+                  {requestFeedback && (
+                    <p className={`text-xs ${requestFeedback.includes('sent') ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`}>
+                      {requestFeedback}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowRequestForm(true)}
+                  className="w-full text-left text-sm sm:text-base hover:text-accent transition-colors"
+                >
+                  Send Request to Admin
                 </button>
               )}
             </div>

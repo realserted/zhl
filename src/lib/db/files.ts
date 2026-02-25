@@ -348,6 +348,42 @@ export async function getBackupRequests(projectId: string): Promise<ProjectFileB
   return data ?? [];
 }
 
+/** Admin: fetch all backup requests across all projects, joined with project name. */
+export async function getAllBackupRequests(): Promise<(ProjectFileBackupRequest & { project_name: string })[]> {
+  const { data, error } = await supabase
+    .from('project_file_backup_requests')
+    .select('*, projects(name)')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching all backup requests:', error);
+    return [];
+  }
+
+  return (data ?? []).map((r: ProjectFileBackupRequest & { projects: { name: string } | null }) => ({
+    ...r,
+    project_name: r.projects?.name ?? 'Unknown Project',
+  }));
+}
+
+/** Admin: update the status of a backup request. */
+export async function updateBackupRequestStatus(
+  requestId: string,
+  status: ProjectFileBackupRequest['status'],
+  responseNote?: string
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('project_file_backup_requests')
+    .update({ status, response_note: responseNote ?? null, responded_at: new Date().toISOString() })
+    .eq('id', requestId);
+
+  if (error) {
+    console.error('Error updating backup request status:', error);
+    return false;
+  }
+  return true;
+}
+
 export async function createBackupRequest(projectId: string, userId: string | null, reason: string): Promise<ProjectFileBackupRequest | null> {
   const { data, error } = await supabase
     .from('project_file_backup_requests')
