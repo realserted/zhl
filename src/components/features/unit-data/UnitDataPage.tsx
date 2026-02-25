@@ -865,10 +865,14 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                               <span className={`text-xs flex items-center gap-1 ${field.visible ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
                                 {field.name}
                                 {field.is_file_link && (
-                                  <Upload className="h-3 w-3 text-muted-foreground flex-shrink-0" title="Shows to indicate a linked file column" />
+                                  <span title="Shows to indicate a linked file column" className="flex-shrink-0">
+                                    <Upload className="h-3 w-3 text-muted-foreground" />
+                                  </span>
                                 )}
                                 {field.is_hyperlink && (
-                                  <Link className="h-3 w-3 text-muted-foreground flex-shrink-0" title="Shows to indicate a linked file column" />
+                                  <span title="Shows to indicate a linked file column" className="flex-shrink-0">
+                                    <Link className="h-3 w-3 text-muted-foreground" />
+                                  </span>
                                 )}
                               </span>
                             )}
