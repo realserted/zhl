@@ -1299,7 +1299,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                         {log.user_name}
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        {new Date(log.created_at).toLocaleString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })} MST
+                        {new Date(log.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}
                       </span>
                       {log.type === 'change' && (
                         <span className="text-xs bg-muted px-1.5 py-0.5 rounded">change</span>

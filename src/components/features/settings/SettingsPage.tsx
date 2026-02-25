@@ -460,6 +460,7 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
     setSavingSettings(false);
   };
 
+
   return (
     <main className="bg-background text-foreground min-h-screen">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
