@@ -14,6 +14,16 @@ interface Props {
   userPermission?: ProjectPermission | null;
 }
 
+interface ScheduleRow {
+  due: string;
+  month: number;
+  payment: number;    // actual cash out that month
+  interest: number;   // interest portion
+  principal: number;  // principal portion
+  balance: number;    // remaining balance AFTER this payment
+  isBalloon: boolean; // true if this row is the balloon payoff point
+}
+
 export default function FinancialDebtSchedule({ selectedProjectId, userPermission }: Props) {
   const { user } = useAuth();
   const [loans, setLoans] = useState<FinancialLoan[]>([]);
@@ -29,8 +39,14 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
   useEffect(() => {
     if (!user) return;
     userEmailRef.current = user.email || '';
-    supabase.from('accounts').select('display_name').eq('user_id', user.id).maybeSingle()
-      .then(({ data }) => { displayNameRef.current = data?.display_name || user.email || 'Unknown'; });
+    supabase
+      .from('accounts')
+      .select('display_name')
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        displayNameRef.current = data?.display_name || user.email || 'Unknown';
+      });
   }, [user]);
 
   useEffect(() => {
@@ -42,7 +58,13 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
 
   const log = (action: string) => {
     if (!user) return;
-    logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action });
+    logUserAction({
+      projectId: selectedProjectId,
+      userId: user.id,
+      userName: displayNameRef.current,
+      userEmail: userEmailRef.current,
+      action,
+    });
   };
 
   const selectedLoan = loans.find((l) => l.id === selectedLoanId) ?? null;
@@ -60,7 +82,9 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
     if (!selectedLoan || !confirm(`Delete "${selectedLoan.loan_name || 'Untitled Loan'}"?`)) return;
     if (await deleteLoan(selectedLoan.id)) {
       setLoans((prev) => prev.filter((l) => l.id !== selectedLoan.id));
-      setSelectedLoanId(loans.length > 1 ? loans.find((l) => l.id !== selectedLoan.id)?.id ?? null : null);
+      setSelectedLoanId(
+        loans.length > 1 ? loans.find((l) => l.id !== selectedLoan.id)?.id ?? null : null
+      );
       log(`Deleted loan "${selectedLoan.loan_name || 'Untitled'}"`);
     }
   };
@@ -70,12 +94,15 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
     if (!selectedLoan) return;
     const current = (selectedLoan as unknown as Record<string, unknown>)[field];
     const numFields = ['amortization', 'interest_rate', 'original_amount', 'payment'];
-    const val = numFields.includes(field) ? (parseFloat(rawValue) || null) : (rawValue || null);
+    const val = numFields.includes(field)
+      ? (parseFloat(rawValue) || null)
+      : (rawValue.trim() || null);
     if (val === current) return;
-
     const ok = await updateLoan(selectedLoan.id, field, val);
     if (ok) {
-      setLoans((prev) => prev.map((l) => (l.id === selectedLoan.id ? { ...l, [field]: val } : l)));
+      setLoans((prev) =>
+        prev.map((l) => (l.id === selectedLoan.id ? { ...l, [field]: val } : l))
+      );
       log(`Updated loan ${field} to "${rawValue}"`);
     }
   };
@@ -85,62 +112,120 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
     const newVal = !selectedLoan.interest_only;
     const ok = await updateLoan(selectedLoan.id, 'interest_only', newVal);
     if (ok) {
-      setLoans((prev) => prev.map((l) => (l.id === selectedLoan.id ? { ...l, interest_only: newVal } : l)));
+      setLoans((prev) =>
+        prev.map((l) => (l.id === selectedLoan.id ? { ...l, interest_only: newVal } : l))
+      );
       log(`Set loan to ${newVal ? 'interest only' : 'amortizing'}`);
     }
   };
 
-  // Calculate amortization schedule
-  const schedule = useMemo(() => {
+  // ── Amortization schedule ────────────────────────────────────────────────
+  const schedule = useMemo((): ScheduleRow[] => {
     if (!selectedLoan?.original_amount || !selectedLoan?.payment) return [];
-    const rows: { due: string; month: number; payment: number; balance: number }[] = [];
-    const startDate = selectedLoan.balloon_date ? new Date(selectedLoan.balloon_date) : new Date();
+
+    // Start date: use start_date if set, otherwise 1st of current month
+    let startDate: Date;
+    if (selectedLoan.start_date) {
+      startDate = new Date(selectedLoan.start_date + 'T00:00:00');
+    } else {
+      startDate = new Date();
+      startDate.setDate(1);
+    }
+
     const monthlyRate = (selectedLoan.interest_rate ?? 0) / 100 / 12;
     const maxMonths = selectedLoan.amortization ?? 360;
-    let balance = Number(selectedLoan.original_amount);
-    const payment = Number(selectedLoan.payment);
+    const balloonDate = selectedLoan.balloon_date
+      ? new Date(selectedLoan.balloon_date + 'T00:00:00')
+      : null;
 
-    // Month 0 — starting balance
+    let balance = Number(selectedLoan.original_amount);
+    const scheduledPayment = Number(selectedLoan.payment);
+
+    const rows: ScheduleRow[] = [];
+
+    // Month 0 — opening balance, no payment yet
     rows.push({
-      due: formatDate(startDate),
+      due: fmtDate(startDate),
       month: 0,
       payment: 0,
+      interest: 0,
+      principal: 0,
       balance,
+      isBalloon: false,
     });
 
-    for (let i = 1; i <= maxMonths && balance > -payment * maxMonths; i++) {
+    for (let i = 1; i <= maxMonths; i++) {
       const d = new Date(startDate);
       d.setMonth(d.getMonth() + i);
 
+      const interest = balance * monthlyRate;
+      const hitsBalloon = balloonDate ? d >= balloonDate : false;
+
       if (selectedLoan.interest_only) {
-        const interestPayment = balance * monthlyRate;
-        rows.push({ due: formatDate(d), month: i, payment, balance: balance });
+        // Interest-only: no principal reduction each month; balloon = full balance
+        rows.push({
+          due: fmtDate(d),
+          month: i,
+          payment: Number(interest.toFixed(2)),
+          interest,
+          principal: 0,
+          balance,
+          isBalloon: hitsBalloon,
+        });
+        if (hitsBalloon) break;
       } else {
-        const interest = balance * monthlyRate;
-        const principal = payment - interest;
-        balance -= principal;
-        rows.push({ due: formatDate(d), month: i, payment, balance });
+        // Amortizing: split payment into interest + principal
+        const principal = Math.min(Math.max(0, scheduledPayment - interest), balance);
+        balance = Math.max(0, balance - principal);
+        const fullyPaid = balance < 0.01;
+
+        rows.push({
+          due: fmtDate(d),
+          month: i,
+          // Last payment may be slightly less than scheduled
+          payment: fullyPaid
+            ? Number((principal + interest).toFixed(2))
+            : scheduledPayment,
+          interest,
+          principal,
+          balance,
+          isBalloon: hitsBalloon,
+        });
+
+        if (fullyPaid || hitsBalloon) break;
       }
     }
+
     return rows;
   }, [selectedLoan]);
 
+  // Today's year+month for row highlighting
+  const todayKey = (() => {
+    const t = new Date();
+    return `${t.getFullYear()}-${t.getMonth()}`;
+  })();
+
+  // ── Loan detail fields list ───────────────────────────────────────────────
   const loanFields: { field: string; label: string; type?: string }[] = [
-    { field: 'loan_name', label: 'LOAN NAME' },
-    { field: 'lender', label: 'Lender' },
-    { field: 'due_on_the', label: 'Due on the' },
+    { field: 'loan_name',       label: 'LOAN NAME' },
+    { field: 'lender',          label: 'Lender' },
+    { field: 'start_date',      label: 'Start Date',            type: 'date' },
+    { field: 'due_on_the',      label: 'Due on the' },
     { field: 'autopays_on_the', label: 'Autopays on the' },
-    { field: 'amortization', label: 'Amortization', type: 'number' },
-    { field: 'interest_rate', label: 'Interest', type: 'number' },
-    { field: 'original_amount', label: 'Original Loan Amount', type: 'number' },
-    { field: 'payment', label: 'Payment', type: 'number' },
-    { field: 'balloon_date', label: 'Balloon', type: 'date' },
+    { field: 'amortization',    label: 'Amortization',          type: 'number' },
+    { field: 'interest_rate',   label: 'Interest',              type: 'number' },
+    { field: 'original_amount', label: 'Original Loan Amount',  type: 'number' },
+    { field: 'payment',         label: 'Payment',               type: 'number' },
+    { field: 'balloon_date',    label: 'Balloon',               type: 'date' },
   ];
+
+  const money = (n: number) =>
+    n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
     <div>
-      {/* Loan selector + Add */}
-      <div className="flex items-center gap-4 mb-6 flex-wrap">
+      {/* ── Loan selector row ─────────────────────────────────────────────── */}
+      <div className="flex items-center gap-3 mb-6 flex-wrap">
         {loans.map((loan) => (
           <button
             key={loan.id}
@@ -155,39 +240,68 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
           </button>
         ))}
         {canEdit && (
-          <button onClick={handleAddLoan} className="flex items-center gap-1 text-sm font-semibold text-accent hover:text-accent/80">
+          <button
+            onClick={handleAddLoan}
+            className="ml-auto flex items-center gap-1 text-sm font-semibold text-accent hover:text-accent/80"
+          >
             <Plus className="h-4 w-4" /> Add Loan
           </button>
         )}
       </div>
 
       {selectedLoan ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Loan details card */}
-          <div className="border border-border rounded-lg p-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold">{selectedLoan.loan_name || 'Loan Details'}</h3>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+          {/* ── Left: Loan details ───────────────────────────────────────── */}
+          <div className="border border-border rounded-lg overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-2.5 bg-muted border-b border-border">
+              <span className="text-xs font-bold tracking-wide">LOAN DETAILS</span>
               {canEdit && (
-                <button onClick={handleDeleteLoan} className="text-muted-foreground hover:text-destructive">
+                <button
+                  onClick={handleDeleteLoan}
+                  title="Delete loan"
+                  className="text-muted-foreground hover:text-destructive transition-colors"
+                >
                   <Trash2 className="h-4 w-4" />
                 </button>
               )}
             </div>
+
             <table className="w-full text-sm">
               <tbody>
                 {loanFields.map(({ field, label, type }) => {
-                  const rawVal = (selectedLoan as unknown as Record<string, unknown>)[field];
-                  const displayVal = rawVal != null ? String(rawVal) : '';
+                  const raw = (selectedLoan as unknown as Record<string, unknown>)[field];
+                  const displayVal = raw != null ? String(raw) : '';
                   const isEditing = editingField === field;
 
+                  // Format for display
+                  let formatted: string = displayVal;
+                  if (field === 'interest_rate' && displayVal)
+                    formatted = `${Number(displayVal).toFixed(3)}%`;
+                  else if (field === 'original_amount' && displayVal)
+                    formatted = `$${money(Number(displayVal))}`;
+                  else if (field === 'payment' && displayVal)
+                    formatted = `$${money(Number(displayVal))}`;
+                  else if ((field === 'balloon_date' || field === 'start_date') && displayVal)
+                    formatted = fmtDisplayDate(displayVal);
+
                   return (
-                    <tr key={field} className="border-b border-border/30">
-                      <td className="py-2 pr-4 font-semibold text-xs text-foreground w-[160px]">{label}</td>
-                      <td className="py-2">
+                    <tr
+                      key={field}
+                      className={`border-b border-border/40 ${
+                        field === 'loan_name' ? 'bg-muted/50' : ''
+                      }`}
+                    >
+                      <td className="px-4 py-2 text-xs font-semibold text-foreground w-[175px] whitespace-nowrap">
+                        {label}
+                      </td>
+                      <td className="px-4 py-2">
                         {isEditing ? (
                           <input
                             autoFocus
                             type={type ?? 'text'}
+                            step={type === 'number' ? 'any' : undefined}
                             value={editValue}
                             onChange={(e) => setEditValue(e.target.value)}
                             onBlur={() => saveField(field, editValue)}
@@ -199,42 +313,91 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
                           />
                         ) : (
                           <span
-                            onClick={canEdit ? () => { setEditingField(field); setEditValue(displayVal); } : undefined}
-                            className={`text-xs block min-h-[1.25rem] px-2 py-0.5 rounded ${canEdit ? 'cursor-pointer hover:bg-muted/50' : ''}`}
+                            onClick={
+                              canEdit
+                                ? () => { setEditingField(field); setEditValue(displayVal); }
+                                : undefined
+                            }
+                            className={`text-xs block min-h-[1.25rem] px-2 py-0.5 rounded ${
+                              canEdit ? 'cursor-pointer hover:bg-muted/60' : ''
+                            } ${field === 'loan_name' ? 'font-semibold text-accent' : 'text-foreground'}`}
                           >
-                            {field === 'interest_rate' && displayVal ? `${displayVal}%` :
-                             field === 'original_amount' && displayVal ? `$${Number(displayVal).toLocaleString()}` :
-                             field === 'payment' && displayVal ? `$${Number(displayVal).toLocaleString()}` :
-                             displayVal || <span className="text-muted-foreground/40">-</span>}
+                            {formatted || (
+                              <span className="text-muted-foreground/40 italic">—</span>
+                            )}
                           </span>
                         )}
                       </td>
-                      {field === 'amortization' && (
-                        <td className="py-2 pl-2">
+
+                      {/* "or Interest only" toggle next to Amortization row */}
+                      {field === 'amortization' ? (
+                        <td className="px-3 py-2 whitespace-nowrap">
                           <button
                             onClick={toggleInterestOnly}
-                            className={`text-xs px-2 py-0.5 rounded border ${
+                            disabled={!canEdit}
+                            className={`text-xs px-2 py-0.5 rounded border transition-colors ${
                               selectedLoan.interest_only
                                 ? 'border-accent text-accent bg-accent/10'
-                                : 'border-border text-muted-foreground hover:bg-muted'
+                                : 'border-border text-muted-foreground hover:bg-muted disabled:opacity-50'
                             }`}
                           >
-                            {selectedLoan.interest_only ? 'Interest only' : 'or Interest only'}
+                            {selectedLoan.interest_only ? 'Interest only ✓' : 'or Interest only'}
                           </button>
                         </td>
+                      ) : (
+                        <td />
                       )}
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+
+            {/* Quick stats footer */}
+            {selectedLoan.original_amount && selectedLoan.interest_rate && (
+              <div className="px-4 py-3 border-t border-border bg-muted/30 space-y-1 text-xs text-muted-foreground">
+                {(() => {
+                  const monthlyInterest =
+                    (Number(selectedLoan.original_amount) * (Number(selectedLoan.interest_rate) / 100)) / 12;
+                  const monthlyPrincipal = selectedLoan.payment
+                    ? Number(selectedLoan.payment) - monthlyInterest
+                    : null;
+                  return (
+                    <>
+                      <div>
+                        Monthly interest (month 1):{' '}
+                        <span className="font-semibold text-foreground">${money(monthlyInterest)}</span>
+                      </div>
+                      {!selectedLoan.interest_only && monthlyPrincipal != null && (
+                        <div>
+                          Monthly principal (month 1):{' '}
+                          <span className="font-semibold text-foreground">${money(monthlyPrincipal)}</span>
+                        </div>
+                      )}
+                      {schedule.length > 1 && (
+                        <div>
+                          Schedule length:{' '}
+                          <span className="font-semibold text-foreground">
+                            {schedule.length - 1} months
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
           </div>
 
-          {/* Amortization table */}
-          <div className="border border-border rounded-lg overflow-hidden">
-            <div className="max-h-[500px] overflow-y-auto">
+          {/* ── Right: Amortization schedule ─────────────────────────────── */}
+          <div className="border border-border rounded-lg overflow-hidden flex flex-col">
+            <div className="px-4 py-2.5 bg-muted border-b border-border">
+              <span className="text-xs font-bold tracking-wide">AMORTIZATION SCHEDULE</span>
+            </div>
+
+            <div className="overflow-y-auto max-h-[600px]">
               <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-muted/80 z-10">
+                <thead className="sticky top-0 bg-muted/90 backdrop-blur-sm z-10">
                   <tr className="border-b border-border">
                     <th className="px-3 py-2 text-left font-semibold">Due</th>
                     <th className="px-3 py-2 text-center font-semibold">Month</th>
@@ -245,23 +408,59 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
                 <tbody>
                   {schedule.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground text-sm">
-                        Fill in loan details to see amortization schedule.
+                      <td colSpan={4} className="px-4 py-10 text-center text-muted-foreground">
+                        Enter Original Loan Amount and Payment to generate the schedule.
                       </td>
                     </tr>
                   ) : (
-                    schedule.map((row, i) => (
-                      <tr key={i} className="border-b border-border/30">
-                        <td className="px-3 py-1.5 text-foreground">{row.due}</td>
-                        <td className="px-3 py-1.5 text-center text-foreground">{row.month}</td>
-                        <td className="px-3 py-1.5 text-right text-foreground">
-                          {row.payment > 0 ? `$${row.payment.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : ''}
-                        </td>
-                        <td className={`px-3 py-1.5 text-right font-medium ${row.balance < 0 ? 'text-red-400' : 'text-foreground'}`}>
-                          {row.month === 0 ? '' : `${row.balance < 0 ? '-' : ''}$${Math.abs(row.balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
-                        </td>
-                      </tr>
-                    ))
+                    schedule.map((row, idx) => {
+                      // Detect today's row
+                      const rowKey = (() => {
+                        const d = parseScheduleDate(row.due);
+                        return d ? `${d.getFullYear()}-${d.getMonth()}` : '';
+                      })();
+                      const isCurrentMonth = rowKey === todayKey;
+
+                      return (
+                        <tr
+                          key={idx}
+                          className={`border-b border-border/30 ${
+                            row.isBalloon
+                              ? 'bg-orange-500/10 font-semibold'
+                              : isCurrentMonth
+                              ? 'bg-blue-500/10'
+                              : idx % 2 !== 0
+                              ? 'bg-muted/20'
+                              : ''
+                          }`}
+                        >
+                          {/* Due date */}
+                          <td className="px-3 py-1.5 whitespace-nowrap text-foreground">
+                            {row.due}
+                            {row.isBalloon && (
+                              <span className="ml-1.5 text-[10px] font-bold text-orange-500">
+                                BALLOON
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Month */}
+                          <td className="px-3 py-1.5 text-center text-foreground">
+                            {row.month}
+                          </td>
+
+                          {/* Payment */}
+                          <td className="px-3 py-1.5 text-right text-foreground">
+                            {row.payment > 0 ? `$${money(row.payment)}` : ''}
+                          </td>
+
+                          {/* Remaining balance */}
+                          <td className="px-3 py-1.5 text-right font-medium text-foreground">
+                            ${money(row.balance)}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -269,15 +468,43 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
           </div>
         </div>
       ) : (
-        <div className="text-center text-muted-foreground py-8">
-          {loans.length === 0 ? 'No loans yet. Click "+ Add Loan" to create one.' : 'Select a loan to view details.'}
+        <div className="text-center text-muted-foreground py-12">
+          {loans.length === 0
+            ? 'No loans yet. Click "+ Add Loan" to create one.'
+            : 'Select a loan above to view its amortization schedule.'}
         </div>
       )}
     </div>
   );
 }
 
-function formatDate(d: Date): string {
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Format Date → "1 Jan 2026" */
+function fmtDate(d: Date): string {
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+/** Format YYYY-MM-DD → "M/D/YYYY" for compact display */
+function fmtDisplayDate(iso: string): string {
+  const d = new Date(iso + 'T00:00:00');
+  return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+}
+
+/** Parse "d Mon YYYY" back to a Date (for today-row comparison) */
+function parseScheduleDate(s: string): Date | null {
+  const monthIdx: Record<string, number> = {
+    Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+    Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
+  };
+  const parts = s.split(' ');
+  if (parts.length !== 3) return null;
+  const day   = parseInt(parts[0], 10);
+  const month = monthIdx[parts[1]];
+  const year  = parseInt(parts[2], 10);
+  if (isNaN(day) || month === undefined || isNaN(year)) return null;
+  return new Date(year, month, day);
 }

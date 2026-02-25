@@ -76,6 +76,7 @@ export interface FinancialLoan {
   project_id: string;
   loan_name: string | null;
   lender: string | null;
+  start_date: string | null;       // Loan origination / first payment date (YYYY-MM-DD)
   due_on_the: string | null;
   autopays_on_the: string | null;
   amortization: number | null;
