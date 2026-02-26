@@ -923,7 +923,7 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
           {canManagePerms && (
             <button
               onClick={() => setShowAddUser(true)}
-              className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-accent hover:text-accent/80 transition-colors"
+              className="mt-4 inline-flex items-center gap-2 border-2 border-foreground px-4 sm:px-6 py-2 rounded font-semibold hover:bg-muted transition-colors text-sm sm:text-base"
             >
               <Plus className="h-4 w-4" />
               Add User
@@ -933,7 +933,7 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
         )}
 
           {/* EMAIL READING SECTION */}
-          <div className="mb-8 ml-6">
+          <div className="mt-10 mb-8 ml-6">
             <h3 className="text-lg font-bold mb-3 text-foreground">EMAIL READING</h3>
             <div className="space-y-2 ml-4">
               <button className="w-full text-left py-2 px-4 rounded hover:bg-muted transition-colors">
