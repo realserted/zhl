@@ -4,6 +4,7 @@ import { AlertTriangle, Loader2 } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { getTaskers } from '@/lib/db/taskers';
 import { Tasker } from '@/lib/types/tasker';
+import OverviewCalendar from './OverviewCalendar';
 
 interface OverviewScreenProps {
   selectedProjectId?: string | null;
@@ -300,12 +301,7 @@ export default function OverviewScreen({ selectedProjectId }: OverviewScreenProp
           </div>
 
           {/* Calendar */}
-          <div className="bg-card border border-border rounded-xl p-5">
-            <h2 className="text-sm font-semibold text-foreground mb-3">Calendar</h2>
-            <div className="w-full h-44 border border-border rounded-lg flex items-center justify-center">
-              <span className="text-xs text-muted-foreground">Calendar placeholder</span>
-            </div>
-          </div>
+          <OverviewCalendar projectId={selectedProjectId ?? null} taskers={taskers} />
         </div>
       </div>
     </main>

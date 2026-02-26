@@ -1,16 +1,23 @@
 'use client';
 
-import { ReactNode } from 'react';
+import { ReactNode, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { AppStateProvider, useAppState } from './AppStateContext';
 import Navbar from '@/components/shared/Navbar';
-import LoginPage from '@/components/auth/LoginPage';
 
 function LayoutContent({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const { projects, selectedProject, setSelectedProject, userPermission } = useAppState();
+  const router = useRouter();
 
-  if (loading) {
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace('/login');
+    }
+  }, [user, loading, router]);
+
+  if (loading || !user) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background">
         <div className="text-center">
@@ -19,10 +26,6 @@ function LayoutContent({ children }: { children: ReactNode }) {
         </div>
       </main>
     );
-  }
-
-  if (!user) {
-    return <LoginPage />;
   }
 
   return (

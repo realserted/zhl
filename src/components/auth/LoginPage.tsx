@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { useTheme } from 'next-themes';
 import Image from 'next/image';
@@ -20,11 +21,16 @@ const MAX_ATTEMPTS = 5;
 const LOCKOUT_SECONDS = 30;
 const SIGNUP_COOLDOWN_SECONDS = 30;
 
-export default function LoginPage() {
+interface LoginPageProps {
+  initialMode?: 'login' | 'signup';
+}
+
+export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
   const { signIn, signUp } = useAuth();
+  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const { theme } = useTheme();
-  const [isSignUp, setIsSignUp] = useState(false);
+  const isSignUp = initialMode === 'signup';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -198,13 +204,13 @@ export default function LoginPage() {
             </p>
             <button
               onClick={() => {
-                setIsSignUp(false);
                 setSignUpSuccess(false);
                 setEmail('');
                 setPassword('');
                 setConfirmPassword('');
                 setDisplayName('');
                 setPhone('');
+                router.push('/login');
               }}
               className="text-sm text-green-400 hover:underline font-medium"
             >
@@ -424,10 +430,10 @@ export default function LoginPage() {
               {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
               <button
                 onClick={() => {
-                  setIsSignUp(!isSignUp);
                   setError(null);
                   setPassword('');
                   setConfirmPassword('');
+                  router.push(isSignUp ? '/login' : '/signup');
                 }}
                 className="text-green-400 font-medium hover:underline"
               >
