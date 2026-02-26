@@ -38,6 +38,15 @@ const STATUS_COLORS: Record<string, string> = {
   Archived: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300',
 };
 
+const PRIORITY_LABELS: Record<number, string> = {
+  0: 'None',
+  1: 'Low',
+  2: 'Medium',
+  3: 'High',
+  4: 'Urgent',
+  5: 'Critical',
+};
+
 interface TaskersPageProps {
   selectedProjectId: string | null;
   selectedProjectName?: string | null;
@@ -694,7 +703,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                               title={`${t.task_name}${t.responsible_name ? ` — ${t.responsible_name}` : ''}`}
                               className={`w-full text-left px-1.5 py-0.5 rounded text-[10px] font-medium truncate leading-tight ${STATUS_COLORS[t.status]} hover:opacity-80 transition-opacity`}
                             >
-                              {t.priority > 0 && <span className="mr-0.5">{'★'.repeat(t.priority)}</span>}
+                              {t.priority > 0 && <span className="mr-0.5">[{PRIORITY_LABELS[t.priority]}]</span>}
                               {t.task_name}
                             </button>
                           ))}
@@ -903,7 +912,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                                 )
                               );
                               if (user) {
-                                const priorityLabel = (p: number) => p === 0 ? 'None' : '★'.repeat(p);
+                                const priorityLabel = (p: number) => PRIORITY_LABELS[p] ?? 'None';
                                 await addTaskerLog({
                                   tasker_id: tasker.id,
                                   user_id: user.id,
@@ -920,7 +929,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                         >
                           {[0, 1, 2, 3, 4, 5].map((n) => (
                             <option key={n} value={n}>
-                              {n === 0 ? 'None' : '★'.repeat(n)}
+                              {PRIORITY_LABELS[n]}
                             </option>
                           ))}
                         </select>
@@ -1091,7 +1100,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                   >
                     {[0, 1, 2, 3, 4, 5].map((n) => (
                       <option key={n} value={n}>
-                        {n === 0 ? 'None' : '★'.repeat(n)}
+                        {PRIORITY_LABELS[n]}
                       </option>
                     ))}
                   </select>
