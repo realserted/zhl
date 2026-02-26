@@ -125,8 +125,6 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
   const [newFieldName, setNewFieldName] = useState('');
   const [newFieldCategory, setNewFieldCategory] = useState('');
   const [newFieldTooltip, setNewFieldTooltip] = useState('');
-  const [newFieldIsFileLink, setNewFieldIsFileLink] = useState(false);
-  const [newFieldIsHyperlink, setNewFieldIsHyperlink] = useState(false);
 
   // Excel upload
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -538,8 +536,8 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
       newFieldName.trim(),
       'text',
       newFieldTooltip.trim() || null,
-      newFieldIsFileLink,
-      newFieldIsHyperlink,
+      false,
+      false,
       cat.fields.length
     );
 
@@ -552,8 +550,6 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
       log(`Added field "${newFieldName.trim()}" to "${cat.name}"`);
       setNewFieldName('');
       setNewFieldTooltip('');
-      setNewFieldIsFileLink(false);
-      setNewFieldIsHyperlink(false);
       setShowAddField(false);
     }
   };
@@ -1266,26 +1262,6 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                   className={inputClass}
                   placeholder="Tooltip text (shown on hover)"
                 />
-              </div>
-              <div className="flex items-center gap-6">
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={newFieldIsFileLink}
-                    onChange={(e) => setNewFieldIsFileLink(e.target.checked)}
-                    className="rounded border-input"
-                  />
-                  Links to files?
-                </label>
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={newFieldIsHyperlink}
-                    onChange={(e) => setNewFieldIsHyperlink(e.target.checked)}
-                    className="rounded border-input"
-                  />
-                  Hyperlink?
-                </label>
               </div>
             </div>
             <div className="flex items-center gap-3 mt-4">

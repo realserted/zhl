@@ -604,49 +604,6 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
               )}
             </div>
 
-            {/* Send Request to Admin */}
-            <div className="py-2 px-3 sm:px-4 rounded border border-transparent">
-              {showRequestForm ? (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Send Request to Admin</label>
-                  <textarea
-                    value={requestMessage}
-                    onChange={(e) => setRequestMessage(e.target.value)}
-                    className={inputClass}
-                    rows={3}
-                    placeholder="Describe what you need (e.g. add a Chase bank statement template, request a feature...)"
-                  />
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleSubmitRequest}
-                      disabled={submittingRequest || !requestMessage.trim()}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent text-accent-foreground rounded-lg text-xs font-semibold hover:opacity-90 disabled:opacity-50"
-                    >
-                      {submittingRequest ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Send
-                    </button>
-                    <button
-                      onClick={() => { setShowRequestForm(false); setRequestMessage(''); setRequestFeedback(''); }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-input rounded-lg text-xs font-semibold hover:bg-muted"
-                    >
-                      <X className="w-3 h-3" /> Cancel
-                    </button>
-                  </div>
-                  {requestFeedback && (
-                    <p className={`text-xs ${requestFeedback.includes('sent') ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`}>
-                      {requestFeedback}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowRequestForm(true)}
-                  className="w-full text-left text-sm sm:text-base hover:text-accent transition-colors"
-                >
-                  Send Request to Admin
-                </button>
-              )}
-            </div>
-
             <button className="w-full text-left py-2 px-3 sm:px-4 rounded hover:bg-muted transition-colors text-sm sm:text-base">
               Billing Settings
             </button>
