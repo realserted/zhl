@@ -991,12 +991,22 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                       </td>
 
                       {/* Original due date vs now */}
-                      <td className="px-3 py-3 whitespace-nowrap text-xs text-muted-foreground">
-                        {tasker.original_due_date && tasker.due_date
-                          ? tasker.original_due_date === tasker.due_date
-                            ? 'On track'
-                            : `${tasker.original_due_date} → ${tasker.due_date}`
-                          : tasker.original_due_date ?? '-'}
+                      <td className="px-3 py-3 whitespace-nowrap text-xs">
+                        {(() => {
+                          const dueDateStr = tasker.due_date;
+                          if (!dueDateStr) return <span className="text-muted-foreground">-</span>;
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          const due = new Date(dueDateStr + 'T00:00:00');
+                          const diffDays = Math.round((due.getTime() - today.getTime()) / 86_400_000);
+                          if (diffDays < 0) {
+                            return <span className="text-red-500 font-medium">{Math.abs(diffDays)} day{Math.abs(diffDays) !== 1 ? 's' : ''} late</span>;
+                          }
+                          if (diffDays === 0) {
+                            return <span className="text-yellow-500 font-medium">Due today</span>;
+                          }
+                          return <span className="text-green-500 font-medium">In {diffDays} day{diffDays !== 1 ? 's' : ''}</span>;
+                        })()}
                       </td>
 
                       {/* Delete — hidden for View-only */}

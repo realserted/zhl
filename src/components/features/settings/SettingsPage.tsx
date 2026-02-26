@@ -1,7 +1,7 @@
 'use client';
 
 import { Plus, ToggleLeft, Check, X, Loader2, Trash2 } from 'lucide-react';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase/client';
 import { Project, ProjectPermission } from '@/lib/types/project';
@@ -190,6 +190,8 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
   const [showAddUser, setShowAddUser] = useState(false);
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
+  const [lookingUpName, setLookingUpName] = useState(false);
+  const [emailNotFound, setEmailNotFound] = useState(false);
   const [addingUser, setAddingUser] = useState(false);
   const [newUserPerms, setNewUserPerms] = useState<Record<string, string>>({
     perm_taskers: 'View',
@@ -262,6 +264,29 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
     }
     setDeletingProject(false);
   };
+
+  // Auto-lookup display name when email changes
+  const emailLookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (emailLookupTimer.current) clearTimeout(emailLookupTimer.current);
+    setNewUserName('');
+    setEmailNotFound(false);
+    const trimmed = newUserEmail.trim().toLowerCase();
+    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return;
+    setLookingUpName(true);
+    emailLookupTimer.current = setTimeout(async () => {
+      const { data } = await supabase.rpc('lookup_display_name_by_email', { p_email: trimmed });
+      if (data) {
+        setNewUserName(data as string);
+        setEmailNotFound(false);
+      } else {
+        setNewUserName('');
+        setEmailNotFound(true);
+      }
+      setLookingUpName(false);
+    }, 500);
+    return () => { if (emailLookupTimer.current) clearTimeout(emailLookupTimer.current); };
+  }, [newUserEmail]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAddUser = async () => {
     if (!selectedProjectId || !newUserName.trim() || !newUserEmail.trim()) return;
@@ -834,20 +859,25 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
               <div className="bg-card border border-border rounded-xl p-6 w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between mb-5">
                   <h3 className="text-lg font-bold">Add User to Project</h3>
-                  <button onClick={() => { setShowAddUser(false); setNewUserName(''); setNewUserEmail(''); }} className="p-1 hover:bg-muted rounded">
+                  <button onClick={() => { setShowAddUser(false); setNewUserName(''); setNewUserEmail(''); setEmailNotFound(false); }} className="p-1 hover:bg-muted rounded">
                     <X className="h-5 w-5" />
                   </button>
                 </div>
 
-                {/* Name + Email */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
-                  <div>
-                    <label className="block text-xs font-semibold mb-1">Name</label>
-                    <input type="text" value={newUserName} onChange={(e) => setNewUserName(e.target.value)} placeholder="Full name" className={inputClass} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold mb-1">Email</label>
-                    <input type="email" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} placeholder="user@example.com" className={inputClass} />
+                {/* Email + auto-resolved name */}
+                <div className="mb-5">
+                  <label className="block text-xs font-semibold mb-1">Email</label>
+                  <input type="email" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} placeholder="user@example.com" className={inputClass} />
+                  <div className="mt-1.5 min-h-[1.25rem]">
+                    {lookingUpName && (
+                      <span className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Looking up user…</span>
+                    )}
+                    {!lookingUpName && newUserName && (
+                      <span className="text-xs text-green-500 font-medium">User found: {newUserName}</span>
+                    )}
+                    {!lookingUpName && emailNotFound && (
+                      <span className="text-xs text-red-500">No account found with this email</span>
+                    )}
                   </div>
                 </div>
 
@@ -904,13 +934,13 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                 <div className="flex items-center gap-3">
                   <button
                     onClick={handleAddUser}
-                    disabled={addingUser || !newUserName.trim() || !newUserEmail.trim()}
+                    disabled={addingUser || !newUserName.trim() || !newUserEmail.trim() || lookingUpName || emailNotFound}
                     className="inline-flex items-center gap-1.5 px-4 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50"
                   >
                     {addingUser ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Add User
                   </button>
                   <button
-                    onClick={() => { setShowAddUser(false); setNewUserName(''); setNewUserEmail(''); }}
+                    onClick={() => { setShowAddUser(false); setNewUserName(''); setNewUserEmail(''); setEmailNotFound(false); }}
                     className="inline-flex items-center gap-1.5 px-4 py-2 border border-input rounded-lg text-sm font-semibold hover:bg-muted"
                   >
                     <X className="w-4 h-4" /> Cancel
