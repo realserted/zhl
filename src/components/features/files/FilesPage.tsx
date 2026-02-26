@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Folder, FolderUp, Plus, Loader2, Download, DatabaseBackup, ShieldCheck, FileText, Upload, Trash2, Pencil, AlertTriangle } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, FolderUp, Plus, Loader2, Download, DatabaseBackup, ShieldCheck, FileText, Upload, Trash2, Pencil, AlertTriangle, X, Link as LinkIcon } from 'lucide-react';
 import { ProjectPermission } from '@/lib/types/project';
 import { useAuth } from '@/lib/auth-context';
 import {
@@ -20,12 +20,16 @@ import {
   getFilesForProject,
   getMonthlyDownloadLog,
   logDownloadAll,
+  getLinkedUnitDataMap,
+  linkFileToUnitData,
   renameFile,
   renameFolder,
   uploadFile,
   upsertFilePermissions,
   upsertFolderPermissions,
 } from '@/lib/db/files';
+import { getCategories } from '@/lib/db/unit-data';
+import type { CategoryWithFields } from '@/lib/types/unit-data';
 import {
   ProjectFileBackup,
   ProjectFileBackupRequest,
@@ -122,6 +126,15 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
 
   const [confirmDeleteFolder, setConfirmDeleteFolder] = useState<string | null>(null);
 
+  // Unit linking state
+  const [showLinkModal, setShowLinkModal] = useState(false);
+  const [pendingLinkFiles, setPendingLinkFiles] = useState<Array<{ name: string; storagePath: string }>>([]); // generic: works for new uploads + existing files/folders
+  const [unitCategories, setUnitCategories] = useState<CategoryWithFields[]>([]);
+  const [unitDataLoaded, setUnitDataLoaded] = useState(false);
+  const [linkSelections, setLinkSelections] = useState<Map<number, { type: 'field' | 'category'; id: string }>>(new Map()); // index -> target
+  const [linkingInProgress, setLinkingInProgress] = useState(false);
+  const [linkedMap, setLinkedMap] = useState<Map<string, { type: 'field' | 'category'; name: string; parentName?: string }>>(new Map());
+
   const log = (action: string) => {
     if (!user || !selectedProjectId) return;
     logUserAction({
@@ -131,6 +144,39 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
       userEmail: userEmailRef.current,
       action,
     });
+  };
+
+  const loadUnitDataForLinking = async () => {
+    if (unitDataLoaded || !selectedProjectId) return;
+    const cats = await getCategories(selectedProjectId);
+    setUnitCategories(cats);
+    setUnitDataLoaded(true);
+  };
+
+  const handleLinkFiles = async () => {
+    setLinkingInProgress(true);
+    let linked = 0;
+    for (const [idx, target] of linkSelections.entries()) {
+      if (!target.id) continue;
+      const item = pendingLinkFiles[idx];
+      if (!item) continue;
+      const ok = await linkFileToUnitData(target.type, target.id, item.name, item.storagePath);
+      if (ok) linked++;
+    }
+    setLinkingInProgress(false);
+    setShowLinkModal(false);
+    if (linked > 0) {
+      setNotice(`${linked} file(s) linked to unit data.`);
+      log(`Linked ${linked} file(s) to unit data`);
+      if (selectedProjectId) getLinkedUnitDataMap(selectedProjectId).then(setLinkedMap);
+    }
+  };
+
+  const openLinkModal = (items: Array<{ name: string; storagePath: string }>) => {
+    setPendingLinkFiles(items);
+    setLinkSelections(new Map());
+    setShowLinkModal(true);
+    loadUnitDataForLinking();
   };
 
   useEffect(() => {
@@ -153,6 +199,10 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
       setFiles([]);
       return;
     }
+
+    // Reset cached unit data on project change
+    setUnitDataLoaded(false);
+    setUnitCategories([]);
 
     const load = async () => {
       setLoading(true);
@@ -184,6 +234,9 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
       const filePermMap = new Map<string, ProjectFileItemPermissions>();
       filePermData.forEach((p) => filePermMap.set(p.file_id, p));
       setAllFilePermissions(filePermMap);
+
+      // Load linked unit data map
+      getLinkedUnitDataMap(selectedProjectId).then(setLinkedMap);
 
       setLoading(false);
     };
@@ -391,6 +444,7 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
     log(`Uploaded folder "${rootName}" with ${newFolders.length} folder(s) and ${uploaded.length} file(s)`);
     setNotice(`Folder "${rootName}" uploaded with ${uploaded.length} file(s) across ${newFolders.length} folder(s).`);
     setUploading(false);
+    if (uploaded.length > 0) openLinkModal(uploaded.filter((f) => f.storage_path).map((f) => ({ name: f.name, storagePath: f.storage_path! })));
   };
 
   const handleUploadFiles = async (fileList: FileList) => {
@@ -409,6 +463,7 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
       setFiles((prev) => [...uploaded, ...prev]);
       log(`Uploaded ${uploaded.length} file(s)`);
       setNotice(`${uploaded.length} file(s) uploaded successfully.`);
+      openLinkModal(uploaded.filter((f) => f.storage_path).map((f) => ({ name: f.name, storagePath: f.storage_path! })));
     }
     setUploading(false);
     setUploadTargetFolderId(null);
@@ -838,6 +893,22 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                           ) : (
                             <span className="font-medium">{folder.name}</span>
                           )}
+                          {(() => {
+                            const linkInfo = linkedMap.get(`folder:${folder.id}`);
+                            if (!linkInfo) return null;
+                            const label = linkInfo.type === 'field' && linkInfo.parentName
+                              ? `${linkInfo.parentName} → ${linkInfo.name}`
+                              : linkInfo.name;
+                            return (
+                              <span
+                                className="inline-flex items-center gap-0.5 text-[10px] text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded cursor-default"
+                                title={`Linked to ${linkInfo.type}: ${label}`}
+                              >
+                                <LinkIcon className="h-3 w-3" />
+                                {label}
+                              </span>
+                            );
+                          })()}
                           {savingPermission === folder.id && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
                         </div>
                       </td>
@@ -879,6 +950,15 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                               title="Delete folder"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          {canEdit && (
+                            <button
+                              onClick={() => openLinkModal([{ name: folder.name, storagePath: `folder:${folder.id}` }])}
+                              className="text-muted-foreground hover:text-blue-500"
+                              title="Link folder to Unit Data"
+                            >
+                              <LinkIcon className="h-3.5 w-3.5" />
                             </button>
                           )}
                         </div>
@@ -936,6 +1016,22 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                         ) : (
                           <span>{file.name}</span>
                         )}
+                        {(() => {
+                          const linkInfo = file.storage_path ? linkedMap.get(file.storage_path) : null;
+                          if (!linkInfo) return null;
+                          const label = linkInfo.type === 'field' && linkInfo.parentName
+                            ? `${linkInfo.parentName} → ${linkInfo.name}`
+                            : linkInfo.name;
+                          return (
+                            <span
+                              className="inline-flex items-center gap-0.5 text-[10px] text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded cursor-default"
+                              title={`Linked to ${linkInfo.type}: ${label}`}
+                            >
+                              <LinkIcon className="h-3 w-3" />
+                              {label}
+                            </span>
+                          );
+                        })()}
                         {savingPermission === file.id && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
                       </div>
                     </td>
@@ -968,6 +1064,15 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                             title="Delete"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {canEdit && file.storage_path && (
+                          <button
+                            onClick={() => openLinkModal([{ name: file.name, storagePath: file.storage_path! }])}
+                            className="text-muted-foreground hover:text-blue-500"
+                            title="Link file to Unit Data"
+                          >
+                            <LinkIcon className="h-3.5 w-3.5" />
                           </button>
                         )}
                       </div>
@@ -1109,6 +1214,90 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
             {isAdmin && (
               <p className="text-[11px] text-muted-foreground mt-2">You are admin: fulfill requests from this project in the database/admin tools.</p>
             )}
+          </div>
+        </div>
+      )}
+      {showLinkModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-card border border-border rounded-xl p-4 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-bold">Link to Unit Data</h2>
+              <button onClick={() => setShowLinkModal(false)} className="p-1 hover:bg-muted rounded">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground mb-4">
+              Link files to a category or field in Unit Data. A link indicator will appear on the sidebar.
+            </p>
+
+            {unitCategories.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No categories found in Unit Data. Create categories and fields first.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {pendingLinkFiles.map((item, idx) => {
+                  const sel = linkSelections.get(idx);
+                  const linkType = sel?.type ?? 'field';
+                  const selectedValue = sel ? `${sel.type}:${sel.id}` : '';
+                  return (
+                    <div key={idx} className="border border-input rounded p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <p className="text-sm font-medium truncate">{item.name}</p>
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold block mb-1">Link to</label>
+                        <select
+                          value={selectedValue}
+                          onChange={(e) => {
+                            const next = new Map(linkSelections);
+                            if (e.target.value) {
+                              const [type, id] = e.target.value.split(':') as ['field' | 'category', string];
+                              next.set(idx, { type, id });
+                            } else {
+                              next.delete(idx);
+                            }
+                            setLinkSelections(next);
+                          }}
+                          className="w-full px-2 py-1.5 text-xs rounded border border-input bg-background"
+                        >
+                          <option value="">-- None --</option>
+                          {unitCategories.map((cat) => (
+                            <optgroup key={cat.id} label={cat.name}>
+                              <option value={`category:${cat.id}`}>
+                                {cat.name} (Category){cat.linked_file_name ? ` — linked: ${cat.linked_file_name}` : ''}
+                              </option>
+                              {cat.fields.map((f) => (
+                                <option key={f.id} value={`field:${f.id}`}>
+                                  ↳ {f.name}{f.linked_file_name ? ` — linked: ${f.linked_file_name}` : ''}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 mt-4">
+              <button
+                disabled={linkingInProgress || linkSelections.size === 0}
+                onClick={handleLinkFiles}
+                className="px-3 py-1.5 text-xs rounded bg-accent text-accent-foreground disabled:opacity-50"
+              >
+                {linkingInProgress ? 'Linking...' : 'Link Selected'}
+              </button>
+              <button
+                onClick={() => setShowLinkModal(false)}
+                className="px-3 py-1.5 text-xs rounded border border-input"
+              >
+                Skip
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -3,6 +3,8 @@ export interface UnitDataCategory {
   project_id: string;
   name: string;
   sort_order: number;
+  linked_file_name: string | null;
+  linked_file_path: string | null;
   created_at: string;
 }
 
@@ -17,6 +19,8 @@ export interface UnitDataField {
   is_hyperlink: boolean;
   visible: boolean;
   sort_order: number;
+  linked_file_name: string | null;
+  linked_file_path: string | null;
   created_at: string;
 }
 

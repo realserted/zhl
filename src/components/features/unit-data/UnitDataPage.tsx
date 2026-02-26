@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Loader2, Trash2, X, Link, Upload, FileSpreadsheet, Pencil } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Loader2, Trash2, X, Link, Upload, FileSpreadsheet, Pencil, FileText, ExternalLink } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase/client';
 import { CategoryWithFields, UnitDataField, UnitDataRow, UnitDataValue, ViewName } from '@/lib/types/unit-data';
@@ -812,7 +812,19 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                             className="text-xs font-semibold text-accent bg-background border border-input rounded px-1 py-0.5 w-full focus:outline-none focus:ring-1 focus:ring-ring"
                           />
                         ) : (
-                          <span className="text-xs font-semibold text-accent truncate">{cat.name}</span>
+                          <span className="text-xs font-semibold text-accent truncate flex items-center gap-1">
+                            {cat.name}
+                            {cat.linked_file_name && (
+                              <a
+                                href="/files"
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex-shrink-0"
+                                title={`Linked: ${cat.linked_file_name} — Click to view in Files`}
+                              >
+                                <ExternalLink className="h-3 w-3 text-blue-500" />
+                              </a>
+                            )}
+                          </span>
                         )}
                       </label>
                       {canEdit && editingCategoryId !== cat.id && (
@@ -865,9 +877,19 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                               <span className={`text-xs flex items-center gap-1 ${field.visible ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
                                 {field.name}
                                 {field.is_file_link && (
-                                  <span title="Shows to indicate a linked file column" className="flex-shrink-0">
+                                  <span title="File link field" className="flex-shrink-0">
                                     <Upload className="h-3 w-3 text-muted-foreground" />
                                   </span>
+                                )}
+                                {field.linked_file_name && (
+                                  <a
+                                    href="/files"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="flex-shrink-0"
+                                    title={`Linked: ${field.linked_file_name} — Click to view in Files`}
+                                  >
+                                    <ExternalLink className="h-3 w-3 text-blue-500" />
+                                  </a>
                                 )}
                                 {field.is_hyperlink && (
                                   <span title="Shows to indicate a linked file column" className="flex-shrink-0">

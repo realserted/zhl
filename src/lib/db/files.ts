@@ -534,3 +534,53 @@ export async function renameFile(fileId: string, newName: string): Promise<boole
   }
   return true;
 }
+
+/** Get a map of storagePath -> linked target info for all linked files/folders in a project. */
+export async function getLinkedUnitDataMap(projectId: string): Promise<Map<string, { type: 'field' | 'category'; name: string; parentName?: string }>> {
+  const map = new Map<string, { type: 'field' | 'category'; name: string; parentName?: string }>();
+
+  const [{ data: fields }, { data: cats }] = await Promise.all([
+    supabase
+      .from('unit_data_fields')
+      .select('name, linked_file_path, unit_data_categories(name)')
+      .eq('project_id', projectId)
+      .not('linked_file_path', 'is', null),
+    supabase
+      .from('unit_data_categories')
+      .select('name, linked_file_path')
+      .eq('project_id', projectId)
+      .not('linked_file_path', 'is', null),
+  ]);
+
+  if (fields) {
+    for (const f of fields as unknown as Array<{ name: string; linked_file_path: string; unit_data_categories: { name: string } | null }>) {
+      map.set(f.linked_file_path, { type: 'field', name: f.name, parentName: f.unit_data_categories?.name ?? undefined });
+    }
+  }
+  if (cats) {
+    for (const c of cats as Array<{ name: string; linked_file_path: string }>) {
+      map.set(c.linked_file_path, { type: 'category', name: c.name });
+    }
+  }
+
+  return map;
+}
+
+/** Link a file/folder to a unit data field or category. */
+export async function linkFileToUnitData(
+  targetType: 'field' | 'category',
+  targetId: string,
+  fileName: string,
+  storagePath: string
+): Promise<boolean> {
+  const table = targetType === 'field' ? 'unit_data_fields' : 'unit_data_categories';
+  const { error } = await supabase
+    .from(table)
+    .update({ linked_file_name: fileName, linked_file_path: storagePath })
+    .eq('id', targetId);
+  if (error) {
+    console.error(`Error linking file to ${targetType}:`, error.message);
+    return false;
+  }
+  return true;
+}

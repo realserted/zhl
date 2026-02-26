@@ -488,6 +488,8 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
     type?: string;
   }) => {
     const isEditing = editingCell?.id === tasker.id && editingCell?.field === field;
+    // Assigned users can edit update_status even with View-only permission
+    const canEditThis = canEdit || (field === 'update_status' && isAssignedTo(tasker));
 
     if (isEditing) {
       return (
@@ -506,7 +508,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
       );
     }
 
-    if (!canEdit) {
+    if (!canEditThis) {
       return (
         <span className="px-1 py-0.5 block min-w-[2rem] min-h-[1.25rem]">
           {displayValue || <span className="text-muted-foreground/40">-</span>}
