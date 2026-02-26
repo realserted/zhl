@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { ChevronDown, ChevronRight, Folder, FolderUp, Plus, Loader2, Download, DatabaseBackup, ShieldCheck, FileText, Upload, Trash2, Pencil, AlertTriangle, X, Link as LinkIcon } from 'lucide-react';
 import { ProjectPermission } from '@/lib/types/project';
 import { useAuth } from '@/lib/auth-context';
@@ -74,6 +75,7 @@ function nextMonthLabel(date: Date): string {
 
 export default function FilesPage({ selectedProjectId, userPermission }: FilesPageProps) {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
 
   const permLevel = userPermission?.perm_files ?? 'Admin';
   const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
@@ -88,6 +90,7 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
   const [folders, setFolders] = useState<ProjectFileFolder[]>([]);
   const [files, setFiles] = useState<ProjectFileItem[]>([]);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   const [showPermissions, setShowPermissions] = useState(true);
   const [allPermissions, setAllPermissions] = useState<Map<string, ProjectFileFolderPermissions>>(new Map());
@@ -267,6 +270,63 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
   const hasRequiredFolderFields = useMemo(() => {
     return customFields.some((f) => f.required && f.target_type === 'folder');
   }, [customFields]);
+
+  // ── Auto-expand & highlight linked file/folder from URL param ────
+  const highlightProcessed = useRef(false);
+  useEffect(() => {
+    const highlightParam = searchParams.get('highlight');
+    if (!highlightParam || folders.length === 0 || highlightProcessed.current) return;
+    highlightProcessed.current = true;
+
+    // Build a folder lookup by ID for walking up the parent chain
+    const folderById = new Map(folders.map((f) => [f.id, f]));
+
+    const expandParentChain = (folderId: string | null) => {
+      const toExpand: string[] = [];
+      let current = folderId;
+      while (current) {
+        toExpand.push(current);
+        current = folderById.get(current)?.parent_folder_id ?? null;
+      }
+      if (toExpand.length > 0) {
+        setCollapsedFolders((prev) => {
+          const next = new Set(prev);
+          toExpand.forEach((id) => next.delete(id));
+          return next;
+        });
+      }
+    };
+
+    // Check if highlight is a folder reference (folder:{id})
+    if (highlightParam.startsWith('folder:')) {
+      const folderId = highlightParam.slice(7);
+      expandParentChain(folderId);
+      setHighlightedId(folderId);
+    } else {
+      // It's a file storage_path — find the file
+      const file = files.find((f) => f.storage_path === highlightParam);
+      if (file) {
+        expandParentChain(file.folder_id);
+        setHighlightedId(file.id);
+      }
+    }
+
+    // Clear highlight after 4 seconds
+    setTimeout(() => setHighlightedId(null), 4000);
+  }, [searchParams, folders, files]);
+
+  // Reset highlight processing when project changes
+  useEffect(() => {
+    highlightProcessed.current = false;
+  }, [selectedProjectId]);
+
+  // Scroll highlighted row into view
+  const highlightRowRef = useRef<HTMLTableRowElement>(null);
+  useEffect(() => {
+    if (highlightedId && highlightRowRef.current) {
+      highlightRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [highlightedId]);
 
   // ── Handlers ─────────────────────────────────────────────────────
 
@@ -825,8 +885,13 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                   const perms = allPermissions.get(folder.id);
                   const hasWarning = hasRequiredFolderFields;
 
+                  const isFolderHighlighted = highlightedId === folder.id;
                   return (
-                    <tr key={`folder-${folder.id}`} className="border-b border-border hover:bg-muted/30 group">
+                    <tr
+                      key={`folder-${folder.id}`}
+                      ref={isFolderHighlighted ? highlightRowRef : undefined}
+                      className={`border-b border-border hover:bg-muted/30 group transition-colors duration-1000 ${isFolderHighlighted ? 'bg-blue-500/20 ring-1 ring-blue-500/40' : ''}`}
+                    >
                       {/* Collapse toggle */}
                       <td className="px-2 py-1.5 border-r border-border text-center">
                         {(hasChildren || hasFiles) ? (
@@ -972,8 +1037,13 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                 const isRenaming = renamingFileId === file.id;
                 const filePerms = allFilePermissions.get(file.id);
 
+                const isFileHighlighted = highlightedId === file.id;
                 return (
-                  <tr key={`file-${file.id}`} className="border-b border-border hover:bg-muted/30 group">
+                  <tr
+                    key={`file-${file.id}`}
+                    ref={isFileHighlighted ? highlightRowRef : undefined}
+                    className={`border-b border-border hover:bg-muted/30 group transition-colors duration-1000 ${isFileHighlighted ? 'bg-blue-500/20 ring-1 ring-blue-500/40' : ''}`}
+                  >
                     {/* Empty collapse cell */}
                     <td className="border-r border-border" />
 

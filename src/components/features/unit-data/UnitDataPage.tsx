@@ -816,7 +816,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                             {cat.name}
                             {cat.linked_file_name && (
                               <a
-                                href="/files"
+                                href={`/files?highlight=${encodeURIComponent(cat.linked_file_path ?? '')}`}
                                 onClick={(e) => e.stopPropagation()}
                                 className="flex-shrink-0"
                                 title={`Linked: ${cat.linked_file_name} — Click to view in Files`}
@@ -883,7 +883,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                 )}
                                 {field.linked_file_name && (
                                   <a
-                                    href="/files"
+                                    href={`/files?highlight=${encodeURIComponent(field.linked_file_path ?? '')}`}
                                     onClick={(e) => e.stopPropagation()}
                                     className="flex-shrink-0"
                                     title={`Linked: ${field.linked_file_name} — Click to view in Files`}
