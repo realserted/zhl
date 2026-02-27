@@ -1,6 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import { AlertCircle, CheckCircle, AlertTriangle, Plus } from 'lucide-react';
+import AddFilesModal from './AddFilesModal';
 
 const STATUS_CONFIG: Record<string, { icon: typeof AlertCircle; colorClass: string }> = {
   Critical: { icon: AlertCircle, colorClass: 'border-red-500 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950' },
@@ -15,6 +17,7 @@ interface NavActionsProps {
 }
 
 export default function NavActions({ projectStatus }: NavActionsProps) {
+  const [showAddFiles, setShowAddFiles] = useState(false);
   const status = projectStatus || 'Good';
   const config = STATUS_CONFIG[status] ?? STATUS_CONFIG['Good'];
   const Icon = config.icon;
@@ -30,10 +33,15 @@ export default function NavActions({ projectStatus }: NavActionsProps) {
       </div>
 
       {/* Add Files Button */}
-      <button className="inline-flex items-center gap-2 border border-input rounded-md px-4 py-2 text-sm font-semibold bg-background hover:bg-primary hover:text-primary-foreground text-foreground transition-colors">
+      <button
+        onClick={() => setShowAddFiles(true)}
+        className="inline-flex items-center gap-2 border border-input rounded-md px-4 py-2 text-sm font-semibold bg-background hover:bg-primary hover:text-primary-foreground text-foreground transition-colors"
+      >
         <Plus className="h-4 w-4" />
         ADD FILES
       </button>
+
+      <AddFilesModal open={showAddFiles} onClose={() => setShowAddFiles(false)} />
     </div>
   );
 }

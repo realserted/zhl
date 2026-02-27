@@ -29,6 +29,7 @@ import {
   getCurrentFieldVisibility,
 } from '@/lib/db/unit-data';
 import { createRecoveryRequest } from '@/lib/db/unit-data-recovery';
+import { downloadFileUrl } from '@/lib/db/files';
 import { getView, getProjectViews, saveView, saveFieldOrder } from '@/lib/db/unit-data-views';
 import { getProjectSettings } from '@/lib/db/project-settings';
 import { logUserAction } from '@/lib/db/user-logs';
@@ -318,6 +319,16 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
 
   // Get all visible fields in order (respecting fieldOrder)
   const visibleFields = categories.flatMap((c) => getOrderedFields(c).filter((f) => f.visible));
+
+  // Get the unit label for a row (first non-empty cell value in field order)
+  const getRowLabel = (rowId: string): string => {
+    const allFields = categories.flatMap((c) => getOrderedFields(c));
+    for (const f of allFields) {
+      const v = valueMap.get(`${rowId}-${f.id}`);
+      if (v?.value) return v.value;
+    }
+    return 'Unknown unit';
+  };
 
   // Compute table width so resizing actually expands columns rather than redistributing
   const totalTableWidth = categories.reduce((sum, cat) => {
@@ -1274,7 +1285,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                       setEditingCell({ rowId: row.id, fieldId: field.id });
                                       setEditValue(cellValue);
                                     } : undefined}
-                                    className={`${canEdit ? 'cursor-pointer hover:bg-muted/50' : ''} px-1 py-0.5 rounded block min-w-[3rem] min-h-[1.25rem] text-xs`}
+                                    className={`${canEdit ? 'cursor-pointer hover:bg-muted/50' : ''} px-1 py-0.5 rounded min-w-[3rem] min-h-[1.25rem] text-xs flex items-center gap-1`}
                                     title={canEdit ? 'Click to edit' : undefined}
                                   >
                                     {field.is_hyperlink && cellValue ? (
@@ -1289,6 +1300,19 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                       </a>
                                     ) : (
                                       cellValue || <span className="text-muted-foreground/40">-</span>
+                                    )}
+                                    {val?.file_url && (
+                                      <button
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          const url = await downloadFileUrl(val.file_url!);
+                                          if (url) window.open(url, '_blank');
+                                        }}
+                                        className="flex-shrink-0 p-0.5 text-blue-500 hover:text-blue-400 transition-colors"
+                                        title={`Linked to: ${getRowLabel(row.id)} — Click to download`}
+                                      >
+                                        <Link className="h-3.5 w-3.5" />
+                                      </button>
                                     )}
                                   </span>
                                 )}
