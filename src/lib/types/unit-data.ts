@@ -53,6 +53,7 @@ export interface UnitDataView {
   view_name: ViewName;
   user_id: string | null;
   field_visibility: Record<string, boolean>;
+  field_order: string[] | null;
   created_at: string;
   updated_at: string;
 }

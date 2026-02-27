@@ -49,13 +49,17 @@ export async function saveView(
   viewName: ViewName,
   fieldVisibility: Record<string, boolean>,
   userId?: string,
+  fieldOrder?: string[] | null,
 ): Promise<boolean> {
-  const payload = {
+  const payload: Record<string, unknown> = {
     project_id: projectId,
     view_name: viewName,
     user_id: viewName === 'Personal View' && userId ? userId : null,
     field_visibility: fieldVisibility,
   };
+  if (fieldOrder !== undefined) {
+    payload.field_order = fieldOrder;
+  }
 
   const { error } = await supabase
     .from('unit_data_views')
@@ -65,5 +69,47 @@ export async function saveView(
     console.error('Error saving view:', error.message);
     return false;
   }
+  return true;
+}
+
+/** Save only field_order to the user's Personal View (upsert). */
+export async function saveFieldOrder(
+  projectId: string,
+  userId: string,
+  fieldOrder: string[],
+): Promise<boolean> {
+  // Try to update existing Personal View first
+  const { data, error: updateError } = await supabase
+    .from('unit_data_views')
+    .update({ field_order: fieldOrder })
+    .eq('project_id', projectId)
+    .eq('view_name', 'Personal View')
+    .eq('user_id', userId)
+    .select('id')
+    .maybeSingle();
+
+  if (updateError) {
+    console.error('Error updating field order:', updateError.message);
+    return false;
+  }
+
+  // If no existing row, insert a new Personal View with all fields visible (empty object = show all)
+  if (!data) {
+    const { error: insertError } = await supabase
+      .from('unit_data_views')
+      .insert({
+        project_id: projectId,
+        view_name: 'Personal View',
+        user_id: userId,
+        field_visibility: {},
+        field_order: fieldOrder,
+      });
+
+    if (insertError) {
+      console.error('Error inserting field order:', insertError.message);
+      return false;
+    }
+  }
+
   return true;
 }

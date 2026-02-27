@@ -1,7 +1,10 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Loader2, Trash2, X, Link, Upload, FileSpreadsheet, Pencil, FileText, ExternalLink } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Loader2, Trash2, X, Link, Upload, FileSpreadsheet, Pencil, FileText, ExternalLink, GripVertical } from 'lucide-react';
+import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase/client';
 import { CategoryWithFields, UnitDataField, UnitDataRow, UnitDataValue, ViewName } from '@/lib/types/unit-data';
@@ -26,7 +29,7 @@ import {
   getCurrentFieldVisibility,
 } from '@/lib/db/unit-data';
 import { createRecoveryRequest } from '@/lib/db/unit-data-recovery';
-import { getView, getProjectViews, saveView } from '@/lib/db/unit-data-views';
+import { getView, getProjectViews, saveView, saveFieldOrder } from '@/lib/db/unit-data-views';
 import { getProjectSettings } from '@/lib/db/project-settings';
 import { logUserAction } from '@/lib/db/user-logs';
 import { ProjectPermission } from '@/lib/types/project';
@@ -39,6 +42,29 @@ interface UnitDataPageProps {
 }
 
 type ViewMode = ViewName;
+
+/** Sortable wrapper for a sidebar field item */
+function SortableFieldItem({ id, children }: { id: string; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-center gap-1 group/field">
+      <button
+        {...attributes}
+        {...listeners}
+        className="p-0.5 text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing flex-shrink-0 touch-none"
+        title="Drag to reorder"
+      >
+        <GripVertical className="h-3 w-3" />
+      </button>
+      {children}
+    </div>
+  );
+}
 
 export default function UnitDataPage({ selectedProjectId, userPermission, isAdmin }: UnitDataPageProps) {
   const { user } = useAuth();
@@ -126,6 +152,10 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
   const [newFieldCategory, setNewFieldCategory] = useState('');
   const [newFieldTooltip, setNewFieldTooltip] = useState('');
 
+  // Field order (drag-and-drop column reordering)
+  const [fieldOrder, setFieldOrder] = useState<string[] | null>(null);
+  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
   // Excel upload
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -193,6 +223,11 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
       // Start on ALL FIELDS — show everything
       setCategories(cats.map((c) => ({ ...c, fields: c.fields.map((f) => ({ ...f, visible: true })) })));
       setSelectedView('ALL FIELDS');
+      // Load personal field order if available
+      if (user) {
+        const personalView = await getView(projectId, 'Personal View', user.id);
+        setFieldOrder(personalView?.field_order ?? null);
+      }
     } else {
       // Non-owner: load their assigned view
       const viewName = assignedView;
@@ -203,9 +238,11 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
       } else if (viewName === 'Personal View') {
         const view = user ? await getView(projectId, 'Personal View', user.id) : null;
         setCategories(applyViewConfig(cats, view?.field_visibility ?? null));
+        setFieldOrder(view?.field_order ?? null);
       } else {
         const view = await getView(projectId, viewName);
         setCategories(applyViewConfig(cats, view?.field_visibility ?? null));
+        setFieldOrder(view?.field_order ?? null);
       }
     }
 
@@ -237,12 +274,54 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
     });
   };
 
-  // Get all visible fields in order
-  const visibleFields = categories.flatMap((c) => c.fields.filter((f) => f.visible));
+  /** Return a category's fields sorted by fieldOrder (if set), preserving default sort_order otherwise. */
+  const getOrderedFields = (cat: CategoryWithFields): UnitDataField[] => {
+    if (!fieldOrder) return cat.fields;
+    const orderMap = new Map(fieldOrder.map((id, idx) => [id, idx]));
+    return [...cat.fields].sort((a, b) => {
+      const ai = orderMap.get(a.id);
+      const bi = orderMap.get(b.id);
+      if (ai !== undefined && bi !== undefined) return ai - bi;
+      if (ai !== undefined) return -1;
+      if (bi !== undefined) return 1;
+      return 0; // keep original relative order
+    });
+  };
+
+  // Can this user reorder fields? Owners always can; non-owners only when customization is enabled
+  const canReorderFields = isOwner || allowUserCustomization;
+
+  /** Handle drag-end in sidebar: recompute full fieldOrder and persist to Personal View. */
+  const handleFieldReorder = async (categoryId: string, activeId: string, overId: string) => {
+    if (activeId === overId || !canReorderFields) return;
+
+    // Build current full order across all categories
+    const currentOrder = categories.flatMap((c) => getOrderedFields(c).map((f) => f.id));
+
+    // Find positions within the full order
+    const oldIndex = currentOrder.indexOf(activeId);
+    const newIndex = currentOrder.indexOf(overId);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    // Perform the move
+    const newOrder = [...currentOrder];
+    newOrder.splice(oldIndex, 1);
+    newOrder.splice(newIndex, 0, activeId);
+
+    setFieldOrder(newOrder);
+
+    // Always persist field order to the user's own Personal View
+    if (selectedProjectId && user) {
+      await saveFieldOrder(selectedProjectId, user.id, newOrder);
+    }
+  };
+
+  // Get all visible fields in order (respecting fieldOrder)
+  const visibleFields = categories.flatMap((c) => getOrderedFields(c).filter((f) => f.visible));
 
   // Compute table width so resizing actually expands columns rather than redistributing
   const totalTableWidth = categories.reduce((sum, cat) => {
-    const catVisibleFields = cat.fields.filter((f) => f.visible);
+    const catVisibleFields = getOrderedFields(cat).filter((f) => f.visible);
     if (catVisibleFields.length === 0) return sum;
     if (collapsedCategories.has(cat.id)) return sum + 60;
     return sum + catVisibleFields.reduce((s, f) => s + (columnWidths.get(f.id) ?? 120), 0);
@@ -270,12 +349,18 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
       setCategories((prev) =>
         prev.map((c) => ({ ...c, fields: c.fields.map((f) => ({ ...f, visible: true })) }))
       );
+      // Keep personal field order even in ALL FIELDS view
+      if (user && selectedProjectId) {
+        const personalView = await getView(selectedProjectId, 'Personal View', user.id);
+        setFieldOrder(personalView?.field_order ?? null);
+      }
       return;
     }
 
     if (view === 'Personal View' && user && selectedProjectId) {
       const saved = await getView(selectedProjectId, 'Personal View', user.id);
       setCategories((prev) => applyViewConfig(prev, saved?.field_visibility ?? null));
+      setFieldOrder(saved?.field_order ?? null);
       return;
     }
 
@@ -290,6 +375,11 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
         setCategories((prev) => applyViewConfig(prev, saved.field_visibility));
       }
       // If no saved config, keep current state (all fields visible)
+    }
+    // Load field order for this view
+    if (selectedProjectId) {
+      const viewData = await getView(selectedProjectId, view, view === 'Personal View' && user ? user.id : undefined);
+      setFieldOrder(viewData?.field_order ?? null);
     }
   };
 
@@ -843,9 +933,96 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                       )}
                     </div>
 
-                    {/* Field checkboxes */}
+                    {/* Field checkboxes with drag-and-drop reordering */}
+                    {canReorderFields ? (
+                    <DndContext
+                      sensors={dndSensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={(event: DragEndEvent) => {
+                        const { active, over } = event;
+                        if (over && active.id !== over.id) {
+                          handleFieldReorder(cat.id, String(active.id), String(over.id));
+                        }
+                      }}
+                    >
+                      <SortableContext items={getOrderedFields(cat).map((f) => f.id)} strategy={verticalListSortingStrategy}>
+                        <div className="ml-2 space-y-0.5">
+                          {getOrderedFields(cat).map((field) => (
+                            <SortableFieldItem key={field.id} id={field.id}>
+                              <label className={`flex items-center gap-2 flex-1 min-w-0 ${canToggleFields ? 'cursor-pointer' : 'cursor-default'}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={field.visible}
+                                  onChange={() => toggleField(field.id)}
+                                  disabled={!canToggleFields}
+                                  className="rounded border-input flex-shrink-0"
+                                />
+                                {editingFieldId === field.id ? (
+                                  <input
+                                    autoFocus
+                                    type="text"
+                                    value={editingFieldName}
+                                    onChange={(e) => setEditingFieldName(e.target.value)}
+                                    onBlur={() => handleRenameField(field.id, editingFieldName)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') handleRenameField(field.id, editingFieldName);
+                                      if (e.key === 'Escape') setEditingFieldId(null);
+                                    }}
+                                    onClick={(e) => e.preventDefault()}
+                                    className="text-xs bg-background border border-input rounded px-1 py-0.5 w-full focus:outline-none focus:ring-1 focus:ring-ring"
+                                  />
+                                ) : (
+                                  <span className={`text-xs flex items-center gap-1 ${field.visible ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+                                    {field.name}
+                                    {field.is_file_link && (
+                                      <span title="File link field" className="flex-shrink-0">
+                                        <Upload className="h-3 w-3 text-muted-foreground" />
+                                      </span>
+                                    )}
+                                    {field.linked_file_name && (
+                                      <a
+                                        href={`/files?highlight=${encodeURIComponent(field.linked_file_path ?? '')}`}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="flex-shrink-0"
+                                        title={`Linked: ${field.linked_file_name} — Click to view in Files`}
+                                      >
+                                        <ExternalLink className="h-3 w-3 text-blue-500" />
+                                      </a>
+                                    )}
+                                    {field.is_hyperlink && (
+                                      <span title="Shows to indicate a linked file column" className="flex-shrink-0">
+                                        <Link className="h-3 w-3 text-muted-foreground" />
+                                      </span>
+                                    )}
+                                  </span>
+                                )}
+                              </label>
+                              {canEdit && editingFieldId !== field.id && (
+                                <>
+                                  <button
+                                    onClick={() => { setEditingFieldId(field.id); setEditingFieldName(field.name); }}
+                                    className="p-0.5 text-muted-foreground hover:text-accent transition-colors flex-shrink-0 opacity-0 group-hover/field:opacity-100"
+                                    title={`Rename "${field.name}"`}
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteField(field.id)}
+                                    className="p-0.5 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0 opacity-0 group-hover/field:opacity-100"
+                                    title={`Delete "${field.name}"`}
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </button>
+                                </>
+                              )}
+                            </SortableFieldItem>
+                          ))}
+                        </div>
+                      </SortableContext>
+                    </DndContext>
+                    ) : (
                     <div className="ml-4 space-y-0.5">
-                      {cat.fields.map((field) => (
+                      {getOrderedFields(cat).map((field) => (
                         <div key={field.id} className="flex items-center gap-1 group/field">
                           <label className={`flex items-center gap-2 flex-1 min-w-0 ${canToggleFields ? 'cursor-pointer' : 'cursor-default'}`}>
                             <input
@@ -855,67 +1032,34 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                               disabled={!canToggleFields}
                               className="rounded border-input flex-shrink-0"
                             />
-                            {editingFieldId === field.id ? (
-                              <input
-                                autoFocus
-                                type="text"
-                                value={editingFieldName}
-                                onChange={(e) => setEditingFieldName(e.target.value)}
-                                onBlur={() => handleRenameField(field.id, editingFieldName)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') handleRenameField(field.id, editingFieldName);
-                                  if (e.key === 'Escape') setEditingFieldId(null);
-                                }}
-                                onClick={(e) => e.preventDefault()}
-                                className="text-xs bg-background border border-input rounded px-1 py-0.5 w-full focus:outline-none focus:ring-1 focus:ring-ring"
-                              />
-                            ) : (
-                              <span className={`text-xs flex items-center gap-1 ${field.visible ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
-                                {field.name}
-                                {field.is_file_link && (
-                                  <span title="File link field" className="flex-shrink-0">
-                                    <Upload className="h-3 w-3 text-muted-foreground" />
-                                  </span>
-                                )}
-                                {field.linked_file_name && (
-                                  <a
-                                    href={`/files?highlight=${encodeURIComponent(field.linked_file_path ?? '')}`}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="flex-shrink-0"
-                                    title={`Linked: ${field.linked_file_name} — Click to view in Files`}
-                                  >
-                                    <ExternalLink className="h-3 w-3 text-blue-500" />
-                                  </a>
-                                )}
-                                {field.is_hyperlink && (
-                                  <span title="Shows to indicate a linked file column" className="flex-shrink-0">
-                                    <Link className="h-3 w-3 text-muted-foreground" />
-                                  </span>
-                                )}
-                              </span>
-                            )}
+                            <span className={`text-xs flex items-center gap-1 ${field.visible ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+                              {field.name}
+                              {field.is_file_link && (
+                                <span title="File link field" className="flex-shrink-0">
+                                  <Upload className="h-3 w-3 text-muted-foreground" />
+                                </span>
+                              )}
+                              {field.linked_file_name && (
+                                <a
+                                  href={`/files?highlight=${encodeURIComponent(field.linked_file_path ?? '')}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="flex-shrink-0"
+                                  title={`Linked: ${field.linked_file_name} — Click to view in Files`}
+                                >
+                                  <ExternalLink className="h-3 w-3 text-blue-500" />
+                                </a>
+                              )}
+                              {field.is_hyperlink && (
+                                <span title="Shows to indicate a linked file column" className="flex-shrink-0">
+                                  <Link className="h-3 w-3 text-muted-foreground" />
+                                </span>
+                              )}
+                            </span>
                           </label>
-                          {canEdit && editingFieldId !== field.id && (
-                            <>
-                              <button
-                                onClick={() => { setEditingFieldId(field.id); setEditingFieldName(field.name); }}
-                                className="p-0.5 text-muted-foreground hover:text-accent transition-colors flex-shrink-0 opacity-0 group-hover/field:opacity-100"
-                                title={`Rename "${field.name}"`}
-                              >
-                                <Pencil className="h-3 w-3" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteField(field.id)}
-                                className="p-0.5 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0 opacity-0 group-hover/field:opacity-100"
-                                title={`Delete "${field.name}"`}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            </>
-                          )}
                         </div>
                       ))}
                     </div>
+                    )}
                   </div>
                 );
               })}
@@ -993,7 +1137,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                 {/* Colgroup drives column widths for table-layout:fixed */}
                 <colgroup>
                   {categories.map((cat) => {
-                    const catVisibleFields = cat.fields.filter((f) => f.visible);
+                    const catVisibleFields = getOrderedFields(cat).filter((f) => f.visible);
                     if (catVisibleFields.length === 0) return null;
                     if (collapsedCategories.has(cat.id)) {
                       return <col key={cat.id} style={{ width: 60 }} />;
@@ -1006,10 +1150,10 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                 </colgroup>
                 {/* Category header row */}
                 <thead>
-                  {categories.some((cat) => cat.fields.filter((f) => f.visible).length > 0) && (
+                  {categories.some((cat) => getOrderedFields(cat).filter((f) => f.visible).length > 0) && (
                   <tr className="border-b border-input">
                     {categories.map((cat) => {
-                      const catVisibleFields = cat.fields.filter((f) => f.visible);
+                      const catVisibleFields = getOrderedFields(cat).filter((f) => f.visible);
                       if (catVisibleFields.length === 0) return null;
                       const isCollapsed = collapsedCategories.has(cat.id);
 
@@ -1040,7 +1184,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                   {/* Field header row */}
                   <tr className="bg-muted border-b border-input">
                     {categories.map((cat) => {
-                      const catVisibleFields = cat.fields.filter((f) => f.visible);
+                      const catVisibleFields = getOrderedFields(cat).filter((f) => f.visible);
                       if (catVisibleFields.length === 0) return null;
                       const isCollapsed = collapsedCategories.has(cat.id);
 
@@ -1088,7 +1232,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                     nonEmptyRows.map((row) => (
                       <tr key={row.id} className="border-b border-input hover:bg-muted/30 transition-colors">
                         {categories.map((cat) => {
-                          const catVisibleFields = cat.fields.filter((f) => f.visible);
+                          const catVisibleFields = getOrderedFields(cat).filter((f) => f.visible);
                           if (catVisibleFields.length === 0) return null;
                           const isCollapsed = collapsedCategories.has(cat.id);
 
