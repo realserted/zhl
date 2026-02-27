@@ -93,7 +93,7 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
     setEditingField(null);
     if (!selectedLoan) return;
     const current = (selectedLoan as unknown as Record<string, unknown>)[field];
-    const numFields = ['amortization', 'interest_rate', 'original_amount', 'payment'];
+    const numFields = ['amortization', 'interest_rate', 'original_amount', 'due_on_the'];
     const val = numFields.includes(field)
       ? (parseFloat(rawValue) || null)
       : (rawValue.trim() || null);
@@ -119,9 +119,30 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
     }
   };
 
+  // ── Auto-calculated monthly payment ──────────────────────────────────────
+  const computedPayment = useMemo((): number | null => {
+    if (!selectedLoan?.original_amount || !selectedLoan?.amortization) return null;
+    const P = Number(selectedLoan.original_amount);
+    const n = Number(selectedLoan.amortization);
+    const r = (selectedLoan.interest_rate ?? 0) / 100 / 12;
+
+    if (selectedLoan.interest_only) {
+      return Number((P * r).toFixed(2));
+    }
+    if (r === 0) {
+      return Number((P / n).toFixed(2));
+    }
+    // Standard amortization formula: M = P * [r(1+r)^n] / [(1+r)^n - 1]
+    const factor = Math.pow(1 + r, n);
+    return Number(((P * r * factor) / (factor - 1)).toFixed(2));
+  }, [selectedLoan?.original_amount, selectedLoan?.amortization, selectedLoan?.interest_rate, selectedLoan?.interest_only]);
+
   // ── Amortization schedule ────────────────────────────────────────────────
   const schedule = useMemo((): ScheduleRow[] => {
-    if (!selectedLoan?.original_amount || !selectedLoan?.payment) return [];
+    if (!selectedLoan?.original_amount || !selectedLoan?.amortization || computedPayment == null) return [];
+
+    // Due day of month (1–31), default to 1
+    const dueDay = Math.min(31, Math.max(1, Number(selectedLoan.due_on_the) || 1));
 
     // Start date: use start_date if set, otherwise 1st of current month
     let startDate: Date;
@@ -133,19 +154,19 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
     }
 
     const monthlyRate = (selectedLoan.interest_rate ?? 0) / 100 / 12;
-    const maxMonths = selectedLoan.amortization ?? 360;
+    const maxMonths = Number(selectedLoan.amortization);
     const balloonDate = selectedLoan.balloon_date
       ? new Date(selectedLoan.balloon_date + 'T00:00:00')
       : null;
 
     let balance = Number(selectedLoan.original_amount);
-    const scheduledPayment = Number(selectedLoan.payment);
 
     const rows: ScheduleRow[] = [];
 
     // Month 0 — opening balance, no payment yet
+    const openingDate = new Date(startDate.getFullYear(), startDate.getMonth(), dueDay);
     rows.push({
-      due: fmtDate(startDate),
+      due: fmtDate(openingDate),
       month: 0,
       payment: 0,
       interest: 0,
@@ -155,14 +176,12 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
     });
 
     for (let i = 1; i <= maxMonths; i++) {
-      const d = new Date(startDate);
-      d.setMonth(d.getMonth() + i);
+      const d = new Date(startDate.getFullYear(), startDate.getMonth() + i, dueDay);
 
       const interest = balance * monthlyRate;
       const hitsBalloon = balloonDate ? d >= balloonDate : false;
 
       if (selectedLoan.interest_only) {
-        // Interest-only: no principal reduction each month; balloon = full balance
         rows.push({
           due: fmtDate(d),
           month: i,
@@ -174,18 +193,16 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
         });
         if (hitsBalloon) break;
       } else {
-        // Amortizing: split payment into interest + principal
-        const principal = Math.min(Math.max(0, scheduledPayment - interest), balance);
+        const principal = Math.min(Math.max(0, computedPayment - interest), balance);
         balance = Math.max(0, balance - principal);
         const fullyPaid = balance < 0.01;
 
         rows.push({
           due: fmtDate(d),
           month: i,
-          // Last payment may be slightly less than scheduled
           payment: fullyPaid
             ? Number((principal + interest).toFixed(2))
-            : scheduledPayment,
+            : computedPayment,
           interest,
           principal,
           balance,
@@ -197,7 +214,7 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
     }
 
     return rows;
-  }, [selectedLoan]);
+  }, [selectedLoan, computedPayment]);
 
   // Today's year+month for row highlighting
   const todayKey = (() => {
@@ -206,16 +223,15 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
   })();
 
   // ── Loan detail fields list ───────────────────────────────────────────────
-  const loanFields: { field: string; label: string; type?: string }[] = [
+  const loanFields: { field: string; label: string; type?: string; computed?: boolean }[] = [
     { field: 'loan_name',       label: 'LOAN NAME' },
     { field: 'lender',          label: 'Lender' },
     { field: 'start_date',      label: 'Start Date',            type: 'date' },
-    { field: 'due_on_the',      label: 'Due on the' },
-    { field: 'autopays_on_the', label: 'Autopays on the' },
-    { field: 'amortization',    label: 'Amortization',          type: 'number' },
-    { field: 'interest_rate',   label: 'Interest',              type: 'number' },
+    { field: 'due_on_the',      label: 'Due Day',               type: 'number' },
+    { field: 'amortization',    label: 'Amortization (months)', type: 'number' },
+    { field: 'interest_rate',   label: 'Interest Rate',         type: 'number' },
     { field: 'original_amount', label: 'Original Loan Amount',  type: 'number' },
-    { field: 'payment',         label: 'Payment',               type: 'number' },
+    { field: 'monthly_payment', label: 'Monthly Payment',       computed: true },
     { field: 'balloon_date',    label: 'Balloon',               type: 'date' },
   ];
 
@@ -270,7 +286,27 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
 
             <table className="w-full text-sm">
               <tbody>
-                {loanFields.map(({ field, label, type }) => {
+                {loanFields.map(({ field, label, type, computed }) => {
+                  // Computed row (Monthly Payment) — read-only display
+                  if (computed) {
+                    return (
+                      <tr key={field} className="border-b border-border/40 bg-accent/5">
+                        <td className="px-4 py-2 text-xs font-semibold text-foreground w-[175px] whitespace-nowrap">
+                          {label}
+                        </td>
+                        <td className="px-4 py-2">
+                          <span className="text-xs font-semibold text-accent px-2 py-0.5">
+                            {computedPayment != null
+                              ? `$${money(computedPayment)}`
+                              : <span className="text-muted-foreground/40 italic font-normal">Enter amount, rate & term</span>
+                            }
+                          </span>
+                        </td>
+                        <td />
+                      </tr>
+                    );
+                  }
+
                   const raw = (selectedLoan as unknown as Record<string, unknown>)[field];
                   const displayVal = raw != null ? String(raw) : '';
                   const isEditing = editingField === field;
@@ -281,8 +317,8 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
                     formatted = `${Number(displayVal).toFixed(3)}%`;
                   else if (field === 'original_amount' && displayVal)
                     formatted = `$${money(Number(displayVal))}`;
-                  else if (field === 'payment' && displayVal)
-                    formatted = `$${money(Number(displayVal))}`;
+                  else if (field === 'due_on_the' && displayVal)
+                    formatted = ordinal(Number(displayVal));
                   else if ((field === 'balloon_date' || field === 'start_date') && displayVal)
                     formatted = fmtDisplayDate(displayVal);
 
@@ -302,6 +338,8 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
                             autoFocus
                             type={type ?? 'text'}
                             step={type === 'number' ? 'any' : undefined}
+                            min={field === 'due_on_the' ? 1 : undefined}
+                            max={field === 'due_on_the' ? 31 : undefined}
                             value={editValue}
                             onChange={(e) => setEditValue(e.target.value)}
                             onBlur={() => saveField(field, editValue)}
@@ -354,34 +392,27 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
             </table>
 
             {/* Quick stats footer */}
-            {selectedLoan.original_amount && selectedLoan.interest_rate && (
+            {schedule.length > 1 && (
               <div className="px-4 py-3 border-t border-border bg-muted/30 space-y-1 text-xs text-muted-foreground">
                 {(() => {
-                  const monthlyInterest =
-                    (Number(selectedLoan.original_amount) * (Number(selectedLoan.interest_rate) / 100)) / 12;
-                  const monthlyPrincipal = selectedLoan.payment
-                    ? Number(selectedLoan.payment) - monthlyInterest
-                    : null;
+                  const totalInterest = schedule.reduce((sum, r) => sum + r.interest, 0);
+                  const totalPaid = schedule.reduce((sum, r) => sum + r.payment, 0);
                   return (
                     <>
                       <div>
-                        Monthly interest (month 1):{' '}
-                        <span className="font-semibold text-foreground">${money(monthlyInterest)}</span>
+                        Schedule length:{' '}
+                        <span className="font-semibold text-foreground">
+                          {schedule.length - 1} months ({((schedule.length - 1) / 12).toFixed(1)} years)
+                        </span>
                       </div>
-                      {!selectedLoan.interest_only && monthlyPrincipal != null && (
-                        <div>
-                          Monthly principal (month 1):{' '}
-                          <span className="font-semibold text-foreground">${money(monthlyPrincipal)}</span>
-                        </div>
-                      )}
-                      {schedule.length > 1 && (
-                        <div>
-                          Schedule length:{' '}
-                          <span className="font-semibold text-foreground">
-                            {schedule.length - 1} months
-                          </span>
-                        </div>
-                      )}
+                      <div>
+                        Total interest paid:{' '}
+                        <span className="font-semibold text-foreground">${money(totalInterest)}</span>
+                      </div>
+                      <div>
+                        Total amount paid:{' '}
+                        <span className="font-semibold text-foreground">${money(totalPaid)}</span>
+                      </div>
                     </>
                   );
                 })()}
@@ -409,7 +440,7 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
                   {schedule.length === 0 ? (
                     <tr>
                       <td colSpan={4} className="px-4 py-10 text-center text-muted-foreground">
-                        Enter Original Loan Amount and Payment to generate the schedule.
+                        Enter Original Loan Amount, Interest Rate, and Amortization to generate the schedule.
                       </td>
                     </tr>
                   ) : (
@@ -492,6 +523,13 @@ function fmtDate(d: Date): string {
 function fmtDisplayDate(iso: string): string {
   const d = new Date(iso + 'T00:00:00');
   return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+}
+
+/** Format a number as ordinal: 1→"1st", 2→"2nd", 15→"15th", etc. */
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return `${n}${s[(v - 20) % 10] || s[v] || s[0]} of the month`;
 }
 
 /** Parse "d Mon YYYY" back to a Date (for today-row comparison) */
