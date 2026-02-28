@@ -9,12 +9,39 @@ import {
   createBankType, approveBankType, rejectBankType,
   ensureDefaultBankTypes,
   ensureDistinctTxCategories, createTxCategory,
-  getTransactions, updateTransaction, deleteTransaction, bulkCreateTransactions,
+  getTransactions, updateTransaction, deleteTransaction, createTransaction, bulkCreateTransactions,
   getUploadSheets, createUploadSheet, deleteUploadSheet, updateSheetColumnHeaders,
 } from '@/lib/db/financial';
 import { logUserAction } from '@/lib/db/user-logs';
-import { Upload, Plus, Trash2, X, Check, Pencil } from 'lucide-react';
+import { Upload, Plus, Trash2, X, Check, Pencil, Bot, User } from 'lucide-react';
 import * as XLSX from 'xlsx';
+
+/** Call the server-side Gemini API route to auto-categorize transactions. */
+async function aiCategorize(
+  txs: { id: string; description: string }[],
+  categories: { id: string; name: string }[],
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (txs.length === 0 || categories.length === 0) return result;
+
+  try {
+    const res = await fetch('/api/ai/categorize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transactions: txs, categories }),
+    });
+    if (!res.ok) return result;
+    const data = await res.json();
+    if (Array.isArray(data.results)) {
+      for (const r of data.results) {
+        if (r.txId && r.categoryId) result.set(r.txId, r.categoryId);
+      }
+    }
+  } catch {
+    console.error('AI categorize failed');
+  }
+  return result;
+}
 
 interface Props {
   selectedProjectId: string;
@@ -303,6 +330,26 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
         setSelectedSheetId(sheet.id);
       }
       log(`Uploaded ${created.length} transactions from "${file.name}"`);
+
+      // AI auto-categorize new transactions that are set to "Auto" (default)
+      const autoTxs = created.filter((t) => !t.auto_grouping && t.description);
+      if (autoTxs.length > 0 && txCategories.length > 0) {
+        const catMap = await aiCategorize(
+          autoTxs.map((t) => ({ id: t.id, description: t.description! })),
+          txCategories.map((c) => ({ id: c.id, name: c.name })),
+        );
+        if (catMap.size > 0) {
+          const updates = Array.from(catMap.entries());
+          await Promise.all(updates.map(([txId, catId]) => updateTransaction(txId, 'category_id', catId)));
+          setTransactions((prev) =>
+            prev.map((t) => {
+              const catId = catMap.get(t.id);
+              return catId ? { ...t, category_id: catId } : t;
+            }),
+          );
+        }
+      }
+
       const duplicateCount = Math.max(0, parsed.length - uniqueParsed.length);
       setNotice(
         duplicateCount > 0
@@ -386,20 +433,45 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
     const ok = await updateTransaction(txId, 'auto_grouping', value || null);
     if (ok) {
       setTransactions((prev) => prev.map((t) => (t.id === txId ? { ...t, auto_grouping: value || null } : t)));
+
+      // If switching to "Auto" and no category assigned yet, trigger AI categorization
+      if (!value) {
+        const tx = transactions.find((t) => t.id === txId);
+        if (tx && !tx.category_id && tx.description && txCategories.length > 0) {
+          const catMap = await aiCategorize(
+            [{ id: txId, description: tx.description }],
+            txCategories.map((c) => ({ id: c.id, name: c.name })),
+          );
+          const catId = catMap.get(txId);
+          if (catId) {
+            await updateTransaction(txId, 'category_id', catId);
+            setTransactions((prev) => prev.map((t) => (t.id === txId ? { ...t, category_id: catId } : t)));
+          }
+        }
+      }
     }
   };
 
   const saveInlineEdit = async (txId: string, field: string, value: string) => {
     setEditingCell(null);
-    const ok = await updateTransaction(txId, field, value || null);
+    const dbValue = field === 'amount' ? (value ? parseFloat(value) : null) : (value || null);
+    const ok = await updateTransaction(txId, field, dbValue);
     if (ok) {
-      setTransactions((prev) => prev.map((t) => (t.id === txId ? { ...t, [field]: value || null } : t)));
+      setTransactions((prev) => prev.map((t) => (t.id === txId ? { ...t, [field]: dbValue } : t)));
     }
   };
 
   const handleDeleteTx = async (txId: string) => {
     if (await deleteTransaction(txId)) {
       setTransactions((prev) => prev.filter((t) => t.id !== txId));
+    }
+  };
+
+  const handleAddRow = async () => {
+    if (!selectedBankType) return;
+    const tx = await createTransaction(selectedProjectId, selectedBankType, {});
+    if (tx) {
+      setTransactions((prev) => [tx, ...prev]);
     }
   };
 
@@ -628,9 +700,19 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
         </div>
       )}
 
-      {/* Bank Data header + Add Category */}
+      {/* Bank Data header + Add Row + Add Category */}
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-bold">Bank Data</h3>
+        <div className="flex items-center gap-3">
+          <h3 className="text-sm font-bold">Bank Data</h3>
+          {canEdit && selectedBankType && (
+            <button
+              onClick={handleAddRow}
+              className="flex items-center gap-1 text-xs text-accent font-semibold hover:underline"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add Row
+            </button>
+          )}
+        </div>
         {canEdit && (
           <div className="flex items-center gap-2">
             <span className="text-sm font-bold">AutoBooks</span>
@@ -746,32 +828,108 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                     </>
                   ) : (
                     <>
-                      <td className="px-3 py-2 text-xs">{tx.date ?? '-'}</td>
-                      <td className={`px-3 py-2 text-xs font-medium ${tx.amount != null && tx.amount < 0 ? 'text-red-500' : tx.amount != null && tx.amount > 0 ? 'text-green-500' : ''}`}>
-                        {tx.amount != null
-                          ? `${tx.amount < 0 ? '-' : ''}$${Math.abs(Number(tx.amount)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                          : '-'}
+                      {/* Date */}
+                      <td className="px-3 py-2 text-xs">
+                        {editingCell?.id === tx.id && editingCell?.field === 'date' ? (
+                          <input
+                            autoFocus
+                            type="date"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onBlur={() => saveInlineEdit(tx.id, 'date', editValue)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveInlineEdit(tx.id, 'date', editValue);
+                              if (e.key === 'Escape') setEditingCell(null);
+                            }}
+                            className="w-full px-1 py-0.5 bg-background border border-input rounded text-xs"
+                          />
+                        ) : (
+                          <span
+                            onClick={canEdit ? () => { setEditingCell({ id: tx.id, field: 'date' }); setEditValue(tx.date ?? ''); } : undefined}
+                            className={`block min-h-[1.25rem] ${canEdit ? 'cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded' : ''}`}
+                          >
+                            {tx.date ?? <span className="text-muted-foreground/40">-</span>}
+                          </span>
+                        )}
                       </td>
+                      {/* Amount */}
+                      <td className={`px-3 py-2 text-xs font-medium ${tx.amount != null && tx.amount < 0 ? 'text-red-500' : tx.amount != null && tx.amount > 0 ? 'text-green-500' : ''}`}>
+                        {editingCell?.id === tx.id && editingCell?.field === 'amount' ? (
+                          <input
+                            autoFocus
+                            type="number"
+                            step="0.01"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onBlur={() => saveInlineEdit(tx.id, 'amount', editValue)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveInlineEdit(tx.id, 'amount', editValue);
+                              if (e.key === 'Escape') setEditingCell(null);
+                            }}
+                            className="w-full px-1 py-0.5 bg-background border border-input rounded text-xs"
+                          />
+                        ) : (
+                          <span
+                            onClick={canEdit ? () => { setEditingCell({ id: tx.id, field: 'amount' }); setEditValue(tx.amount != null ? String(tx.amount) : ''); } : undefined}
+                            className={`block min-h-[1.25rem] ${canEdit ? 'cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded' : ''}`}
+                          >
+                            {tx.amount != null
+                              ? `${tx.amount < 0 ? '-' : ''}$${Math.abs(Number(tx.amount)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : <span className="text-muted-foreground/40">-</span>}
+                          </span>
+                        )}
+                      </td>
+                      {/* Description */}
                       <td className="px-3 py-2 text-xs text-muted-foreground max-w-[200px]">
-                        {tx.description || '-'}
+                        {editingCell?.id === tx.id && editingCell?.field === 'description' ? (
+                          <input
+                            autoFocus
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onBlur={() => saveInlineEdit(tx.id, 'description', editValue)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveInlineEdit(tx.id, 'description', editValue);
+                              if (e.key === 'Escape') setEditingCell(null);
+                            }}
+                            className="w-full px-1 py-0.5 bg-background border border-input rounded text-xs"
+                          />
+                        ) : (
+                          <span
+                            onClick={canEdit ? () => { setEditingCell({ id: tx.id, field: 'description' }); setEditValue(tx.description ?? ''); } : undefined}
+                            className={`block min-h-[1.25rem] ${canEdit ? 'cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded' : ''}`}
+                          >
+                            {tx.description || <span className="text-muted-foreground/40">-</span>}
+                          </span>
+                        )}
                       </td>
                     </>
                   )}
                   {/* Category */}
                   <td className="px-3 py-2">
-                    <select
-                      value={tx.category_id ?? ''}
-                      onChange={(e) => handleCategoryChange(tx.id, e.target.value)}
-                      disabled={!canEdit}
-                      className="w-full px-2 py-1 bg-background border border-input rounded text-xs"
-                    >
-                      <option value="">--</option>
-                      {txCategories.map((cat) => (
-                        <option key={cat.id} value={cat.id}>
-                          {cat.icon} {cat.name}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex items-center gap-1">
+                      {tx.category_id ? (
+                        <span title={tx.auto_grouping === 'Do not group' ? 'Manually categorized' : 'AI categorized'}>
+                          {tx.auto_grouping === 'Do not group' ? (
+                            <User className="h-3.5 w-3.5 flex-shrink-0 text-orange-400" />
+                          ) : (
+                            <Bot className="h-3.5 w-3.5 flex-shrink-0 text-blue-400" />
+                          )}
+                        </span>
+                      ) : null}
+                      <select
+                        value={tx.category_id ?? ''}
+                        onChange={(e) => handleCategoryChange(tx.id, e.target.value)}
+                        disabled={!canEdit}
+                        className="w-full px-2 py-1 bg-background border border-input rounded text-xs"
+                      >
+                        <option value="">--</option>
+                        {txCategories.map((cat) => (
+                          <option key={cat.id} value={cat.id}>
+                            {cat.icon} {cat.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </td>
                   {/* Notes */}
                   <td className="px-3 py-2">

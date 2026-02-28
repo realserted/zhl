@@ -294,6 +294,29 @@ export async function deleteTransaction(id: string): Promise<boolean> {
   return !error;
 }
 
+export async function createTransaction(
+  projectId: string,
+  bankTypeId: string | null,
+  fields: { date?: string; amount?: number; description?: string },
+): Promise<FinancialTransaction | null> {
+  const { data, error } = await supabase
+    .from('financial_transactions')
+    .insert({
+      project_id: projectId,
+      bank_type_id: bankTypeId,
+      date: fields.date || null,
+      amount: fields.amount ?? null,
+      description: fields.description || null,
+    })
+    .select()
+    .single();
+  if (error) {
+    console.error('Error creating transaction:', error.message);
+    return null;
+  }
+  return data;
+}
+
 export async function bulkCreateTransactions(
   projectId: string,
   bankTypeId: string | null,
