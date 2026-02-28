@@ -1,20 +1,14 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { useAuth } from '@/lib/auth-context';
-import { supabase } from '@/lib/supabase/client';
+import { useState, useEffect, useMemo } from 'react';
 import { ProjectPermission } from '@/lib/types/project';
-import { SectionWithItems, FinancialMonthlyValue } from '@/lib/types/financial';
+import { FinancialTransaction, FinancialTxCategory, FinancialLoan } from '@/lib/types/financial';
 import {
-  getSections,
-  getMonthlyValues,
-  createLineItem,
-  deleteLineItem,
-  upsertMonthlyValue,
-  seedDefaultFinancials,
+  getTransactions,
+  getTxCategories,
+  getLoans,
 } from '@/lib/db/financial';
-import { logUserAction } from '@/lib/db/user-logs';
-import { Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface Props {
   selectedProjectId: string;
@@ -23,108 +17,147 @@ interface Props {
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-export default function FinancialOverview({ selectedProjectId, userPermission }: Props) {
-  const { user } = useAuth();
-  const [sections, setSections] = useState<SectionWithItems[]>([]);
-  const [values, setValues] = useState<FinancialMonthlyValue[]>([]);
-  const [year, setYear] = useState(new Date().getFullYear());
-  const [editingCell, setEditingCell] = useState<{ itemId: string; month: number } | null>(null);
-  const [editValue, setEditValue] = useState('');
-  const [addingItem, setAddingItem] = useState<string | null>(null);
-  const [newItemName, setNewItemName] = useState('');
-  const displayNameRef = useRef('Unknown');
-  const userEmailRef = useRef('');
+function computeMonthlyPayment(loan: FinancialLoan): number {
+  const P = loan.original_amount ?? 0;
+  const n = loan.amortization ?? 0;
+  const rate = (loan.interest_rate ?? 0) / 100 / 12;
+  if (P === 0) return 0;
+  if (loan.interest_only) return P * rate;
+  if (n === 0) return 0;
+  if (rate === 0) return P / n;
+  return P * (rate * Math.pow(1 + rate, n)) / (Math.pow(1 + rate, n) - 1);
+}
 
-  const permLevel = userPermission?.perm_reports ?? 'Admin';
-  const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
+function isLoanActiveInMonth(loan: FinancialLoan, year: number, month: number): boolean {
+  if (!loan.start_date) return false;
+  const sd = new Date(loan.start_date);
+  const sy = sd.getFullYear(), sm = sd.getMonth() + 1;
+  if (year < sy || (year === sy && month < sm)) return false;
+  if (loan.balloon_date) {
+    const bd = new Date(loan.balloon_date);
+    const by = bd.getFullYear(), bm = bd.getMonth() + 1;
+    if (year > by || (year === by && month > bm)) return false;
+  }
+  if (loan.amortization && !loan.interest_only) {
+    const elapsed = (year - sy) * 12 + (month - sm);
+    if (elapsed >= loan.amortization) return false;
+  }
+  return true;
+}
+
+export default function FinancialOverview({ selectedProjectId }: Props) {
+  const [transactions, setTransactions] = useState<FinancialTransaction[]>([]);
+  const [categories, setCategories] = useState<FinancialTxCategory[]>([]);
+  const [loans, setLoans] = useState<FinancialLoan[]>([]);
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
-    userEmailRef.current = user.email || '';
-    supabase
-      .from('accounts')
-      .select('display_name')
-      .eq('user_id', user.id)
-      .maybeSingle()
-      .then(({ data }) => { displayNameRef.current = data?.display_name || user.email || 'Unknown'; });
-  }, [user]);
+    setLoading(true);
+    Promise.all([
+      getTransactions(selectedProjectId),
+      getTxCategories(selectedProjectId),
+      getLoans(selectedProjectId),
+    ]).then(([txs, cats, lns]) => {
+      setTransactions(txs);
+      setCategories(cats);
+      setLoans(lns);
+      setLoading(false);
+    });
+  }, [selectedProjectId]);
 
-  const loadData = async () => {
-    let secs = await getSections(selectedProjectId);
-    if (secs.length === 0) {
-      await seedDefaultFinancials(selectedProjectId);
-      secs = await getSections(selectedProjectId);
-    }
-    setSections(secs);
-    const vals = await getMonthlyValues(selectedProjectId, year);
-    setValues(vals);
-  };
-
-  useEffect(() => { loadData(); }, [selectedProjectId, year]);
-
-  const log = (action: string) => {
-    if (!user) return;
-    logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action });
-  };
-
-  // Value lookup map
-  const valueMap = useMemo(() => {
-    const m = new Map<string, number>();
-    values.forEach((v) => m.set(`${v.line_item_id}-${v.month}`, Number(v.value)));
+  const categoryMap = useMemo(() => {
+    const m = new Map<string, FinancialTxCategory>();
+    categories.forEach((c) => m.set(c.id, c));
     return m;
-  }, [values]);
+  }, [categories]);
 
-  const getCellValue = (itemId: string, month: number) => valueMap.get(`${itemId}-${month}`) ?? 0;
+  // Filter transactions for the selected year
+  const yearTxs = useMemo(
+    () =>
+      transactions.filter((tx) => {
+        if (!tx.date || tx.amount == null) return false;
+        return new Date(tx.date).getFullYear() === year;
+      }),
+    [transactions, year],
+  );
 
-  const getSectionTotal = (section: SectionWithItems, month: number) =>
-    section.line_items.reduce((sum, item) => sum + getCellValue(item.id, month), 0);
-
-  const saveCell = async (itemId: string, month: number, raw: string) => {
-    setEditingCell(null);
-    const num = parseFloat(raw) || 0;
-    const old = getCellValue(itemId, month);
-    if (num === old) return;
-    const ok = await upsertMonthlyValue(itemId, selectedProjectId, year, month, num);
-    if (ok) {
-      setValues((prev) => {
-        const key = `${itemId}-${year}-${month}`;
-        const existing = prev.find((v) => v.line_item_id === itemId && v.month === month && v.year === year);
-        if (existing) return prev.map((v) => (v.id === existing.id ? { ...v, value: num } : v));
-        return [...prev, { id: key, line_item_id: itemId, project_id: selectedProjectId, year, month, value: num, created_at: '', updated_at: '' }];
-      });
-      log(`Updated financial value for month ${MONTHS[month - 1]} ${year}`);
+  // Aggregate by category + month → Map<categoryId, Map<month, total>>
+  const txByCatMonth = useMemo(() => {
+    const m = new Map<string, Map<number, number>>();
+    for (const tx of yearTxs) {
+      const catId = tx.category_id || '__uncategorized__';
+      if (!m.has(catId)) m.set(catId, new Map());
+      const month = new Date(tx.date!).getMonth() + 1;
+      const mm = m.get(catId)!;
+      mm.set(month, (mm.get(month) ?? 0) + (tx.amount ?? 0));
     }
+    return m;
+  }, [yearTxs]);
+
+  // Separate into income vs expense by net total sign per category
+  const { incomeItems, expenseItems } = useMemo(() => {
+    const income: { id: string; name: string }[] = [];
+    const expense: { id: string; name: string }[] = [];
+    for (const [catId, monthMap] of txByCatMonth) {
+      let total = 0;
+      for (const v of monthMap.values()) total += v;
+      const name =
+        catId === '__uncategorized__'
+          ? 'Uncategorized'
+          : (categoryMap.get(catId)?.name ?? 'Unknown');
+      if (total >= 0) income.push({ id: catId, name });
+      else expense.push({ id: catId, name });
+    }
+    income.sort((a, b) => a.name.localeCompare(b.name));
+    expense.sort((a, b) => a.name.localeCompare(b.name));
+    return { incomeItems: income, expenseItems: expense };
+  }, [txByCatMonth, categoryMap]);
+
+  const getCatVal = (catId: string, month: number) =>
+    txByCatMonth.get(catId)?.get(month) ?? 0;
+
+  const getIncomeTotal = (month: number) =>
+    incomeItems.reduce((s, c) => s + getCatVal(c.id, month), 0);
+
+  const getExpenseTotal = (month: number) =>
+    expenseItems.reduce((s, c) => s + Math.abs(getCatVal(c.id, month)), 0);
+
+  const getLoanTotal = (month: number) =>
+    loans.reduce((s, ln) => {
+      if (!isLoanActiveInMonth(ln, year, month)) return s;
+      return s + computeMonthlyPayment(ln);
+    }, 0);
+
+  const getCashflow = (month: number) =>
+    getIncomeTotal(month) - getExpenseTotal(month) - getLoanTotal(month);
+
+  const fmt = (n: number) =>
+    n === 0
+      ? ''
+      : `$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+
+  const fmtSigned = (n: number) => {
+    if (n === 0) return '';
+    const sign = n < 0 ? '-' : '';
+    return `${sign}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   };
 
-  const handleAddItem = async (sectionId: string) => {
-    if (!newItemName.trim()) return;
-    const section = sections.find((s) => s.id === sectionId);
-    const item = await createLineItem(sectionId, selectedProjectId, newItemName.trim(), (section?.line_items.length ?? 0) + 1);
-    if (item) {
-      setSections((prev) => prev.map((s) => s.id === sectionId ? { ...s, line_items: [...s.line_items, item] } : s));
-      log(`Added financial line item "${newItemName.trim()}"`);
-    }
-    setNewItemName('');
-    setAddingItem(null);
-  };
-
-  const handleDeleteItem = async (itemId: string, itemName: string) => {
-    if (!confirm(`Delete "${itemName}"?`)) return;
-    if (await deleteLineItem(itemId)) {
-      setSections((prev) => prev.map((s) => ({ ...s, line_items: s.line_items.filter((i) => i.id !== itemId) })));
-      log(`Deleted financial line item "${itemName}"`);
-    }
-  };
-
-  const fmt = (n: number) => n === 0 ? '' : `$${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  if (loading) {
+    return <div className="text-sm text-muted-foreground py-4">Loading overview...</div>;
+  }
 
   return (
     <div className="overflow-x-auto">
       {/* Year selector */}
       <div className="flex items-center gap-3 mb-4">
-        <button onClick={() => setYear((y) => y - 1)} className="p-1 hover:bg-muted rounded"><ChevronLeft className="h-4 w-4" /></button>
+        <button onClick={() => setYear((y) => y - 1)} className="p-1 hover:bg-muted rounded">
+          <ChevronLeft className="h-4 w-4" />
+        </button>
         <span className="text-sm font-bold">{year}</span>
-        <button onClick={() => setYear((y) => y + 1)} className="p-1 hover:bg-muted rounded"><ChevronRight className="h-4 w-4" /></button>
+        <button onClick={() => setYear((y) => y + 1)} className="p-1 hover:bg-muted rounded">
+          <ChevronRight className="h-4 w-4" />
+        </button>
       </div>
 
       <table className="w-full text-xs border-collapse">
@@ -132,195 +165,147 @@ export default function FinancialOverview({ selectedProjectId, userPermission }:
           <tr className="border-b border-border">
             <th className="text-left px-2 py-1 min-w-[180px] sticky left-0 bg-background z-10"></th>
             {MONTHS.map((m, i) => (
-              <th key={i} className="text-center px-2 py-1 min-w-[70px] font-semibold text-foreground">{m}</th>
+              <th key={i} className="text-center px-2 py-1 min-w-[70px] font-semibold text-foreground">
+                {m}
+              </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {sections.map((section) => (
-            <SectionBlock
-              key={section.id}
-              section={section}
-              canEdit={canEdit}
-              editingCell={editingCell}
-              editValue={editValue}
-              setEditingCell={setEditingCell}
-              setEditValue={setEditValue}
-              saveCell={saveCell}
-              getCellValue={getCellValue}
-              getSectionTotal={getSectionTotal}
-              handleDeleteItem={handleDeleteItem}
-              addingItem={addingItem}
-              setAddingItem={setAddingItem}
-              newItemName={newItemName}
-              setNewItemName={setNewItemName}
-              handleAddItem={handleAddItem}
+          {/* GROSS INCOME */}
+          <SectionHeader label="GROSS INCOME" getTotal={getIncomeTotal} fmt={fmt} />
+          {incomeItems.map((c) => (
+            <ItemRow key={c.id} label={c.name} getVal={(m) => getCatVal(c.id, m)} fmt={fmt} />
+          ))}
+          {incomeItems.length === 0 && <EmptyRow text="No income transactions" />}
+
+          {/* EXPENSES */}
+          <SectionHeader label="EXPENSES" getTotal={getExpenseTotal} fmt={fmt} />
+          {expenseItems.map((c) => (
+            <ItemRow
+              key={c.id}
+              label={c.name}
+              getVal={(m) => Math.abs(getCatVal(c.id, m))}
               fmt={fmt}
             />
           ))}
+          {expenseItems.length === 0 && <EmptyRow text="No expense transactions" />}
 
-          {/* Bank Balance rows */}
-          <tr><td colSpan={13} className="h-2" /></tr>
-          <BankBalanceRow label="Bank Balance - Projected" sections={sections} getCellValue={getCellValue} getSectionTotal={getSectionTotal} fmt={fmt} highlight={false} />
-          <BankBalanceRow label="Bank Balance - Actual" sections={sections} getCellValue={getCellValue} getSectionTotal={getSectionTotal} fmt={fmt} highlight={true} />
+          {/* LOANS */}
+          <SectionHeader label="LOANS" getTotal={getLoanTotal} fmt={fmt} />
+          {loans.map((ln) => (
+            <ItemRow
+              key={ln.id}
+              label={ln.loan_name || 'Unnamed Loan'}
+              getVal={(m) => (isLoanActiveInMonth(ln, year, m) ? computeMonthlyPayment(ln) : 0)}
+              fmt={fmt}
+            />
+          ))}
+          {loans.length === 0 && <EmptyRow text="No loans in debt schedule" />}
+
+          {/* CASHFLOW */}
+          <tr>
+            <td colSpan={13} className="h-2" />
+          </tr>
+          <tr className="bg-muted/30">
+            <td className="px-2 py-1 font-bold text-foreground text-xs sticky left-0 bg-muted/30 z-10">
+              CASHFLOW
+            </td>
+            {MONTHS.map((_, i) => {
+              const v = getCashflow(i + 1);
+              return (
+                <td
+                  key={i}
+                  className={`text-center px-2 py-1 font-semibold ${v < 0 ? 'text-red-400' : v > 0 ? 'text-green-400' : ''}`}
+                >
+                  {fmtSigned(v)}
+                </td>
+              );
+            })}
+          </tr>
+
+          {/* Bank Balance */}
+          <tr>
+            <td colSpan={13} className="h-2" />
+          </tr>
+          <tr className="bg-muted/30">
+            <td className="px-2 py-1 font-bold text-xs sticky left-0 bg-muted/30 z-10 text-foreground">
+              Bank Balance - Projected
+            </td>
+            {MONTHS.map((_, i) => (
+              <td key={i} className="text-center px-2 py-1 font-bold">
+                {fmtSigned(getCashflow(i + 1))}
+              </td>
+            ))}
+          </tr>
+          <tr className="bg-green-600/20">
+            <td className="px-2 py-1 font-bold text-xs sticky left-0 bg-green-600/20 z-10 text-green-400">
+              Bank Balance - Actual
+            </td>
+            {MONTHS.map((_, i) => (
+              <td key={i} className="text-center px-2 py-1 font-bold text-green-400">
+                {fmtSigned(getCashflow(i + 1))}
+              </td>
+            ))}
+          </tr>
         </tbody>
       </table>
     </div>
   );
 }
 
-// Section block with header + line items
-function SectionBlock({
-  section, canEdit, editingCell, editValue, setEditingCell, setEditValue,
-  saveCell, getCellValue, getSectionTotal, handleDeleteItem,
-  addingItem, setAddingItem, newItemName, setNewItemName, handleAddItem, fmt,
+/* ---------- Sub-components ---------- */
+
+function SectionHeader({
+  label,
+  getTotal,
+  fmt,
 }: {
-  section: SectionWithItems;
-  canEdit: boolean;
-  editingCell: { itemId: string; month: number } | null;
-  editValue: string;
-  setEditingCell: (v: { itemId: string; month: number } | null) => void;
-  setEditValue: (v: string) => void;
-  saveCell: (itemId: string, month: number, value: string) => void;
-  getCellValue: (itemId: string, month: number) => number;
-  getSectionTotal: (section: SectionWithItems, month: number) => number;
-  handleDeleteItem: (id: string, name: string) => void;
-  addingItem: string | null;
-  setAddingItem: (v: string | null) => void;
-  newItemName: string;
-  setNewItemName: (v: string) => void;
-  handleAddItem: (sectionId: string) => void;
+  label: string;
+  getTotal: (m: number) => number;
   fmt: (n: number) => string;
 }) {
   return (
-    <>
-      {/* Section header */}
-      <tr className="bg-muted/30">
-        <td className="px-2 py-1 font-bold text-foreground text-xs sticky left-0 bg-muted/30 z-10">{section.name}</td>
-        {MONTHS.map((_, i) => {
-          const total = getSectionTotal(section, i + 1);
-          return <td key={i} className="text-center px-2 py-1 font-semibold text-foreground">{fmt(total)}</td>;
-        })}
-      </tr>
-
-      {/* Line items */}
-      {section.line_items.map((item) => (
-        <tr key={item.id} className="border-b border-border/30 hover:bg-muted/20">
-          <td className="px-2 py-1 sticky left-0 bg-background z-10">
-            <div className="flex items-center gap-1">
-              {item.color && <span className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: item.color }} />}
-              <span className="text-foreground">{item.name}</span>
-              {canEdit && (
-                <button onClick={() => handleDeleteItem(item.id, item.name)} className="ml-auto text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100">
-                  <Trash2 className="h-3 w-3" />
-                </button>
-              )}
-            </div>
-          </td>
-          {MONTHS.map((_, mi) => {
-            const month = mi + 1;
-            const val = getCellValue(item.id, month);
-            const isEditing = editingCell?.itemId === item.id && editingCell?.month === month;
-
-            if (isEditing) {
-              return (
-                <td key={mi} className="px-1 py-0.5 text-center">
-                  <input
-                    autoFocus
-                    type="number"
-                    value={editValue}
-                    onChange={(e) => setEditValue(e.target.value)}
-                    onBlur={() => saveCell(item.id, month, editValue)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') saveCell(item.id, month, editValue);
-                      if (e.key === 'Escape') setEditingCell(null);
-                    }}
-                    className="w-full px-1 py-0.5 bg-background border border-input rounded text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
-                </td>
-              );
-            }
-
-            return (
-              <td
-                key={mi}
-                onClick={canEdit ? () => { setEditingCell({ itemId: item.id, month }); setEditValue(String(val || '')); } : undefined}
-                className={`px-2 py-1 text-center ${canEdit ? 'cursor-pointer hover:bg-muted/50' : ''}`}
-              >
-                {fmt(val)}
-              </td>
-            );
-          })}
-        </tr>
+    <tr className="bg-muted/30">
+      <td className="px-2 py-1 font-bold text-foreground text-xs sticky left-0 bg-muted/30 z-10">
+        {label}
+      </td>
+      {MONTHS.map((_, i) => (
+        <td key={i} className="text-center px-2 py-1 font-semibold text-foreground">
+          {fmt(getTotal(i + 1))}
+        </td>
       ))}
-
-      {/* Add Category (line item) */}
-      {canEdit && (
-        <tr>
-          <td colSpan={13} className="px-2 py-1">
-            {addingItem === section.id ? (
-              <div className="flex items-center gap-2">
-                <input
-                  autoFocus
-                  value={newItemName}
-                  onChange={(e) => setNewItemName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleAddItem(section.id);
-                    if (e.key === 'Escape') { setAddingItem(null); setNewItemName(''); }
-                  }}
-                  placeholder="Item name..."
-                  className="px-2 py-0.5 bg-background border border-input rounded text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-                <button onClick={() => handleAddItem(section.id)} className="text-xs text-accent font-semibold">Add</button>
-                <button onClick={() => { setAddingItem(null); setNewItemName(''); }} className="text-xs text-muted-foreground">Cancel</button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setAddingItem(section.id)}
-                className="flex items-center gap-1 text-xs text-accent hover:text-accent/80 font-semibold"
-              >
-                <Plus className="h-3 w-3" /> Add Category
-              </button>
-            )}
-          </td>
-        </tr>
-      )}
-    </>
+    </tr>
   );
 }
 
-// Bank Balance row (computed from sections)
-function BankBalanceRow({
-  label, sections, getCellValue, getSectionTotal, fmt, highlight,
+function ItemRow({
+  label,
+  getVal,
+  fmt,
 }: {
   label: string;
-  sections: SectionWithItems[];
-  getCellValue: (itemId: string, month: number) => number;
-  getSectionTotal: (section: SectionWithItems, month: number) => number;
+  getVal: (m: number) => number;
   fmt: (n: number) => string;
-  highlight: boolean;
 }) {
-  const income = sections.find((s) => s.name === 'GROSS INCOME');
-  const expenses = sections.find((s) => s.name === 'EXPENSES');
-  const loans = sections.find((s) => s.name === 'LOANS');
-
   return (
-    <tr className={highlight ? 'bg-green-600/20' : 'bg-muted/30'}>
-      <td className={`px-2 py-1 font-bold text-xs sticky left-0 z-10 ${highlight ? 'bg-green-600/20 text-green-400' : 'bg-muted/30 text-foreground'}`}>
-        {label}
+    <tr className="border-b border-border/30 hover:bg-muted/20">
+      <td className="px-2 py-1 sticky left-0 bg-background z-10 text-foreground pl-4">{label}</td>
+      {MONTHS.map((_, i) => (
+        <td key={i} className="text-center px-2 py-1">
+          {fmt(getVal(i + 1))}
+        </td>
+      ))}
+    </tr>
+  );
+}
+
+function EmptyRow({ text }: { text: string }) {
+  return (
+    <tr>
+      <td colSpan={13} className="px-4 py-1 text-muted-foreground italic text-xs">
+        {text}
       </td>
-      {MONTHS.map((_, i) => {
-        const m = i + 1;
-        const inc = income ? getSectionTotal(income, m) : 0;
-        const exp = expenses ? getSectionTotal(expenses, m) : 0;
-        const ln = loans ? getSectionTotal(loans, m) : 0;
-        const balance = inc - exp - ln;
-        return (
-          <td key={i} className={`text-center px-2 py-1 font-bold ${highlight ? 'text-green-400' : ''}`}>
-            {fmt(balance)}
-          </td>
-        );
-      })}
     </tr>
   );
 }
