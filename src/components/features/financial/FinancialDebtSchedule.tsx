@@ -193,23 +193,23 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
         });
         if (hitsBalloon) break;
       } else {
-        const principal = Math.min(Math.max(0, computedPayment - interest), balance);
-        balance = Math.max(0, balance - principal);
-        const fullyPaid = balance < 0.01;
+        // Last payment: pay exactly the remaining balance + interest
+        const isLastPayment = (computedPayment - interest) >= balance || i === maxMonths;
+        const principal = isLastPayment ? balance : (computedPayment - interest);
+        const payment = isLastPayment ? (balance + interest) : computedPayment;
+        balance = isLastPayment ? 0 : (balance - principal);
 
         rows.push({
           due: fmtDate(d),
           month: i,
-          payment: fullyPaid
-            ? Number((principal + interest).toFixed(2))
-            : computedPayment,
+          payment: Number(payment.toFixed(2)),
           interest,
           principal,
           balance,
           isBalloon: hitsBalloon,
         });
 
-        if (fullyPaid || hitsBalloon) break;
+        if (isLastPayment || hitsBalloon) break;
       }
     }
 
