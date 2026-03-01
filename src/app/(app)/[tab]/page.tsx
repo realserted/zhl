@@ -2,6 +2,7 @@
 
 import { use } from 'react';
 import dynamic from 'next/dynamic';
+import { redirect } from 'next/navigation';
 import { useAppState } from '../AppStateContext';
 
 // ── Lazy-loaded tab components ────────────────────────────────────────────────
@@ -41,10 +42,6 @@ const UnitDataPage = dynamic(
 );
 const AccountsPage = dynamic(
   () => import('@/components/features/accounts/AccountsPage'),
-  { ssr: false, loading: () => <TabSpinner /> }
-);
-const FinancialPage = dynamic(
-  () => import('@/components/features/financial/FinancialPage'),
   { ssr: false, loading: () => <TabSpinner /> }
 );
 const FilesPage = dynamic(
@@ -108,12 +105,7 @@ export default function TabPage({ params }: { params: Promise<{ tab: string }> }
       );
 
     case 'financial':
-      return (
-        <FinancialPage
-          selectedProjectId={projectId}
-          userPermission={userPermission}
-        />
-      );
+      redirect('/financial/overview');
 
     case 'settings':
       return (

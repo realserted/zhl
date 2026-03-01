@@ -28,7 +28,9 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
   const router = useRouter();
   const pathname = usePathname();
   // Derive active tab from the current pathname: /taskers → 'taskers', / → 'overview'
-  const activeTab = pathname === '/' ? 'overview' : pathname.replace(/^\//, '');
+  const rawTab = pathname === '/' ? 'overview' : pathname.replace(/^\//, '');
+  // For nested routes like /financial/overview, extract the top-level tab
+  const activeTab = rawTab.includes('/') ? rawTab.split('/')[0] : rawTab;
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [displayName, setDisplayName] = useState<string>('');
@@ -219,7 +221,8 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
       });
 
   const handleTabChange = (tabId: string) => {
-    router.push(`/${tabId}`, { scroll: false });
+    const path = tabId === 'financial' ? '/financial/overview' : `/${tabId}`;
+    router.push(path, { scroll: false });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 

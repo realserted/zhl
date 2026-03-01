@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { ProjectPermission } from '@/lib/types/project';
 import FinancialOverview from './FinancialOverview';
 import FinancialAutoBooks from './FinancialAutoBooks';
@@ -10,6 +10,7 @@ import FinancialReports from './FinancialReports';
 interface FinancialPageProps {
   selectedProjectId: string | null;
   userPermission?: ProjectPermission | null;
+  subTab?: string;
 }
 
 type SubTab = 'overview' | 'autobooks' | 'debtschedule' | 'reports';
@@ -21,8 +22,11 @@ const SUB_TABS: { id: SubTab; label: string }[] = [
   { id: 'reports', label: 'Reports' },
 ];
 
-export default function FinancialPage({ selectedProjectId, userPermission }: FinancialPageProps) {
-  const [subTab, setSubTab] = useState<SubTab>('overview');
+const VALID_SUB_TABS = new Set<string>(SUB_TABS.map((t) => t.id));
+
+export default function FinancialPage({ selectedProjectId, userPermission, subTab }: FinancialPageProps) {
+  const router = useRouter();
+  const activeSubTab: SubTab = subTab && VALID_SUB_TABS.has(subTab) ? (subTab as SubTab) : 'overview';
 
   if (!selectedProjectId) {
     return (
@@ -32,6 +36,10 @@ export default function FinancialPage({ selectedProjectId, userPermission }: Fin
     );
   }
 
+  const handleSubTabChange = (tabId: SubTab) => {
+    router.push(`/financial/${tabId}`, { scroll: false });
+  };
+
   return (
     <div className="p-4 sm:p-6">
       {/* Sub-tab navigation */}
@@ -39,9 +47,9 @@ export default function FinancialPage({ selectedProjectId, userPermission }: Fin
         {SUB_TABS.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setSubTab(tab.id)}
+            onClick={() => handleSubTabChange(tab.id)}
             className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${
-              subTab === tab.id
+              activeSubTab === tab.id
                 ? 'bg-green-500 text-black'
                 : 'text-foreground hover:bg-muted'
             }`}
@@ -51,16 +59,16 @@ export default function FinancialPage({ selectedProjectId, userPermission }: Fin
         ))}
       </div>
 
-      {subTab === 'overview' && (
+      {activeSubTab === 'overview' && (
         <FinancialOverview selectedProjectId={selectedProjectId} userPermission={userPermission} />
       )}
-      {subTab === 'autobooks' && (
+      {activeSubTab === 'autobooks' && (
         <FinancialAutoBooks selectedProjectId={selectedProjectId} userPermission={userPermission} />
       )}
-      {subTab === 'debtschedule' && (
+      {activeSubTab === 'debtschedule' && (
         <FinancialDebtSchedule selectedProjectId={selectedProjectId} userPermission={userPermission} />
       )}
-      {subTab === 'reports' && (
+      {activeSubTab === 'reports' && (
         <FinancialReports selectedProjectId={selectedProjectId} userPermission={userPermission} />
       )}
     </div>
