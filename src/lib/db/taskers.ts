@@ -4,7 +4,7 @@ import { Tasker, TaskerLog } from '@/lib/types/tasker';
 // Get all taskers for a project
 export async function getTaskers(projectId: string): Promise<Tasker[]> {
   const { data, error } = await supabase
-    .from('taskers')
+    .from('zhl_taskers')
     .select('*')
     .eq('project_id', projectId)
     .order('created_at', { ascending: false });
@@ -21,7 +21,7 @@ export async function createTasker(
   tasker: Omit<Tasker, 'id' | 'created_at' | 'updated_at'>
 ): Promise<Tasker | null> {
   const { data, error } = await supabase
-    .from('taskers')
+    .from('zhl_taskers')
     .insert([tasker])
     .select()
     .single();
@@ -39,7 +39,7 @@ export async function updateTasker(
   updates: Partial<Tasker>
 ): Promise<boolean> {
   const { error } = await supabase
-    .from('taskers')
+    .from('zhl_taskers')
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', taskerId);
 
@@ -53,7 +53,7 @@ export async function updateTasker(
 // Delete a tasker
 export async function deleteTasker(taskerId: string): Promise<boolean> {
   const { error } = await supabase
-    .from('taskers')
+    .from('zhl_taskers')
     .delete()
     .eq('id', taskerId);
 
@@ -67,7 +67,7 @@ export async function deleteTasker(taskerId: string): Promise<boolean> {
 // Get logs for a tasker
 export async function getTaskerLogs(taskerId: string): Promise<TaskerLog[]> {
   const { data, error } = await supabase
-    .from('tasker_logs')
+    .from('zhl_tasker_logs')
     .select('*')
     .eq('tasker_id', taskerId)
     .order('created_at', { ascending: true });
@@ -84,7 +84,7 @@ export async function addTaskerLog(
   log: Omit<TaskerLog, 'id' | 'created_at'>
 ): Promise<TaskerLog | null> {
   const { data, error } = await supabase
-    .from('tasker_logs')
+    .from('zhl_tasker_logs')
     .insert([log])
     .select()
     .single();

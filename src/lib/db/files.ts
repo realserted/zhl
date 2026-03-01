@@ -13,7 +13,7 @@ import {
 
 export async function getFileFolders(projectId: string): Promise<ProjectFileFolder[]> {
   const { data, error } = await supabase
-    .from('project_file_folders')
+    .from('zhl_project_file_folders')
     .select('*')
     .eq('project_id', projectId)
     .order('sort_order')
@@ -34,7 +34,7 @@ export async function createFileFolder(
   userId: string | null
 ): Promise<ProjectFileFolder | null> {
   const { data, error } = await supabase
-    .from('project_file_folders')
+    .from('zhl_project_file_folders')
     .insert({
       project_id: projectId,
       name,
@@ -54,7 +54,7 @@ export async function createFileFolder(
 
 export async function getFilesForProject(projectId: string): Promise<ProjectFileItem[]> {
   const { data, error } = await supabase
-    .from('project_files')
+    .from('zhl_project_files')
     .select('*')
     .eq('project_id', projectId)
     .order('created_at', { ascending: false });
@@ -68,7 +68,7 @@ export async function getFilesForProject(projectId: string): Promise<ProjectFile
 
 export async function getFolderPermissions(folderId: string): Promise<ProjectFileFolderPermissions | null> {
   const { data, error } = await supabase
-    .from('project_file_folder_permissions')
+    .from('zhl_project_file_folder_permissions')
     .select('*')
     .eq('folder_id', folderId)
     .maybeSingle();
@@ -82,7 +82,7 @@ export async function getFolderPermissions(folderId: string): Promise<ProjectFil
 
 export async function getAllFolderPermissions(projectId: string): Promise<ProjectFileFolderPermissions[]> {
   const { data, error } = await supabase
-    .from('project_file_folder_permissions')
+    .from('zhl_project_file_folder_permissions')
     .select('*')
     .eq('project_id', projectId);
 
@@ -105,7 +105,7 @@ export async function upsertFolderPermissions(payload: {
   link_enabled: boolean;
 }): Promise<ProjectFileFolderPermissions | null> {
   const { data, error } = await supabase
-    .from('project_file_folder_permissions')
+    .from('zhl_project_file_folder_permissions')
     .upsert(
       {
         project_id: payload.projectId,
@@ -132,7 +132,7 @@ export async function upsertFolderPermissions(payload: {
 
 export async function getAllFilePermissions(projectId: string): Promise<ProjectFileItemPermissions[]> {
   const { data, error } = await supabase
-    .from('project_file_item_permissions')
+    .from('zhl_project_file_item_permissions')
     .select('*')
     .eq('project_id', projectId);
 
@@ -155,7 +155,7 @@ export async function upsertFilePermissions(payload: {
   link_enabled: boolean;
 }): Promise<ProjectFileItemPermissions | null> {
   const { data, error } = await supabase
-    .from('project_file_item_permissions')
+    .from('zhl_project_file_item_permissions')
     .upsert(
       {
         project_id: payload.projectId,
@@ -182,7 +182,7 @@ export async function upsertFilePermissions(payload: {
 
 export async function getCustomFields(projectId: string): Promise<ProjectFileCustomField[]> {
   const { data, error } = await supabase
-    .from('project_file_custom_fields')
+    .from('zhl_project_file_custom_fields')
     .select('*')
     .eq('project_id', projectId)
     .order('created_at');
@@ -204,7 +204,7 @@ export async function createCustomField(payload: {
   userId: string | null;
 }): Promise<ProjectFileCustomField | null> {
   const { data, error } = await supabase
-    .from('project_file_custom_fields')
+    .from('zhl_project_file_custom_fields')
     .insert({
       project_id: payload.projectId,
       name: payload.name,
@@ -232,7 +232,7 @@ export async function getCustomFieldValuesForTarget(params: {
   if (params.customFieldIds.length === 0) return [];
 
   let query = supabase
-    .from('project_file_custom_field_values')
+    .from('zhl_project_file_custom_field_values')
     .select('*')
     .in('custom_field_id', params.customFieldIds);
 
@@ -262,7 +262,7 @@ export async function upsertCustomFieldValue(payload: {
   const conflictKey = payload.folderId ? 'custom_field_id,folder_id' : 'custom_field_id,file_id';
 
   const { data, error } = await supabase
-    .from('project_file_custom_field_values')
+    .from('zhl_project_file_custom_field_values')
     .upsert(
       {
         custom_field_id: payload.customFieldId,
@@ -286,7 +286,7 @@ export async function upsertCustomFieldValue(payload: {
 
 export async function getMonthlyDownloadLog(projectId: string, monthStartIso: string): Promise<ProjectFileDownloadLog[]> {
   const { data, error } = await supabase
-    .from('project_file_download_logs')
+    .from('zhl_project_file_download_logs')
     .select('*')
     .eq('project_id', projectId)
     .gte('created_at', monthStartIso)
@@ -302,7 +302,7 @@ export async function getMonthlyDownloadLog(projectId: string, monthStartIso: st
 
 export async function logDownloadAll(projectId: string, userId: string | null): Promise<ProjectFileDownloadLog | null> {
   const { data, error } = await supabase
-    .from('project_file_download_logs')
+    .from('zhl_project_file_download_logs')
     .insert({
       project_id: projectId,
       requested_by: userId,
@@ -320,7 +320,7 @@ export async function logDownloadAll(projectId: string, userId: string | null): 
 
 export async function getBackups(projectId: string): Promise<ProjectFileBackup[]> {
   const { data, error } = await supabase
-    .from('project_file_backups')
+    .from('zhl_project_file_backups')
     .select('*')
     .eq('project_id', projectId)
     .order('created_at', { ascending: false });
@@ -335,7 +335,7 @@ export async function getBackups(projectId: string): Promise<ProjectFileBackup[]
 
 export async function getBackupRequests(projectId: string): Promise<ProjectFileBackupRequest[]> {
   const { data, error } = await supabase
-    .from('project_file_backup_requests')
+    .from('zhl_project_file_backup_requests')
     .select('*')
     .eq('project_id', projectId)
     .order('created_at', { ascending: false });
@@ -351,7 +351,7 @@ export async function getBackupRequests(projectId: string): Promise<ProjectFileB
 /** Admin: fetch all backup requests across all projects, joined with project name. */
 export async function getAllBackupRequests(): Promise<(ProjectFileBackupRequest & { project_name: string })[]> {
   const { data, error } = await supabase
-    .from('project_file_backup_requests')
+    .from('zhl_project_file_backup_requests')
     .select('*, projects(name)')
     .order('created_at', { ascending: false });
 
@@ -373,7 +373,7 @@ export async function updateBackupRequestStatus(
   responseNote?: string
 ): Promise<boolean> {
   const { error } = await supabase
-    .from('project_file_backup_requests')
+    .from('zhl_project_file_backup_requests')
     .update({ status, response_note: responseNote ?? null, responded_at: new Date().toISOString() })
     .eq('id', requestId);
 
@@ -386,7 +386,7 @@ export async function updateBackupRequestStatus(
 
 export async function createBackupRequest(projectId: string, userId: string | null, reason: string): Promise<ProjectFileBackupRequest | null> {
   const { data, error } = await supabase
-    .from('project_file_backup_requests')
+    .from('zhl_project_file_backup_requests')
     .insert({
       project_id: projectId,
       requested_by: userId,
@@ -429,7 +429,7 @@ export async function uploadFile(
   }
 
   const { data, error } = await supabase
-    .from('project_files')
+    .from('zhl_project_files')
     .insert({
       project_id: projectId,
       folder_id: folderId,
@@ -466,7 +466,7 @@ export async function downloadFileUrl(storagePath: string): Promise<string | nul
 
 export async function deleteFile(fileId: string): Promise<boolean> {
   const { data: file, error: fetchError } = await supabase
-    .from('project_files')
+    .from('zhl_project_files')
     .select('storage_path')
     .eq('id', fileId)
     .maybeSingle();
@@ -480,7 +480,7 @@ export async function deleteFile(fileId: string): Promise<boolean> {
     await supabase.storage.from(BUCKET).remove([file.storage_path]);
   }
 
-  const { error } = await supabase.from('project_files').delete().eq('id', fileId);
+  const { error } = await supabase.from('zhl_project_files').delete().eq('id', fileId);
   if (error) {
     console.error('Error deleting file metadata:', error);
     return false;
@@ -491,7 +491,7 @@ export async function deleteFile(fileId: string): Promise<boolean> {
 
 export async function deleteFolder(folderId: string): Promise<boolean> {
   const { data: filesInFolder } = await supabase
-    .from('project_files')
+    .from('zhl_project_files')
     .select('storage_path')
     .eq('folder_id', folderId);
 
@@ -502,7 +502,7 @@ export async function deleteFolder(folderId: string): Promise<boolean> {
     }
   }
 
-  const { error } = await supabase.from('project_file_folders').delete().eq('id', folderId);
+  const { error } = await supabase.from('zhl_project_file_folders').delete().eq('id', folderId);
   if (error) {
     console.error('Error deleting folder:', error);
     return false;
@@ -513,7 +513,7 @@ export async function deleteFolder(folderId: string): Promise<boolean> {
 
 export async function renameFolder(folderId: string, newName: string): Promise<boolean> {
   const { error } = await supabase
-    .from('project_file_folders')
+    .from('zhl_project_file_folders')
     .update({ name: newName })
     .eq('id', folderId);
   if (error) {
@@ -525,7 +525,7 @@ export async function renameFolder(folderId: string, newName: string): Promise<b
 
 export async function renameFile(fileId: string, newName: string): Promise<boolean> {
   const { error } = await supabase
-    .from('project_files')
+    .from('zhl_project_files')
     .update({ name: newName })
     .eq('id', fileId);
   if (error) {
@@ -541,12 +541,12 @@ export async function getLinkedUnitDataMap(projectId: string): Promise<Map<strin
 
   const [{ data: fields }, { data: cats }] = await Promise.all([
     supabase
-      .from('unit_data_fields')
+      .from('zhl_unit_data_fields')
       .select('name, linked_file_path, unit_data_categories(name)')
       .eq('project_id', projectId)
       .not('linked_file_path', 'is', null),
     supabase
-      .from('unit_data_categories')
+      .from('zhl_unit_data_categories')
       .select('name, linked_file_path')
       .eq('project_id', projectId)
       .not('linked_file_path', 'is', null),

@@ -63,7 +63,7 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
     if (!user) return;
     async function loadAccount() {
       const { data } = await supabase
-        .from('accounts')
+        .from('zhl_accounts')
         .select('display_name, phone, email')
         .eq('user_id', user!.id)
         .single();
@@ -124,7 +124,7 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
         const trimmed = editValue.trim();
         if (!trimmed) { setFeedback({ field, message: 'Display name cannot be empty', type: 'error' }); setSaving(false); return; }
         // Update accounts table
-        const { error: dbErr } = await supabase.from('accounts').update({ display_name: trimmed }).eq('user_id', user.id);
+        const { error: dbErr } = await supabase.from('zhl_accounts').update({ display_name: trimmed }).eq('user_id', user.id);
         if (dbErr) throw dbErr;
         // Update auth metadata
         await supabase.auth.updateUser({ data: { display_name: trimmed } });
@@ -133,7 +133,7 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
 
       } else if (field === 'phone') {
         const trimmed = editValue.trim();
-        const { error: dbErr } = await supabase.from('accounts').update({ phone: trimmed || null }).eq('user_id', user.id);
+        const { error: dbErr } = await supabase.from('zhl_accounts').update({ phone: trimmed || null }).eq('user_id', user.id);
         if (dbErr) throw dbErr;
         await supabase.auth.updateUser({ data: { phone: trimmed || null } });
         setPhone(trimmed);
@@ -146,7 +146,7 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
         const { error: authErr } = await supabase.auth.updateUser({ email: trimmed });
         if (authErr) throw authErr;
         // Update accounts table
-        const { error: dbErr } = await supabase.from('accounts').update({ email: trimmed }).eq('user_id', user.id);
+        const { error: dbErr } = await supabase.from('zhl_accounts').update({ email: trimmed }).eq('user_id', user.id);
         if (dbErr) throw dbErr;
         setEmail(trimmed);
         setFeedback({ field, message: 'Email updated. Check your inbox to confirm.', type: 'success' });
@@ -409,7 +409,7 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
     (async () => {
       // 1. Overdue active taskers
       const { count: overdueCount } = await supabase
-        .from('taskers')
+        .from('zhl_taskers')
         .select('*', { count: 'exact', head: true })
         .eq('project_id', selectedProjectId)
         .not('status', 'in', '("Archived","Complete")')
@@ -418,7 +418,7 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
 
       // 2. Active taskers without any comments
       const { data: activeTaskers } = await supabase
-        .from('taskers')
+        .from('zhl_taskers')
         .select('id')
         .eq('project_id', selectedProjectId)
         .not('status', 'in', '("Archived","Complete")');
@@ -426,7 +426,7 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
       let noCommentsCount = activeIds.length;
       if (activeIds.length > 0) {
         const { data: commentedRows } = await supabase
-          .from('tasker_logs')
+          .from('zhl_tasker_logs')
           .select('tasker_id')
           .in('tasker_id', activeIds)
           .eq('type', 'comment');
@@ -436,7 +436,7 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
 
       // 3. Unit data % complete
       const { data: projectRows } = await supabase
-        .from('unit_data_rows')
+        .from('zhl_unit_data_rows')
         .select('id')
         .eq('project_id', selectedProjectId);
       const rowIds = (projectRows ?? []).map((r: { id: string }) => r.id);
@@ -445,13 +445,13 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
         unitDataPercent = 100;
       } else {
         const { count: fieldCount } = await supabase
-          .from('unit_data_fields')
+          .from('zhl_unit_data_fields')
           .select('*', { count: 'exact', head: true })
           .eq('project_id', selectedProjectId);
         const totalPossible = rowIds.length * (fieldCount ?? 0);
         if (totalPossible > 0) {
           const { count: valueCount } = await supabase
-            .from('unit_data_values')
+            .from('zhl_unit_data_values')
             .select('*', { count: 'exact', head: true })
             .in('row_id', rowIds)
             .not('value', 'is', null);

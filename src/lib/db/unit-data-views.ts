@@ -8,7 +8,7 @@ export async function getView(
   userId?: string,
 ): Promise<UnitDataView | null> {
   let query = supabase
-    .from('unit_data_views')
+    .from('zhl_unit_data_views')
     .select('*')
     .eq('project_id', projectId)
     .eq('view_name', viewName);
@@ -30,7 +30,7 @@ export async function getView(
 /** Get all project-level views (user_id IS NULL). */
 export async function getProjectViews(projectId: string): Promise<UnitDataView[]> {
   const { data, error } = await supabase
-    .from('unit_data_views')
+    .from('zhl_unit_data_views')
     .select('*')
     .eq('project_id', projectId)
     .is('user_id', null)
@@ -62,7 +62,7 @@ export async function saveView(
   }
 
   const { error } = await supabase
-    .from('unit_data_views')
+    .from('zhl_unit_data_views')
     .upsert(payload, { onConflict: 'project_id,view_name,user_id' });
 
   if (error) {
@@ -80,7 +80,7 @@ export async function saveFieldOrder(
 ): Promise<boolean> {
   // Try to update existing Personal View first
   const { data, error: updateError } = await supabase
-    .from('unit_data_views')
+    .from('zhl_unit_data_views')
     .update({ field_order: fieldOrder })
     .eq('project_id', projectId)
     .eq('view_name', 'Personal View')
@@ -96,7 +96,7 @@ export async function saveFieldOrder(
   // If no existing row, insert a new Personal View with all fields visible (empty object = show all)
   if (!data) {
     const { error: insertError } = await supabase
-      .from('unit_data_views')
+      .from('zhl_unit_data_views')
       .insert({
         project_id: projectId,
         view_name: 'Personal View',

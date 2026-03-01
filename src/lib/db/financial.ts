@@ -15,14 +15,14 @@ import {
 
 export async function getSections(projectId: string): Promise<SectionWithItems[]> {
   const { data: sections, error } = await supabase
-    .from('financial_sections')
+    .from('zhl_financial_sections')
     .select('*')
     .eq('project_id', projectId)
     .order('sort_order');
   if (error || !sections) return [];
 
   const { data: items } = await supabase
-    .from('financial_line_items')
+    .from('zhl_financial_line_items')
     .select('*')
     .eq('project_id', projectId)
     .order('sort_order');
@@ -35,7 +35,7 @@ export async function getSections(projectId: string): Promise<SectionWithItems[]
 
 export async function getMonthlyValues(projectId: string, year: number): Promise<FinancialMonthlyValue[]> {
   const { data, error } = await supabase
-    .from('financial_monthly_values')
+    .from('zhl_financial_monthly_values')
     .select('*')
     .eq('project_id', projectId)
     .eq('year', year);
@@ -45,7 +45,7 @@ export async function getMonthlyValues(projectId: string, year: number): Promise
 
 export async function createSection(projectId: string, name: string, sortOrder: number): Promise<FinancialSection | null> {
   const { data, error } = await supabase
-    .from('financial_sections')
+    .from('zhl_financial_sections')
     .insert([{ project_id: projectId, name, sort_order: sortOrder }])
     .select()
     .single();
@@ -54,13 +54,13 @@ export async function createSection(projectId: string, name: string, sortOrder: 
 }
 
 export async function deleteSection(sectionId: string): Promise<boolean> {
-  const { error } = await supabase.from('financial_sections').delete().eq('id', sectionId);
+  const { error } = await supabase.from('zhl_financial_sections').delete().eq('id', sectionId);
   return !error;
 }
 
 export async function createLineItem(sectionId: string, projectId: string, name: string, sortOrder: number = 0): Promise<FinancialLineItem | null> {
   const { data, error } = await supabase
-    .from('financial_line_items')
+    .from('zhl_financial_line_items')
     .insert([{ section_id: sectionId, project_id: projectId, name, sort_order: sortOrder }])
     .select()
     .single();
@@ -69,7 +69,7 @@ export async function createLineItem(sectionId: string, projectId: string, name:
 }
 
 export async function deleteLineItem(id: string): Promise<boolean> {
-  const { error } = await supabase.from('financial_line_items').delete().eq('id', id);
+  const { error } = await supabase.from('zhl_financial_line_items').delete().eq('id', id);
   return !error;
 }
 
@@ -81,7 +81,7 @@ export async function upsertMonthlyValue(
   value: number
 ): Promise<boolean> {
   const { error } = await supabase
-    .from('financial_monthly_values')
+    .from('zhl_financial_monthly_values')
     .upsert(
       { line_item_id: lineItemId, project_id: projectId, year, month, value },
       { onConflict: 'line_item_id,year,month' }
@@ -93,7 +93,7 @@ export async function upsertMonthlyValue(
 // ── AutoBooks helpers ─────────────────────────────────────────
 
 export async function getBankTypes(projectId: string): Promise<FinancialBankType[]> {
-  const { data, error } = await supabase.from('financial_bank_types').select('*').eq('project_id', projectId).order('created_at');
+  const { data, error } = await supabase.from('zhl_financial_bank_types').select('*').eq('project_id', projectId).order('created_at');
   if (error) { console.error('Error fetching bank types:', error.message); return []; }
   return (data ?? []).map((b) => ({ ...b, status: b.status ?? 'approved' }));
 }
@@ -153,7 +153,7 @@ export async function dedupeBankTypes(projectId: string): Promise<void> {
   if (duplicateIds.length === 0) return;
 
   const { error } = await supabase
-    .from('financial_bank_types')
+    .from('zhl_financial_bank_types')
     .delete()
     .in('id', duplicateIds);
 
@@ -181,10 +181,10 @@ export async function ensureDefaultBankTypes(projectId: string): Promise<Financi
 
 export async function createBankType(projectId: string, name: string, status: string = 'approved'): Promise<FinancialBankType | null> {
   // Try with status column first, fallback without if column doesn't exist yet
-  const { data, error } = await supabase.from('financial_bank_types').insert([{ project_id: projectId, name, status }]).select().single();
+  const { data, error } = await supabase.from('zhl_financial_bank_types').insert([{ project_id: projectId, name, status }]).select().single();
   if (error) {
     // Fallback: insert without status (migration not run yet)
-    const { data: d2, error: e2 } = await supabase.from('financial_bank_types').insert([{ project_id: projectId, name }]).select().single();
+    const { data: d2, error: e2 } = await supabase.from('zhl_financial_bank_types').insert([{ project_id: projectId, name }]).select().single();
     if (e2) { console.error('Error creating bank type:', e2.message); return null; }
     return { ...d2, status: 'approved' };
   }
@@ -192,17 +192,17 @@ export async function createBankType(projectId: string, name: string, status: st
 }
 
 export async function approveBankType(id: string): Promise<boolean> {
-  const { error } = await supabase.from('financial_bank_types').update({ status: 'approved' }).eq('id', id);
+  const { error } = await supabase.from('zhl_financial_bank_types').update({ status: 'approved' }).eq('id', id);
   return !error;
 }
 
 export async function rejectBankType(id: string): Promise<boolean> {
-  const { error } = await supabase.from('financial_bank_types').delete().eq('id', id);
+  const { error } = await supabase.from('zhl_financial_bank_types').delete().eq('id', id);
   return !error;
 }
 
 export async function getTxCategories(projectId: string): Promise<FinancialTxCategory[]> {
-  const { data } = await supabase.from('financial_tx_categories').select('*').eq('project_id', projectId).order('sort_order');
+  const { data } = await supabase.from('zhl_financial_tx_categories').select('*').eq('project_id', projectId).order('sort_order');
   return data ?? [];
 }
 
@@ -244,7 +244,7 @@ export async function dedupeTxCategories(projectId: string): Promise<void> {
 
   for (const [dupId, keepId] of dupToKeep.entries()) {
     const { error: txErr } = await supabase
-      .from('financial_transactions')
+      .from('zhl_financial_transactions')
       .update({ category_id: keepId })
       .eq('project_id', projectId)
       .eq('category_id', dupId);
@@ -255,7 +255,7 @@ export async function dedupeTxCategories(projectId: string): Promise<void> {
   }
 
   const { error: deleteErr } = await supabase
-    .from('financial_tx_categories')
+    .from('zhl_financial_tx_categories')
     .delete()
     .in('id', Array.from(dupToKeep.keys()));
 
@@ -271,7 +271,7 @@ export async function ensureDistinctTxCategories(projectId: string): Promise<Fin
 
 export async function createTxCategory(projectId: string, name: string, icon: string, color: string): Promise<FinancialTxCategory | null> {
   const { data, error } = await supabase
-    .from('financial_tx_categories')
+    .from('zhl_financial_tx_categories')
     .insert([{ project_id: projectId, name, icon, color }])
     .select()
     .single();
@@ -280,17 +280,17 @@ export async function createTxCategory(projectId: string, name: string, icon: st
 }
 
 export async function getTransactions(projectId: string): Promise<FinancialTransaction[]> {
-  const { data } = await supabase.from('financial_transactions').select('*').eq('project_id', projectId).order('date', { ascending: false });
+  const { data } = await supabase.from('zhl_financial_transactions').select('*').eq('project_id', projectId).order('date', { ascending: false });
   return data ?? [];
 }
 
 export async function updateTransaction(id: string, field: string, value: string | number | null): Promise<boolean> {
-  const { error } = await supabase.from('financial_transactions').update({ [field]: value }).eq('id', id);
+  const { error } = await supabase.from('zhl_financial_transactions').update({ [field]: value }).eq('id', id);
   return !error;
 }
 
 export async function deleteTransaction(id: string): Promise<boolean> {
-  const { error } = await supabase.from('financial_transactions').delete().eq('id', id);
+  const { error } = await supabase.from('zhl_financial_transactions').delete().eq('id', id);
   return !error;
 }
 
@@ -300,7 +300,7 @@ export async function createTransaction(
   fields: { date?: string; amount?: number; description?: string },
 ): Promise<FinancialTransaction | null> {
   const { data, error } = await supabase
-    .from('financial_transactions')
+    .from('zhl_financial_transactions')
     .insert({
       project_id: projectId,
       bank_type_id: bankTypeId,
@@ -337,7 +337,7 @@ export async function bulkCreateTransactions(
   let existingSignatures = new Set<string>();
   {
     let query = supabase
-      .from('financial_transactions')
+      .from('zhl_financial_transactions')
       .select('date, amount, description')
       .eq('project_id', projectId);
 
@@ -380,7 +380,7 @@ export async function bulkCreateTransactions(
     description: r.description || null,
     raw_data: r.raw_data ?? null,
   }));
-  const { data, error } = await supabase.from('financial_transactions').insert(inserts).select();
+  const { data, error } = await supabase.from('zhl_financial_transactions').insert(inserts).select();
   if (error) { console.error('Error bulk creating transactions:', error.message); return []; }
   return data ?? [];
 }
@@ -388,7 +388,7 @@ export async function bulkCreateTransactions(
 // ── Upload Sheet helpers ──────────────────────────────────────
 
 export async function getUploadSheets(projectId: string): Promise<FinancialUploadSheet[]> {
-  const { data } = await supabase.from('financial_upload_sheets').select('*').eq('project_id', projectId).order('created_at');
+  const { data } = await supabase.from('zhl_financial_upload_sheets').select('*').eq('project_id', projectId).order('created_at');
   return data ?? [];
 }
 
@@ -400,7 +400,7 @@ export async function createUploadSheet(
   userId: string | null
 ): Promise<FinancialUploadSheet | null> {
   const { data, error } = await supabase
-    .from('financial_upload_sheets')
+    .from('zhl_financial_upload_sheets')
     .insert([{ project_id: projectId, bank_type_id: bankTypeId, name, column_headers: columnHeaders, created_by: userId }])
     .select()
     .single();
@@ -409,35 +409,35 @@ export async function createUploadSheet(
 }
 
 export async function deleteUploadSheet(sheetId: string): Promise<boolean> {
-  const { error } = await supabase.from('financial_upload_sheets').delete().eq('id', sheetId);
+  const { error } = await supabase.from('zhl_financial_upload_sheets').delete().eq('id', sheetId);
   return !error;
 }
 
 export async function updateSheetColumnHeaders(sheetId: string, headers: string[]): Promise<boolean> {
-  const { error } = await supabase.from('financial_upload_sheets').update({ column_headers: headers }).eq('id', sheetId);
+  const { error } = await supabase.from('zhl_financial_upload_sheets').update({ column_headers: headers }).eq('id', sheetId);
   return !error;
 }
 
 // ── Debt Schedule helpers ─────────────────────────────────────
 
 export async function getLoans(projectId: string): Promise<FinancialLoan[]> {
-  const { data } = await supabase.from('financial_loans').select('*').eq('project_id', projectId).order('created_at');
+  const { data } = await supabase.from('zhl_financial_loans').select('*').eq('project_id', projectId).order('created_at');
   return data ?? [];
 }
 
 export async function createLoan(projectId: string): Promise<FinancialLoan | null> {
-  const { data, error } = await supabase.from('financial_loans').insert([{ project_id: projectId }]).select().single();
+  const { data, error } = await supabase.from('zhl_financial_loans').insert([{ project_id: projectId }]).select().single();
   if (error) return null;
   return data;
 }
 
 export async function updateLoan(id: string, field: string, value: string | number | boolean | null): Promise<boolean> {
-  const { error } = await supabase.from('financial_loans').update({ [field]: value }).eq('id', id);
+  const { error } = await supabase.from('zhl_financial_loans').update({ [field]: value }).eq('id', id);
   return !error;
 }
 
 export async function deleteLoan(id: string): Promise<boolean> {
-  const { error } = await supabase.from('financial_loans').delete().eq('id', id);
+  const { error } = await supabase.from('zhl_financial_loans').delete().eq('id', id);
   return !error;
 }
 
@@ -487,7 +487,7 @@ export async function seedDefaultFinancials(projectId: string): Promise<void> {
   // Seed tx categories
   for (let i = 0; i < DEFAULT_TX_CATEGORIES.length; i++) {
     const cat = DEFAULT_TX_CATEGORIES[i];
-    await supabase.from('financial_tx_categories').insert([{
+    await supabase.from('zhl_financial_tx_categories').insert([{
       project_id: projectId,
       name: cat.name,
       icon: cat.icon,

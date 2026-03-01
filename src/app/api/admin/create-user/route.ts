@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { data: adminAccount, error: adminCheckErr } = await adminClient
-    .from('accounts')
+    .from('zhl_accounts')
     .select('is_admin')
     .eq('user_id', userData.user.id)
     .maybeSingle();
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: createErr?.message ?? 'Failed to create auth user.' }, { status: 400 });
   }
 
-  const { error: accountErr } = await adminClient.from('accounts').insert({
+  const { error: accountErr } = await adminClient.from('zhl_accounts').insert({
     user_id: createdUser.user.id,
     display_name: displayName,
     email,

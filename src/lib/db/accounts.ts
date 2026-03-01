@@ -4,7 +4,7 @@ import { Account, AccountInsert, AccountUpdate } from '@/lib/types/account';
 // Get current user's account
 export async function getAccount(userId: string): Promise<Account | null> {
   const { data, error } = await supabase
-    .from('accounts')
+    .from('zhl_accounts')
     .select('*')
     .eq('user_id', userId)
     .single();
@@ -21,7 +21,7 @@ export async function createAccount(
   accountData: AccountInsert
 ): Promise<Account | null> {
   const { data, error } = await supabase
-    .from('accounts')
+    .from('zhl_accounts')
     .insert([accountData])
     .select()
     .single();
@@ -39,7 +39,7 @@ export async function updateAccount(
   updates: AccountUpdate
 ): Promise<Account | null> {
   const { data, error } = await supabase
-    .from('accounts')
+    .from('zhl_accounts')
     .update(updates)
     .eq('user_id', userId)
     .select()
@@ -55,7 +55,7 @@ export async function updateAccount(
 // Delete an account
 export async function deleteAccount(userId: string): Promise<boolean> {
   const { error } = await supabase
-    .from('accounts')
+    .from('zhl_accounts')
     .delete()
     .eq('user_id', userId);
 
@@ -69,7 +69,7 @@ export async function deleteAccount(userId: string): Promise<boolean> {
 // Check if account exists
 export async function accountExists(userId: string): Promise<boolean> {
   const { count, error } = await supabase
-    .from('accounts')
+    .from('zhl_accounts')
     .select('id', { count: 'exact', head: true })
     .eq('user_id', userId);
 

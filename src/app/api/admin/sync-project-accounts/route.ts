@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { data: adminAccount, error: adminCheckErr } = await adminClient
-    .from('accounts')
+    .from('zhl_accounts')
     .select('is_admin')
     .eq('user_id', userData.user.id)
     .maybeSingle();
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
 
   // Ensure all auth users have a corresponding accounts row.
   const { data: existingAccounts } = await adminClient
-    .from('accounts')
+    .from('zhl_accounts')
     .select('user_id');
 
   const existingUserIds = new Set(
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (rowsToInsert.length > 0) {
-      const { error: insertErr } = await adminClient.from('accounts').insert(rowsToInsert);
+      const { error: insertErr } = await adminClient.from('zhl_accounts').insert(rowsToInsert);
       if (insertErr) {
         return NextResponse.json({ error: insertErr.message }, { status: 400 });
       }

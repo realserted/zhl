@@ -90,7 +90,7 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
     if (!selectedProjectId) return;
     setLoading(true);
     const { data, error } = await supabase
-      .from('project_accounts')
+      .from('zhl_project_accounts')
       .select('*')
       .eq('project_id', selectedProjectId)
       .order('created_at', { ascending: true });
@@ -109,7 +109,7 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
     setAddingRow(true);
     setImportMessage(null);
     const { data, error } = await supabase
-      .from('project_accounts')
+      .from('zhl_project_accounts')
       .insert({ project_id: selectedProjectId })
       .select()
       .single();
@@ -127,7 +127,7 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
   // Delete a row
   const handleDelete = async (account: ProjectAccount) => {
     if (!confirm('Delete this account entry?')) return;
-    const { error } = await supabase.from('project_accounts').delete().eq('id', account.id);
+    const { error } = await supabase.from('zhl_project_accounts').delete().eq('id', account.id);
     if (!error) {
       setAccounts((prev) => prev.filter((a) => a.id !== account.id));
     }
@@ -142,7 +142,7 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
     if (value === oldValue) return;
 
     const { error } = await supabase
-      .from('project_accounts')
+      .from('zhl_project_accounts')
       .update({ [field]: value || null })
       .eq('id', accountId);
 
@@ -201,7 +201,7 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
         return entry;
       });
 
-      const { error } = await supabase.from('project_accounts').insert(inserts);
+      const { error } = await supabase.from('zhl_project_accounts').insert(inserts);
       if (error) {
         setImportMessage({ text: `Import failed: ${error.message}`, ok: false });
       } else {

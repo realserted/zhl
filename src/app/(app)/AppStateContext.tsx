@@ -48,7 +48,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) return;
     supabase
-      .from('accounts')
+      .from('zhl_accounts')
       .select('is_admin')
       .eq('user_id', user.id)
       .maybeSingle()
@@ -61,7 +61,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     // Owners have full access — no permission row needed
     if (selectedProject.owner_id === user.id) { setUserPermission(null); return; }
     supabase
-      .from('project_permissions')
+      .from('zhl_project_permissions')
       .select('*')
       .eq('project_id', selectedProject.id)
       .eq('user_id', user.id)

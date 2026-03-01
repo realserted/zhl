@@ -35,7 +35,7 @@ export const DEFAULT_PROJECT_SETTINGS: Omit<ProjectSettings, 'id' | 'project_id'
 
 export async function getProjectSettings(projectId: string): Promise<ProjectSettings> {
   const { data } = await supabase
-    .from('project_settings')
+    .from('zhl_project_settings')
     .select('*')
     .eq('project_id', projectId)
     .maybeSingle();
@@ -53,7 +53,7 @@ export async function saveProjectSettings(
   updates: ProjectSettingsUpdate
 ): Promise<boolean> {
   const { error } = await supabase
-    .from('project_settings')
+    .from('zhl_project_settings')
     .upsert({ project_id: projectId, ...updates }, { onConflict: 'project_id' });
 
   if (error) {

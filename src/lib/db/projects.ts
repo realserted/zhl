@@ -4,12 +4,12 @@ import { Project, ProjectPermission } from '@/lib/types/project';
 // Get all projects for current user (owned or member)
 export async function getProjects(): Promise<Project[]> {
   const { data, error } = await supabase
-    .from('projects')
+    .from('zhl_projects')
     .select('*')
     .order('created_at', { ascending: true });
 
   if (error) {
-    console.error('Error fetching projects:', error);
+    console.error('Error fetching projects:', error.message, error.code, error.details, error.hint);
     return [];
   }
   return data ?? [];
@@ -18,7 +18,7 @@ export async function getProjects(): Promise<Project[]> {
 // Create a new project
 export async function createProject(name: string, ownerId: string): Promise<Project | null> {
   const { data, error } = await supabase
-    .from('projects')
+    .from('zhl_projects')
     .insert([{ name, owner_id: ownerId }])
     .select()
     .single();
@@ -33,7 +33,7 @@ export async function createProject(name: string, ownerId: string): Promise<Proj
 // Get permissions for a project
 export async function getProjectPermissions(projectId: string): Promise<ProjectPermission[]> {
   const { data, error } = await supabase
-    .from('project_permissions')
+    .from('zhl_project_permissions')
     .select('*')
     .eq('project_id', projectId)
     .order('created_at', { ascending: true });
@@ -59,7 +59,7 @@ export async function addProjectUser(
   }
 
   const { data, error } = await supabase
-    .from('project_permissions')
+    .from('zhl_project_permissions')
     .insert([{ project_id: projectId, user_id: userId, user_name: userName, user_email: userEmail }])
     .select()
     .single();
@@ -78,7 +78,7 @@ export async function updatePermission(
   value: string
 ): Promise<boolean> {
   const { error } = await supabase
-    .from('project_permissions')
+    .from('zhl_project_permissions')
     .update({ [field]: value })
     .eq('id', permissionId);
 
@@ -92,7 +92,7 @@ export async function updatePermission(
 // Update a project's status
 export async function updateProjectStatus(projectId: string, status: string): Promise<boolean> {
   const { error } = await supabase
-    .from('projects')
+    .from('zhl_projects')
     .update({ status })
     .eq('id', projectId);
 
@@ -106,7 +106,7 @@ export async function updateProjectStatus(projectId: string, status: string): Pr
 // Delete a project (CASCADE will remove permissions, unit data, files, etc.)
 export async function deleteProject(projectId: string): Promise<boolean> {
   const { error } = await supabase
-    .from('projects')
+    .from('zhl_projects')
     .delete()
     .eq('id', projectId);
 
@@ -120,7 +120,7 @@ export async function deleteProject(projectId: string): Promise<boolean> {
 // Delete a user from a project
 export async function removeProjectUser(permissionId: string): Promise<boolean> {
   const { error } = await supabase
-    .from('project_permissions')
+    .from('zhl_project_permissions')
     .delete()
     .eq('id', permissionId);
 

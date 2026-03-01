@@ -67,7 +67,7 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
   useEffect(() => {
     if (!user) return;
     supabase
-      .from('accounts')
+      .from('zhl_accounts')
       .select('is_admin')
       .eq('user_id', user.id)
       .single()
@@ -93,7 +93,7 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
 
     // Fetch all projects
     const { data: projectsData, error: projErr } = await supabase
-      .from('projects')
+      .from('zhl_projects')
       .select('*')
       .order('created_at', { ascending: true });
 
@@ -105,7 +105,7 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
 
     // Fetch all project_permissions to find the "Project Owner" for each project
     const { data: permsData } = await supabase
-      .from('project_permissions')
+      .from('zhl_project_permissions')
       .select('project_id, user_name, user_email, project_role');
 
     // Build a map of project_id -> owner info from permissions (Project Owner role)
@@ -118,7 +118,7 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
 
     // Fallback: also fetch accounts for owner_id in case no permission has "Project Owner" role
     const { data: accountsData } = await supabase
-      .from('accounts')
+      .from('zhl_accounts')
       .select('user_id, display_name, email');
 
     const accountMap = new Map<string, { display_name: string; email: string }>();
@@ -142,7 +142,7 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
   // Update project field
   const updateProjectField = async (projectId: string, field: string, value: string | number | null) => {
     const { error } = await supabase
-      .from('projects')
+      .from('zhl_projects')
       .update({ [field]: value })
       .eq('id', projectId);
 

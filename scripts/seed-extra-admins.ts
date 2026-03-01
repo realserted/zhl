@@ -63,7 +63,7 @@ async function main() {
   for (const admin of ADMINS) {
     // Check if account already exists
     const { data: existing } = await supabase
-      .from('accounts')
+      .from('zhl_accounts')
       .select('id, email, is_admin')
       .eq('email', admin.email)
       .maybeSingle();
@@ -104,7 +104,7 @@ async function main() {
 
     // Step 2: Insert account row WITHOUT is_admin (bypasses guard trigger)
     if (!existing) {
-      const { error } = await supabase.from('accounts').insert({
+      const { error } = await supabase.from('zhl_accounts').insert({
         user_id: userId,
         display_name: admin.displayName,
         email: admin.email,

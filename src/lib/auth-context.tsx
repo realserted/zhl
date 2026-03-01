@@ -61,7 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Create the account record in our accounts table
     if (data.user) {
       const { error: accountError } = await supabase
-        .from('accounts')
+        .from('zhl_accounts')
         .upsert(
           [
             {

@@ -3,7 +3,7 @@ import { CalendarEvent } from '@/lib/types/calendar-event';
 
 export async function getCalendarEvents(projectId: string): Promise<CalendarEvent[]> {
   const { data, error } = await supabase
-    .from('calendar_events')
+    .from('zhl_calendar_events')
     .select('*')
     .eq('project_id', projectId)
     .order('event_date', { ascending: true });
@@ -22,7 +22,7 @@ export async function createCalendarEvent(
   createdBy: string
 ): Promise<CalendarEvent | null> {
   const { data, error } = await supabase
-    .from('calendar_events')
+    .from('zhl_calendar_events')
     .insert({ project_id: projectId, title, event_date: eventDate, created_by: createdBy })
     .select()
     .single();
@@ -36,7 +36,7 @@ export async function createCalendarEvent(
 
 export async function deleteCalendarEvent(eventId: string): Promise<boolean> {
   const { error } = await supabase
-    .from('calendar_events')
+    .from('zhl_calendar_events')
     .delete()
     .eq('id', eventId);
 

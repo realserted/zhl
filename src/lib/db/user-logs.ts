@@ -15,7 +15,7 @@ export async function logUserAction(params: {
     return;
   }
 
-  const { error } = await supabase.from('user_logs').insert({
+  const { error } = await supabase.from('zhl_user_logs').insert({
     project_id: params.projectId,
     user_id: params.userId,
     user_name: params.userName,

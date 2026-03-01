@@ -89,7 +89,7 @@ export default function FinancialOverview({ selectedProjectId, userPermission }:
     if (!user) return;
     userEmailRef.current = user.email || '';
     supabase
-      .from('accounts')
+      .from('zhl_accounts')
       .select('display_name')
       .eq('user_id', user.id)
       .maybeSingle()

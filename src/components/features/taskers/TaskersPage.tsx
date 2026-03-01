@@ -105,7 +105,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
   useEffect(() => {
     if (!selectedProjectId) return;
     supabase
-      .from('project_permissions')
+      .from('zhl_project_permissions')
       .select('user_id, user_name')
       .eq('project_id', selectedProjectId)
       .then(({ data }) => {
@@ -132,7 +132,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
   useEffect(() => {
     if (!user) return;
     supabase
-      .from('accounts')
+      .from('zhl_accounts')
       .select('display_name, email')
       .eq('user_id', user.id)
       .single()
@@ -346,7 +346,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
     if (!selectedProjectId || !assignedName.trim()) return;
     // Check if already a member by name
     const { data: existing } = await supabase
-      .from('project_permissions')
+      .from('zhl_project_permissions')
       .select('id')
       .eq('project_id', selectedProjectId)
       .ilike('user_name', assignedName.trim())
@@ -359,7 +359,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
     const accountEmail = account?.email ?? '';
     const accountUserId = account?.user_id ?? null;
     // Add with view-level permissions (include user_id so they can see the project immediately)
-    await supabase.from('project_permissions').insert({
+    await supabase.from('zhl_project_permissions').insert({
       project_id: selectedProjectId,
       user_id: accountUserId,
       user_name: userName,
@@ -377,7 +377,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
     });
     // Refresh project users list
     const { data: updatedUsers } = await supabase
-      .from('project_permissions')
+      .from('zhl_project_permissions')
       .select('user_id, user_name')
       .eq('project_id', selectedProjectId);
     setProjectUsers(updatedUsers ?? []);

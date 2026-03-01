@@ -186,7 +186,7 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
     if (!user) return;
     userEmailRef.current = user.email || '';
     supabase
-      .from('accounts')
+      .from('zhl_accounts')
       .select('display_name, is_admin')
       .eq('user_id', user.id)
       .maybeSingle()

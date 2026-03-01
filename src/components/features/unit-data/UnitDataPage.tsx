@@ -165,7 +165,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
   useEffect(() => {
     if (!user) return;
     supabase
-      .from('accounts')
+      .from('zhl_accounts')
       .select('display_name, email')
       .eq('user_id', user.id)
       .single()

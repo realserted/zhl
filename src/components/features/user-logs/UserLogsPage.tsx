@@ -32,7 +32,7 @@ export default function UserLogsPage() {
     const checkAdmin = async () => {
       try {
         const { data } = await supabase
-          .from('accounts')
+          .from('zhl_accounts')
           .select('is_admin')
           .eq('user_id', user.id)
           .maybeSingle();
@@ -50,13 +50,13 @@ export default function UserLogsPage() {
 
     try {
       // Fetch all projects for project name mapping
-      const { data: allProjects } = await supabase.from('projects').select('id, name');
+      const { data: allProjects } = await supabase.from('zhl_projects').select('id, name');
       const projectMap = new Map(allProjects?.map((p: any) => [p.id, p.name]) ?? []);
 
       // Fetch logs - RLS will only return logs for current user
       // (or all logs if user is admin)
       const { data, error } = await supabase
-        .from('user_logs')
+        .from('zhl_user_logs')
         .select('*')
         .order('created_at', { ascending: sortOrder === 'asc' });
 

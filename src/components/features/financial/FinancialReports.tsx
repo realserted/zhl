@@ -45,7 +45,7 @@ export default function FinancialReports({ selectedProjectId, userPermission }: 
   useEffect(() => {
     if (!user) return;
     userEmailRef.current = user.email || '';
-    supabase.from('accounts').select('display_name').eq('user_id', user.id).maybeSingle()
+    supabase.from('zhl_accounts').select('display_name').eq('user_id', user.id).maybeSingle()
       .then(({ data }) => { displayNameRef.current = data?.display_name || user.email || 'Unknown'; });
   }, [user]);
 

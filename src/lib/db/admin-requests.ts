@@ -12,7 +12,7 @@ export interface AdminRequest {
 
 export async function getAdminRequests(): Promise<AdminRequest[]> {
   const { data } = await supabase
-    .from('admin_requests')
+    .from('zhl_admin_requests')
     .select('*')
     .order('created_at', { ascending: false });
   return (data as AdminRequest[]) ?? [];
@@ -25,7 +25,7 @@ export async function submitAdminRequest(
   message: string
 ): Promise<boolean> {
   const { error } = await supabase
-    .from('admin_requests')
+    .from('zhl_admin_requests')
     .insert({ user_id: userId, user_name: userName, user_email: userEmail, message });
   if (error) { console.error('Error submitting request:', error.message); return false; }
   return true;
@@ -33,7 +33,7 @@ export async function submitAdminRequest(
 
 export async function resolveAdminRequest(requestId: string): Promise<boolean> {
   const { error } = await supabase
-    .from('admin_requests')
+    .from('zhl_admin_requests')
     .update({ status: 'resolved' })
     .eq('id', requestId);
   if (error) { console.error('Error resolving request:', error.message); return false; }
@@ -42,7 +42,7 @@ export async function resolveAdminRequest(requestId: string): Promise<boolean> {
 
 export async function deleteAdminRequest(requestId: string): Promise<boolean> {
   const { error } = await supabase
-    .from('admin_requests')
+    .from('zhl_admin_requests')
     .delete()
     .eq('id', requestId);
   if (error) { console.error('Error deleting request:', error.message); return false; }

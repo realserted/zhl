@@ -11,7 +11,7 @@ import {
 
 export async function getCategories(projectId: string): Promise<CategoryWithFields[]> {
   const { data: cats } = await supabase
-    .from('unit_data_categories')
+    .from('zhl_unit_data_categories')
     .select('*')
     .eq('project_id', projectId)
     .is('deleted_at', null)
@@ -20,7 +20,7 @@ export async function getCategories(projectId: string): Promise<CategoryWithFiel
   if (!cats || cats.length === 0) return [];
 
   const { data: fields } = await supabase
-    .from('unit_data_fields')
+    .from('zhl_unit_data_fields')
     .select('*')
     .eq('project_id', projectId)
     .is('deleted_at', null)
@@ -40,7 +40,7 @@ export async function getCategories(projectId: string): Promise<CategoryWithFiel
 
 export async function createCategory(projectId: string, name: string, sortOrder: number): Promise<UnitDataCategory | null> {
   const { data, error } = await supabase
-    .from('unit_data_categories')
+    .from('zhl_unit_data_categories')
     .insert({ project_id: projectId, name, sort_order: sortOrder })
     .select()
     .single();
@@ -59,7 +59,7 @@ export async function createField(
   sortOrder: number = 0
 ): Promise<UnitDataField | null> {
   const { data, error } = await supabase
-    .from('unit_data_fields')
+    .from('zhl_unit_data_fields')
     .insert({
       category_id: categoryId,
       project_id: projectId,
@@ -78,7 +78,7 @@ export async function createField(
 
 export async function updateCategory(categoryId: string, name: string): Promise<boolean> {
   const { error } = await supabase
-    .from('unit_data_categories')
+    .from('zhl_unit_data_categories')
     .update({ name })
     .eq('id', categoryId);
   if (error) { console.error('Error updating category:', error.message, error.code, error.details); return false; }
@@ -90,7 +90,7 @@ export async function updateField(
   updates: { name?: string; tooltip?: string | null; is_file_link?: boolean; is_hyperlink?: boolean }
 ): Promise<boolean> {
   const { error } = await supabase
-    .from('unit_data_fields')
+    .from('zhl_unit_data_fields')
     .update(updates)
     .eq('id', fieldId);
   if (error) { console.error('Error updating field:', error.message, error.code, error.details); return false; }
@@ -98,13 +98,13 @@ export async function updateField(
 }
 
 export async function deleteField(fieldId: string): Promise<boolean> {
-  const { error } = await supabase.from('unit_data_fields').delete().eq('id', fieldId);
+  const { error } = await supabase.from('zhl_unit_data_fields').delete().eq('id', fieldId);
   if (error) { console.error('Error deleting field:', error.message, error.code, error.details); return false; }
   return true;
 }
 
 export async function deleteCategory(categoryId: string): Promise<boolean> {
-  const { error } = await supabase.from('unit_data_categories').delete().eq('id', categoryId);
+  const { error } = await supabase.from('zhl_unit_data_categories').delete().eq('id', categoryId);
   if (error) { console.error('Error deleting category:', error.message, error.code, error.details); return false; }
   return true;
 }
@@ -113,7 +113,7 @@ export async function deleteCategory(categoryId: string): Promise<boolean> {
 
 export async function softDeleteCategory(categoryId: string, userId: string): Promise<boolean> {
   const { error } = await supabase
-    .from('unit_data_categories')
+    .from('zhl_unit_data_categories')
     .update({ deleted_at: new Date().toISOString(), deleted_by: userId })
     .eq('id', categoryId);
   if (error) { console.error('Error soft deleting category:', error.message); return false; }
@@ -122,7 +122,7 @@ export async function softDeleteCategory(categoryId: string, userId: string): Pr
 
 export async function softDeleteField(fieldId: string, userId: string): Promise<boolean> {
   const { error } = await supabase
-    .from('unit_data_fields')
+    .from('zhl_unit_data_fields')
     .update({ deleted_at: new Date().toISOString(), deleted_by: userId })
     .eq('id', fieldId);
   if (error) { console.error('Error soft deleting field:', error.message); return false; }
@@ -131,7 +131,7 @@ export async function softDeleteField(fieldId: string, userId: string): Promise<
 
 export async function restoreCategory(categoryId: string): Promise<boolean> {
   const { error } = await supabase
-    .from('unit_data_categories')
+    .from('zhl_unit_data_categories')
     .update({ deleted_at: null, deleted_by: null })
     .eq('id', categoryId);
   if (error) { console.error('Error restoring category:', error.message); return false; }
@@ -140,7 +140,7 @@ export async function restoreCategory(categoryId: string): Promise<boolean> {
 
 export async function restoreField(fieldId: string): Promise<boolean> {
   const { error } = await supabase
-    .from('unit_data_fields')
+    .from('zhl_unit_data_fields')
     .update({ deleted_at: null, deleted_by: null })
     .eq('id', fieldId);
   if (error) { console.error('Error restoring field:', error.message); return false; }
@@ -157,9 +157,9 @@ export interface DeletedItem {
 
 export async function getDeletedItems(projectId: string): Promise<DeletedItem[]> {
   const [{ data: cats }, { data: fields }, { data: allCats }] = await Promise.all([
-    supabase.from('unit_data_categories').select('id, name, deleted_at').eq('project_id', projectId).not('deleted_at', 'is', null),
-    supabase.from('unit_data_fields').select('id, name, deleted_at, category_id').eq('project_id', projectId).not('deleted_at', 'is', null),
-    supabase.from('unit_data_categories').select('id, name').eq('project_id', projectId),
+    supabase.from('zhl_unit_data_categories').select('id, name, deleted_at').eq('project_id', projectId).not('deleted_at', 'is', null),
+    supabase.from('zhl_unit_data_fields').select('id, name, deleted_at, category_id').eq('project_id', projectId).not('deleted_at', 'is', null),
+    supabase.from('zhl_unit_data_categories').select('id, name').eq('project_id', projectId),
   ]);
 
   const catNameMap = new Map<string, string>((allCats ?? []).map((c: { id: string; name: string }) => [c.id, c.name]));
@@ -180,7 +180,7 @@ export async function getDeletedItems(projectId: string): Promise<DeletedItem[]>
 
 export async function updateFieldVisibility(fieldId: string, visible: boolean): Promise<boolean> {
   const { error } = await supabase
-    .from('unit_data_fields')
+    .from('zhl_unit_data_fields')
     .update({ visible })
     .eq('id', fieldId);
   if (error) { console.error('Error updating field visibility:', error.message, error.code, error.details); return false; }
@@ -202,7 +202,7 @@ export function getCurrentFieldVisibility(categories: CategoryWithFields[]): Rec
 
 export async function getRows(projectId: string): Promise<UnitDataRow[]> {
   const { data, error } = await supabase
-    .from('unit_data_rows')
+    .from('zhl_unit_data_rows')
     .select('*')
     .eq('project_id', projectId)
     .order('sort_order');
@@ -212,7 +212,7 @@ export async function getRows(projectId: string): Promise<UnitDataRow[]> {
 
 export async function createRow(projectId: string, sortOrder: number): Promise<UnitDataRow | null> {
   const { data, error } = await supabase
-    .from('unit_data_rows')
+    .from('zhl_unit_data_rows')
     .insert({ project_id: projectId, sort_order: sortOrder })
     .select()
     .single();
@@ -221,7 +221,7 @@ export async function createRow(projectId: string, sortOrder: number): Promise<U
 }
 
 export async function deleteRow(rowId: string): Promise<boolean> {
-  const { error } = await supabase.from('unit_data_rows').delete().eq('id', rowId);
+  const { error } = await supabase.from('zhl_unit_data_rows').delete().eq('id', rowId);
   if (error) { console.error('Error deleting row:', error.message, error.code, error.details); return false; }
   return true;
 }
@@ -231,7 +231,7 @@ export async function deleteRow(rowId: string): Promise<boolean> {
 export async function getValues(projectId: string): Promise<UnitDataValue[]> {
   // Get all row IDs for this project, then fetch values
   const { data: rows } = await supabase
-    .from('unit_data_rows')
+    .from('zhl_unit_data_rows')
     .select('id')
     .eq('project_id', projectId);
 
@@ -239,7 +239,7 @@ export async function getValues(projectId: string): Promise<UnitDataValue[]> {
 
   const rowIds = rows.map((r: { id: string }) => r.id);
   const { data, error } = await supabase
-    .from('unit_data_values')
+    .from('zhl_unit_data_values')
     .select('*')
     .in('row_id', rowIds);
 
@@ -254,7 +254,7 @@ export async function upsertValue(
   fileUrl: string | null = null
 ): Promise<boolean> {
   const { error } = await supabase
-    .from('unit_data_values')
+    .from('zhl_unit_data_values')
     .upsert(
       { row_id: rowId, field_id: fieldId, value, file_url: fileUrl },
       { onConflict: 'row_id,field_id' }

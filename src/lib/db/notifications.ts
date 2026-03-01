@@ -9,7 +9,7 @@ let clearedAtSupported = true;
 export async function getNotifications(userId: string): Promise<Notification[]> {
   if (clearedAtSupported) {
     const { data, error } = await supabase
-      .from('notifications')
+      .from('zhl_notifications')
       .select('*')
       .eq('user_id', userId)
       .is('cleared_at', null)
@@ -22,7 +22,7 @@ export async function getNotifications(userId: string): Promise<Notification[]> 
   }
 
   const { data, error } = await supabase
-    .from('notifications')
+    .from('zhl_notifications')
     .select('*')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
@@ -39,7 +39,7 @@ export async function getNotifications(userId: string): Promise<Notification[]> 
 export async function getUnreadCount(userId: string): Promise<number> {
   if (clearedAtSupported) {
     const { count, error } = await supabase
-      .from('notifications')
+      .from('zhl_notifications')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
       .eq('is_read', false)
@@ -50,7 +50,7 @@ export async function getUnreadCount(userId: string): Promise<number> {
   }
 
   const { count, error } = await supabase
-    .from('notifications')
+    .from('zhl_notifications')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', userId)
     .eq('is_read', false);
@@ -65,7 +65,7 @@ export async function getUnreadCount(userId: string): Promise<number> {
 /** Mark a single notification as read. */
 export async function markAsRead(notificationId: string): Promise<boolean> {
   const { error } = await supabase
-    .from('notifications')
+    .from('zhl_notifications')
     .update({ is_read: true, read_at: new Date().toISOString() })
     .eq('id', notificationId);
 
@@ -79,7 +79,7 @@ export async function markAsRead(notificationId: string): Promise<boolean> {
 /** Mark all notifications as read for a user. */
 export async function markAllAsRead(userId: string): Promise<boolean> {
   const query = supabase
-    .from('notifications')
+    .from('zhl_notifications')
     .update({ is_read: true, read_at: new Date().toISOString() })
     .eq('user_id', userId)
     .eq('is_read', false);
@@ -103,7 +103,7 @@ export async function deleteAllNotifications(userId: string): Promise<boolean> {
   }
 
   const { error } = await supabase
-    .from('notifications')
+    .from('zhl_notifications')
     .update({ cleared_at: new Date().toISOString() })
     .eq('user_id', userId)
     .is('cleared_at', null);

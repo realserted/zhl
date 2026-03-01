@@ -3,7 +3,7 @@ import { ProjectAccount } from '@/lib/types/project-account';
 
 export async function getProjectAccounts(projectId: string): Promise<ProjectAccount[]> {
   const { data, error } = await supabase
-    .from('project_accounts')
+    .from('zhl_project_accounts')
     .select('*')
     .eq('project_id', projectId)
     .order('created_at', { ascending: true });
@@ -20,7 +20,7 @@ export async function createProjectAccount(
   createdBy: string
 ): Promise<ProjectAccount | null> {
   const { data, error } = await supabase
-    .from('project_accounts')
+    .from('zhl_project_accounts')
     .insert([{ project_id: projectId, created_by: createdBy }])
     .select()
     .single();
@@ -38,7 +38,7 @@ export async function updateProjectAccount(
   value: string | null
 ): Promise<boolean> {
   const { error } = await supabase
-    .from('project_accounts')
+    .from('zhl_project_accounts')
     .update({ [field]: value })
     .eq('id', accountId);
 
@@ -51,7 +51,7 @@ export async function updateProjectAccount(
 
 export async function deleteProjectAccount(accountId: string): Promise<boolean> {
   const { error } = await supabase
-    .from('project_accounts')
+    .from('zhl_project_accounts')
     .delete()
     .eq('id', accountId);
 

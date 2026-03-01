@@ -49,7 +49,7 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
   useEffect(() => {
     if (!user) return;
     supabase
-      .from('accounts')
+      .from('zhl_accounts')
       .select('is_admin, display_name')
       .eq('user_id', user.id)
       .maybeSingle()
@@ -90,7 +90,7 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
       return;
     }
     supabase
-      .from('taskers')
+      .from('zhl_taskers')
       .select('*')
       .eq('project_id', selectedProject.id)
       .not('status', 'in', '("Archived","Complete")')

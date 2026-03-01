@@ -8,7 +8,7 @@ export async function logUserAction(
   action: string
 ) {
   try {
-    await supabase.from('user_logs').insert({
+    await supabase.from('zhl_user_logs').insert({
       project_id: projectId,
       user_id: userId,
       user_name: userName,

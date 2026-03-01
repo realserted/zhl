@@ -61,7 +61,7 @@ async function seedAdmin() {
 
   // Check if admin already exists in accounts table
   const { data: existing } = await supabase
-    .from('accounts')
+    .from('zhl_accounts')
     .select('id, email')
     .eq('is_admin', true)
     .maybeSingle();
@@ -102,7 +102,7 @@ async function seedAdmin() {
 
   // Step 2: Insert into accounts with is_admin = true
   // The service_role key is recognized by the guard_admin_flag trigger
-  const { error } = await supabase.from('accounts').insert({
+  const { error } = await supabase.from('zhl_accounts').insert({
     user_id: userId,
     display_name: ADMIN_DISPLAY_NAME,
     email: ADMIN_EMAIL,
