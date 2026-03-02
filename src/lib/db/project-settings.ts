@@ -15,6 +15,9 @@ export interface ProjectSettings {
   threshold_unit_data_good:          number;
   // Feature flags
   allow_user_customization: boolean;
+  // AI prompts
+  tasker_name_ai_prompt: string;
+  status_ai_prompt: string;
 }
 
 export type ProjectSettingsUpdate = Partial<Omit<ProjectSettings, 'id' | 'project_id'>>;
@@ -31,6 +34,8 @@ export const DEFAULT_PROJECT_SETTINGS: Omit<ProjectSettings, 'id' | 'project_id'
   threshold_unit_data_problematic:   80,
   threshold_unit_data_good:          95,
   allow_user_customization:          false,
+  tasker_name_ai_prompt:             '',
+  status_ai_prompt:                  '',
 };
 
 export async function getProjectSettings(projectId: string): Promise<ProjectSettings> {

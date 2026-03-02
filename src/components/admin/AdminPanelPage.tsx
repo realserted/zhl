@@ -1,7 +1,7 @@
 'use client';
 
-import { Plus, Upload, Loader2, ShieldAlert, Check, Trash2 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { Plus, Upload, Loader2, ShieldAlert, Check, Trash2, Save } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase/client';
 import { Project } from '@/lib/types/project';
@@ -11,6 +11,9 @@ import { getAllBackupRequests, updateBackupRequestStatus } from '@/lib/db/files'
 import { ProjectFileBackupRequest } from '@/lib/types/files';
 import { UnitDataRecoveryRequest, getRecoveryRequests, resolveRecoveryRequest } from '@/lib/db/unit-data-recovery';
 import { restoreField, restoreCategory } from '@/lib/db/unit-data';
+import { getProjectSettings, saveProjectSettings } from '@/lib/db/project-settings';
+import { getBankTypes, updateBankTypePrompt } from '@/lib/db/financial';
+import { FinancialBankType } from '@/lib/types/financial';
 
 const STATUS_OPTIONS = ['Critical', 'Problematic', 'Needs Attention', 'Good', 'Excellent'] as const;
 
@@ -46,15 +49,12 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
   const [projects, setProjects] = useState<ProjectWithOwner[]>([]);
 
   // Template section state
-  const [reportTypes, setReportTypes] = useState([
-    'Wells Fargo Checki...',
-    'Wells Fargo Checki...',
-    'Bank of America Ch...',
-    'Rent Vine Report',
-    'Buildium Report',
-    'Yardi Breeze Report',
-    'Appfolio Report',
-  ]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [taskerNamePrompt, setTaskerNamePrompt] = useState('');
+  const [statusPrompt, setStatusPrompt] = useState('');
+  const [bankTypes, setBankTypes] = useState<FinancialBankType[]>([]);
+  const [savingPrompts, setSavingPrompts] = useState(false);
+  const [promptSaveMsg, setPromptSaveMsg] = useState('');
 
   const [requests, setRequests] = useState<AdminRequest[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
@@ -137,6 +137,52 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
 
     setProjects(enriched);
     setLoading(false);
+  };
+
+  // Load AI prompts & bank types when a project is selected
+  const loadProjectPrompts = useCallback(async (projectId: string) => {
+    if (!projectId) return;
+    const [settings, types] = await Promise.all([
+      getProjectSettings(projectId),
+      getBankTypes(projectId),
+    ]);
+    setTaskerNamePrompt(settings.tasker_name_ai_prompt || '');
+    setStatusPrompt(settings.status_ai_prompt || '');
+    setBankTypes(types);
+  }, []);
+
+  useEffect(() => {
+    if (selectedProjectId) loadProjectPrompts(selectedProjectId);
+  }, [selectedProjectId, loadProjectPrompts]);
+
+  // Auto-select first project once loaded
+  useEffect(() => {
+    if (projects.length > 0 && !selectedProjectId) {
+      setSelectedProjectId(projects[0].id);
+    }
+  }, [projects, selectedProjectId]);
+
+  const handleSavePrompts = async () => {
+    if (!selectedProjectId) return;
+    setSavingPrompts(true);
+    setPromptSaveMsg('');
+    const ok = await saveProjectSettings(selectedProjectId, {
+      tasker_name_ai_prompt: taskerNamePrompt,
+      status_ai_prompt: statusPrompt,
+    });
+    setSavingPrompts(false);
+    setPromptSaveMsg(ok ? 'Saved!' : 'Error saving prompts');
+    if (ok) setTimeout(() => setPromptSaveMsg(''), 2000);
+  };
+
+  const handleBankTypePromptChange = (bankTypeId: string, newPrompt: string) => {
+    setBankTypes((prev) => prev.map((b) => b.id === bankTypeId ? { ...b, ai_prompt: newPrompt } : b));
+  };
+
+  const handleSaveBankTypePrompt = async (bankTypeId: string) => {
+    const bt = bankTypes.find((b) => b.id === bankTypeId);
+    if (!bt) return;
+    await updateBankTypePrompt(bankTypeId, bt.ai_prompt);
   };
 
   // Update project field
@@ -333,6 +379,21 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
           <h2 className="text-lg font-bold mb-6 pb-3 border-b border-border">ADD NEW TEMPLATES</h2>
 
           <div className="ml-6 space-y-6">
+            {/* Project Selector */}
+            <div>
+              <label className="block text-sm font-semibold mb-2">Select Project</label>
+              <select
+                className={selectClass}
+                value={selectedProjectId}
+                onChange={(e) => setSelectedProjectId(e.target.value)}
+              >
+                <option value="">— Select a project —</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+
             {/* File Upload Area */}
             <div className="border-2 border-dashed border-input rounded-lg p-8 hover:bg-muted/50 transition-colors cursor-pointer">
               <div className="flex flex-col items-center gap-2">
@@ -348,6 +409,9 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
                 className="w-full border border-input rounded-md p-3 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 rows={3}
                 placeholder="Enter AI prompt for tasker name..."
+                value={taskerNamePrompt}
+                onChange={(e) => setTaskerNamePrompt(e.target.value)}
+                disabled={!selectedProjectId}
               />
             </div>
 
@@ -358,8 +422,28 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
                 className="w-full border border-input rounded-md p-3 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 rows={3}
                 placeholder="Enter AI prompt for status..."
+                value={statusPrompt}
+                onChange={(e) => setStatusPrompt(e.target.value)}
+                disabled={!selectedProjectId}
               />
               <p className="text-xs text-muted-foreground mt-1">10 words max</p>
+            </div>
+
+            {/* Save Prompts Button */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleSavePrompts}
+                disabled={!selectedProjectId || savingPrompts}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground rounded-md text-sm font-semibold hover:bg-accent/90 transition-colors disabled:opacity-50"
+              >
+                {savingPrompts ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Save Prompts
+              </button>
+              {promptSaveMsg && (
+                <span className={`text-xs font-semibold ${promptSaveMsg === 'Saved!' ? 'text-green-600' : 'text-red-600'}`}>
+                  {promptSaveMsg}
+                </span>
+              )}
             </div>
           </div>
         </section>
@@ -369,46 +453,50 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
           <h2 className="text-lg font-bold mb-6 pb-3 border-b border-border">REPORT TYPES</h2>
 
           <div className="ml-6 space-y-4">
-            <div className="overflow-x-auto border border-input rounded-lg">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-muted border-b border-input">
-                    <th className="px-4 py-3 text-left font-semibold">Type</th>
-                    <th className="px-4 py-3 text-left font-semibold">AI Prompt</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reportTypes.map((type, index) => (
-                    <tr key={index} className="border-b border-input hover:bg-muted/50">
-                      <td className="px-4 py-3">
-                        <select className="border border-input rounded px-2 py-1 bg-background text-foreground text-xs">
-                          <option>{type}</option>
-                          <option>Wells Fargo Checki...</option>
-                          <option>Bank of America Ch...</option>
-                          <option>Rent Vine Report</option>
-                          <option>Buildium Report</option>
-                          <option>Yardi Breeze Report</option>
-                          <option>Appfolio Report</option>
-                        </select>
-                      </td>
-                      <td className="px-4 py-3">
-                        <input
-                          type="text"
-                          className="border border-input rounded px-2 py-1 bg-background text-foreground text-xs w-full"
-                          placeholder="Enter AI prompt..."
-                        />
-                      </td>
+            {!selectedProjectId ? (
+              <p className="text-sm text-muted-foreground py-4">Select a project above to manage report types.</p>
+            ) : bankTypes.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4">No bank types found for this project.</p>
+            ) : (
+              <div className="overflow-x-auto border border-input rounded-lg">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-muted border-b border-input">
+                      <th className="px-4 py-3 text-left font-semibold">Type</th>
+                      <th className="px-4 py-3 text-left font-semibold">AI Prompt</th>
+                      <th className="px-4 py-3 w-16"></th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Add New Type Button */}
-            <button className="inline-flex items-center gap-2 text-sm font-semibold text-accent hover:text-accent/80 transition-colors">
-              <Plus className="h-4 w-4" />
-              Add new type
-            </button>
+                  </thead>
+                  <tbody>
+                    {bankTypes.map((bt) => (
+                      <tr key={bt.id} className="border-b border-input hover:bg-muted/50">
+                        <td className="px-4 py-3">
+                          <span className="text-xs font-medium">{bt.name}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="text"
+                            className="border border-input rounded px-2 py-1 bg-background text-foreground text-xs w-full"
+                            placeholder="Enter AI prompt..."
+                            value={bt.ai_prompt}
+                            onChange={(e) => handleBankTypePromptChange(bt.id, e.target.value)}
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => handleSaveBankTypePrompt(bt.id)}
+                            title="Save prompt"
+                            className="p-1 text-muted-foreground hover:text-accent transition-colors"
+                          >
+                            <Save className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </section>
 

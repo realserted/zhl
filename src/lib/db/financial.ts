@@ -95,7 +95,7 @@ export async function upsertMonthlyValue(
 export async function getBankTypes(projectId: string): Promise<FinancialBankType[]> {
   const { data, error } = await supabase.from('zhl_financial_bank_types').select('*').eq('project_id', projectId).order('created_at');
   if (error) { console.error('Error fetching bank types:', error.message); return []; }
-  return (data ?? []).map((b) => ({ ...b, status: b.status ?? 'approved' }));
+  return (data ?? []).map((b) => ({ ...b, status: b.status ?? 'approved', ai_prompt: b.ai_prompt ?? '' }));
 }
 
 export const DEFAULT_BANK_TYPES = [
@@ -199,6 +199,12 @@ export async function approveBankType(id: string): Promise<boolean> {
 export async function rejectBankType(id: string): Promise<boolean> {
   const { error } = await supabase.from('zhl_financial_bank_types').delete().eq('id', id);
   return !error;
+}
+
+export async function updateBankTypePrompt(id: string, aiPrompt: string): Promise<boolean> {
+  const { error } = await supabase.from('zhl_financial_bank_types').update({ ai_prompt: aiPrompt }).eq('id', id);
+  if (error) { console.error('Error updating bank type prompt:', error.message); return false; }
+  return true;
 }
 
 export async function getTxCategories(projectId: string): Promise<FinancialTxCategory[]> {

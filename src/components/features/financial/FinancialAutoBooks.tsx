@@ -20,6 +20,7 @@ import * as XLSX from 'xlsx';
 async function aiCategorize(
   txs: { id: string; description: string }[],
   categories: { id: string; name: string }[],
+  customPrompt?: string,
 ): Promise<Map<string, string>> {
   const result = new Map<string, string>();
   if (txs.length === 0 || categories.length === 0) return result;
@@ -28,7 +29,7 @@ async function aiCategorize(
     const res = await fetch('/api/ai/categorize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ transactions: txs, categories }),
+      body: JSON.stringify({ transactions: txs, categories, customPrompt: customPrompt || undefined }),
     });
     if (!res.ok) return result;
     const data = await res.json();
@@ -334,9 +335,11 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
       // AI auto-categorize new transactions that are set to "Auto" (default)
       const autoTxs = created.filter((t) => !t.auto_grouping && t.description);
       if (autoTxs.length > 0 && txCategories.length > 0) {
+        const bankTypePrompt = bankTypes.find((b) => b.id === selectedBankType)?.ai_prompt;
         const catMap = await aiCategorize(
           autoTxs.map((t) => ({ id: t.id, description: t.description! })),
           txCategories.map((c) => ({ id: c.id, name: c.name })),
+          bankTypePrompt,
         );
         if (catMap.size > 0) {
           const updates = Array.from(catMap.entries());
@@ -438,9 +441,11 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
       if (!value) {
         const tx = transactions.find((t) => t.id === txId);
         if (tx && !tx.category_id && tx.description && txCategories.length > 0) {
+          const bankTypePrompt = bankTypes.find((b) => b.id === tx.bank_type_id)?.ai_prompt;
           const catMap = await aiCategorize(
             [{ id: txId, description: tx.description }],
             txCategories.map((c) => ({ id: c.id, name: c.name })),
+            bankTypePrompt,
           );
           const catId = catMap.get(txId);
           if (catId) {

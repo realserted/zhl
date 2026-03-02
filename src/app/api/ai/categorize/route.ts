@@ -26,13 +26,14 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as {
     transactions?: TxInput[];
     categories?: CatInput[];
+    customPrompt?: string;
   } | null;
 
   if (!body?.transactions?.length || !body?.categories?.length) {
     return NextResponse.json({ results: [] });
   }
 
-  const { transactions, categories } = body;
+  const { transactions, categories, customPrompt } = body;
 
   const categoryList = categories.map((c) => `- ${c.id}: ${c.name}`).join('\n');
 
@@ -44,9 +45,13 @@ export async function POST(req: NextRequest) {
 
     const txList = batch.map((t) => `- ${t.id}: ${t.description}`).join('\n');
 
+    const customInstructions = customPrompt
+      ? `\nAdditional instructions from bank type configuration:\n${customPrompt}\n`
+      : '';
+
     const prompt = `You are a financial transaction categorizer. Given these categories:
 ${categoryList}
-
+${customInstructions}
 Categorize each transaction by its description. Pick the single best matching category_id. If no category fits well, use null.
 
 Return ONLY a JSON array with this exact format, no other text:

@@ -32,6 +32,7 @@ export interface FinancialBankType {
   project_id: string;
   name: string;
   status: string;
+  ai_prompt: string;
   created_at: string;
 }
 

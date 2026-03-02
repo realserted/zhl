@@ -352,17 +352,17 @@ export async function getBackupRequests(projectId: string): Promise<ProjectFileB
 export async function getAllBackupRequests(): Promise<(ProjectFileBackupRequest & { project_name: string })[]> {
   const { data, error } = await supabase
     .from('zhl_project_file_backup_requests')
-    .select('*, projects(name)')
+    .select('*, zhl_projects(name)')
     .order('created_at', { ascending: false });
 
   if (error) {
-    console.error('Error fetching all backup requests:', error);
+    console.error('Error fetching all backup requests:', error.message, error.code, error.details, error.hint);
     return [];
   }
 
-  return (data ?? []).map((r: ProjectFileBackupRequest & { projects: { name: string } | null }) => ({
+  return (data ?? []).map((r: ProjectFileBackupRequest & { zhl_projects: { name: string } | null }) => ({
     ...r,
-    project_name: r.projects?.name ?? 'Unknown Project',
+    project_name: r.zhl_projects?.name ?? 'Unknown Project',
   }));
 }
 

@@ -12,6 +12,7 @@ import {
   Send,
   Loader2,
   Trash2,
+  Sparkles,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
@@ -28,6 +29,7 @@ import {
 import { logUserAction } from '@/lib/db/user-logs';
 import { createNotification } from '@/lib/db/notifications';
 import { ProjectPermission } from '@/lib/types/project';
+import { getProjectSettings } from '@/lib/db/project-settings';
 
 const STATUS_OPTIONS = ['Open', 'In Progress', 'Complete', 'Archived'] as const;
 
@@ -97,6 +99,12 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
   const [helpModal, setHelpModal] = useState<Tasker | null>(null);
   const [helpUser, setHelpUser] = useState('');
 
+  // AI prompt state
+  const [taskerNamePrompt, setTaskerNamePrompt] = useState('');
+  const [statusPrompt, setStatusPrompt] = useState('');
+  const [generatingName, setGeneratingName] = useState(false);
+  const [generatingStatus, setGeneratingStatus] = useState(false);
+
   // Inline editing
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -123,6 +131,59 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
       setLoading(false);
     });
   }, [selectedProjectId]);
+
+  // Load AI prompts for this project
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    getProjectSettings(selectedProjectId).then((settings) => {
+      setTaskerNamePrompt(settings.tasker_name_ai_prompt || '');
+      setStatusPrompt(settings.status_ai_prompt || '');
+    });
+  }, [selectedProjectId]);
+
+  const handleGenerateTaskName = async () => {
+    if (!taskerNamePrompt) return;
+    setGeneratingName(true);
+    try {
+      const res = await fetch('/api/ai/generate-tasker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'task_name',
+          prompt: taskerNamePrompt,
+          context: selectedProjectName ? `Project: ${selectedProjectName}` : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.result) setNewTasker((prev) => ({ ...prev, task_name: data.result }));
+    } catch (err) {
+      console.error('Error generating task name:', err);
+    }
+    setGeneratingName(false);
+  };
+
+  const handleGenerateStatus = async (taskName: string, currentStatus: string) => {
+    if (!statusPrompt) return '';
+    setGeneratingStatus(true);
+    try {
+      const res = await fetch('/api/ai/generate-tasker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'status',
+          prompt: statusPrompt,
+          context: `Task: ${taskName}\nCurrent status: ${currentStatus}`,
+        }),
+      });
+      const data = await res.json();
+      setGeneratingStatus(false);
+      return data.result || '';
+    } catch (err) {
+      console.error('Error generating status:', err);
+      setGeneratingStatus(false);
+      return '';
+    }
+  };
 
   // Get current user display name and email — use refs to avoid stale closures
   const [displayName, setDisplayName] = useState('');
@@ -823,11 +884,29 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
 
                       {/* Update Status (2nd status - user comments) */}
                       <td className="px-3 py-3 whitespace-nowrap">
-                        <EditableCell
-                          tasker={tasker}
-                          field="update_status"
-                          displayValue={tasker.update_status ?? ''}
-                        />
+                        <div className="flex items-center gap-1">
+                          <EditableCell
+                            tasker={tasker}
+                            field="update_status"
+                            displayValue={tasker.update_status ?? ''}
+                          />
+                          {statusPrompt && canEdit && (
+                            <button
+                              onClick={async () => {
+                                const result = await handleGenerateStatus(tasker.task_name, tasker.update_status ?? '');
+                                if (result) {
+                                  await saveInlineEdit(tasker.id, 'update_status', result);
+                                  setTaskers((prev) => prev.map((t) => t.id === tasker.id ? { ...t, update_status: result } : t));
+                                }
+                              }}
+                              disabled={generatingStatus}
+                              title="Generate status with AI"
+                              className="p-0.5 hover:bg-muted rounded transition-colors disabled:opacity-50 flex-shrink-0"
+                            >
+                              <Sparkles className="h-3 w-3 text-accent" />
+                            </button>
+                          )}
+                        </div>
                       </td>
 
                       {/* Responsible */}
@@ -1053,13 +1132,26 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Task Name *</label>
-                <input
-                  type="text"
-                  value={newTasker.task_name}
-                  onChange={(e) => setNewTasker({ ...newTasker, task_name: e.target.value })}
-                  className={inputClass}
-                  placeholder="Enter task name"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newTasker.task_name}
+                    onChange={(e) => setNewTasker({ ...newTasker, task_name: e.target.value })}
+                    className={inputClass + ' flex-1'}
+                    placeholder="Enter task name"
+                  />
+                  {taskerNamePrompt && (
+                    <button
+                      type="button"
+                      onClick={handleGenerateTaskName}
+                      disabled={generatingName}
+                      title="Generate task name with AI"
+                      className="px-2 py-1 border border-input rounded-md hover:bg-muted transition-colors disabled:opacity-50"
+                    >
+                      {generatingName ? <Loader2 className="h-4 w-4 animate-spin text-accent" /> : <Sparkles className="h-4 w-4 text-accent" />}
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div>
