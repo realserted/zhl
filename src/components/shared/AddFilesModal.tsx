@@ -195,6 +195,8 @@ export default function AddFilesModal({ open, onClose }: AddFilesModalProps) {
         await linkFileToUnitData('field', selectedFieldId, displayName, uploaded.storage_path);
       }
 
+      // Notify FilesPage (or any listener) that a file was uploaded
+      window.dispatchEvent(new CustomEvent('files-updated'));
       onClose();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'An error occurred');

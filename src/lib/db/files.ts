@@ -542,7 +542,7 @@ export async function getLinkedUnitDataMap(projectId: string): Promise<Map<strin
   const [{ data: fields }, { data: cats }] = await Promise.all([
     supabase
       .from('zhl_unit_data_fields')
-      .select('name, linked_file_path, unit_data_categories(name)')
+      .select('name, linked_file_path, zhl_unit_data_categories(name)')
       .eq('project_id', projectId)
       .not('linked_file_path', 'is', null),
     supabase
@@ -553,8 +553,8 @@ export async function getLinkedUnitDataMap(projectId: string): Promise<Map<strin
   ]);
 
   if (fields) {
-    for (const f of fields as unknown as Array<{ name: string; linked_file_path: string; unit_data_categories: { name: string } | null }>) {
-      map.set(f.linked_file_path, { type: 'field', name: f.name, parentName: f.unit_data_categories?.name ?? undefined });
+    for (const f of fields as unknown as Array<{ name: string; linked_file_path: string; zhl_unit_data_categories: { name: string } | null }>) {
+      map.set(f.linked_file_path, { type: 'field', name: f.name, parentName: f.zhl_unit_data_categories?.name ?? undefined });
     }
   }
   if (cats) {
@@ -573,7 +573,7 @@ export async function linkFileToUnitData(
   fileName: string,
   storagePath: string
 ): Promise<boolean> {
-  const table = targetType === 'field' ? 'unit_data_fields' : 'unit_data_categories';
+  const table = targetType === 'field' ? 'zhl_unit_data_fields' : 'zhl_unit_data_categories';
   const { error } = await supabase
     .from(table)
     .update({ linked_file_name: fileName, linked_file_path: storagePath })

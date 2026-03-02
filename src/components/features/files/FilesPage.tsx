@@ -265,6 +265,22 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
     load();
   }, [selectedProjectId]);
 
+  // Listen for file uploads from AddFilesModal (or other sources) and refresh
+  useEffect(() => {
+    const refresh = () => {
+      if (!selectedProjectId) return;
+      Promise.all([
+        getFileFolders(selectedProjectId),
+        getFilesForProject(selectedProjectId),
+      ]).then(([folderData, fileData]) => {
+        setFolders(folderData);
+        setFiles(fileData);
+      });
+    };
+    window.addEventListener('files-updated', refresh);
+    return () => window.removeEventListener('files-updated', refresh);
+  }, [selectedProjectId]);
+
   const folderChildrenMap = useMemo(() => {
     const map = new Map<string | null, ProjectFileFolder[]>();
     folders.forEach((folder) => {
