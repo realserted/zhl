@@ -20,7 +20,7 @@ export async function getFileFolders(projectId: string): Promise<ProjectFileFold
     .order('created_at');
 
   if (error) {
-    console.error('Error fetching file folders:', error);
+    console.error('Error fetching file folders:', error.message, error.code);
     return [];
   }
   return data ?? [];
@@ -46,7 +46,7 @@ export async function createFileFolder(
     .single();
 
   if (error) {
-    console.error('Error creating file folder:', error);
+    console.error('Error creating file folder:', error.message, error.code);
     return null;
   }
   return data;
@@ -60,7 +60,7 @@ export async function getFilesForProject(projectId: string): Promise<ProjectFile
     .order('created_at', { ascending: false });
 
   if (error) {
-    console.error('Error fetching files:', error);
+    console.error('Error fetching files:', error.message, error.code);
     return [];
   }
   return data ?? [];
@@ -74,7 +74,7 @@ export async function getFolderPermissions(folderId: string): Promise<ProjectFil
     .maybeSingle();
 
   if (error) {
-    console.error('Error fetching folder permissions:', error);
+    console.error('Error fetching folder permissions:', error.message, error.code);
     return null;
   }
   return data;
@@ -87,7 +87,7 @@ export async function getAllFolderPermissions(projectId: string): Promise<Projec
     .eq('project_id', projectId);
 
   if (error) {
-    console.error('Error fetching all folder permissions:', error);
+    console.error('Error fetching all folder permissions:', error.message, error.code);
     return [];
   }
   return data ?? [];
@@ -124,7 +124,7 @@ export async function upsertFolderPermissions(payload: {
     .single();
 
   if (error) {
-    console.error('Error upserting folder permissions:', error);
+    console.error('Error upserting folder permissions:', error.message, error.code, error.details, error.hint);
     return null;
   }
   return data;
@@ -137,7 +137,7 @@ export async function getAllFilePermissions(projectId: string): Promise<ProjectF
     .eq('project_id', projectId);
 
   if (error) {
-    console.error('Error fetching all file permissions:', error);
+    console.error('Error fetching all file permissions:', error.message, error.code);
     return [];
   }
   return data ?? [];
@@ -174,7 +174,7 @@ export async function upsertFilePermissions(payload: {
     .single();
 
   if (error) {
-    console.error('Error upserting file permissions:', error);
+    console.error('Error upserting file permissions:', error.message, error.code);
     return null;
   }
   return data;
@@ -188,7 +188,7 @@ export async function getCustomFields(projectId: string): Promise<ProjectFileCus
     .order('created_at');
 
   if (error) {
-    console.error('Error fetching custom fields:', error);
+    console.error('Error fetching custom fields:', error.message, error.code);
     return [];
   }
   return data ?? [];
@@ -218,7 +218,7 @@ export async function createCustomField(payload: {
     .single();
 
   if (error) {
-    console.error('Error creating custom field:', error);
+    console.error('Error creating custom field:', error.message, error.code);
     return null;
   }
   return data;
@@ -245,7 +245,7 @@ export async function getCustomFieldValuesForTarget(params: {
 
   const { data, error } = await query;
   if (error) {
-    console.error('Error fetching custom field values:', error);
+    console.error('Error fetching custom field values:', error.message, error.code);
     return [];
   }
 
@@ -277,7 +277,7 @@ export async function upsertCustomFieldValue(payload: {
     .single();
 
   if (error) {
-    console.error('Error upserting custom field value:', error);
+    console.error('Error upserting custom field value:', error.message, error.code);
     return null;
   }
 
@@ -293,7 +293,7 @@ export async function getMonthlyDownloadLog(projectId: string, monthStartIso: st
     .order('created_at', { ascending: false });
 
   if (error) {
-    console.error('Error fetching monthly download log:', error);
+    console.error('Error fetching monthly download log:', error.message, error.code);
     return [];
   }
 
@@ -311,7 +311,7 @@ export async function logDownloadAll(projectId: string, userId: string | null): 
     .single();
 
   if (error) {
-    console.error('Error logging download-all request:', error);
+    console.error('Error logging download-all request:', error.message, error.code);
     return null;
   }
 
@@ -326,7 +326,7 @@ export async function getBackups(projectId: string): Promise<ProjectFileBackup[]
     .order('created_at', { ascending: false });
 
   if (error) {
-    console.error('Error fetching backups:', error);
+    console.error('Error fetching backups:', error.message, error.code);
     return [];
   }
 
@@ -341,7 +341,7 @@ export async function getBackupRequests(projectId: string): Promise<ProjectFileB
     .order('created_at', { ascending: false });
 
   if (error) {
-    console.error('Error fetching backup requests:', error);
+    console.error('Error fetching backup requests:', error.message, error.code);
     return [];
   }
 
@@ -378,7 +378,7 @@ export async function updateBackupRequestStatus(
     .eq('id', requestId);
 
   if (error) {
-    console.error('Error updating backup request status:', error);
+    console.error('Error updating backup request status:', error.message, error.code);
     return false;
   }
   return true;
@@ -396,7 +396,7 @@ export async function createBackupRequest(projectId: string, userId: string | nu
     .single();
 
   if (error) {
-    console.error('Error creating backup request:', error);
+    console.error('Error creating backup request:', error.message, error.code);
     return null;
   }
 
@@ -443,7 +443,7 @@ export async function uploadFile(
     .single();
 
   if (error) {
-    console.error('Error inserting file metadata:', error);
+    console.error('Error inserting file metadata:', error.message, error.code);
     await supabase.storage.from(BUCKET).remove([storagePath]);
     return null;
   }
@@ -457,7 +457,7 @@ export async function downloadFileUrl(storagePath: string): Promise<string | nul
     .createSignedUrl(storagePath, 60);
 
   if (error) {
-    console.error('Error creating signed URL:', error);
+    console.error('Error creating signed URL:', error.message);
     return null;
   }
 
@@ -482,7 +482,7 @@ export async function deleteFile(fileId: string): Promise<boolean> {
 
   const { error } = await supabase.from('zhl_project_files').delete().eq('id', fileId);
   if (error) {
-    console.error('Error deleting file metadata:', error);
+    console.error('Error deleting file metadata:', error.message, error.code);
     return false;
   }
 
@@ -504,7 +504,7 @@ export async function deleteFolder(folderId: string): Promise<boolean> {
 
   const { error } = await supabase.from('zhl_project_file_folders').delete().eq('id', folderId);
   if (error) {
-    console.error('Error deleting folder:', error);
+    console.error('Error deleting folder:', error.message, error.code);
     return false;
   }
 
@@ -517,7 +517,7 @@ export async function renameFolder(folderId: string, newName: string): Promise<b
     .update({ name: newName })
     .eq('id', folderId);
   if (error) {
-    console.error('Error renaming folder:', error);
+    console.error('Error renaming folder:', error.message, error.code);
     return false;
   }
   return true;
@@ -529,7 +529,7 @@ export async function renameFile(fileId: string, newName: string): Promise<boole
     .update({ name: newName })
     .eq('id', fileId);
   if (error) {
-    console.error('Error renaming file:', error);
+    console.error('Error renaming file:', error.message, error.code);
     return false;
   }
   return true;

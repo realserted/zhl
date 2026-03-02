@@ -81,6 +81,24 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
   const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
   const canManagePermissions = !userPermission || (userPermission.project_role?.includes('Project Manager') ?? false);
 
+  /** Check if the current user can access a file/folder based on its permission entry */
+  const hasFileAccess = useCallback(
+    (permEntry: ProjectFileFolderPermissions | ProjectFileItemPermissions | undefined): boolean => {
+      // Owner / admin always has access (userPermission is null for owners)
+      if (!userPermission) return true;
+      // No permission row = default open (everyone can access)
+      if (!permEntry) return true;
+      // Check permission flags against user's project_role
+      if (permEntry.allow_all_users) return true;
+      const role = userPermission.project_role || '';
+      if (permEntry.allow_project_manager && role.includes('Project Manager')) return true;
+      if (permEntry.allow_property_manager && role.includes('Property Manager')) return true;
+      if (permEntry.allow_accountant && role.includes('Accountant')) return true;
+      return false;
+    },
+    [userPermission],
+  );
+
   const displayNameRef = useRef('Unknown');
   const userEmailRef = useRef('');
 
@@ -554,6 +572,10 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
 
   const handleDownloadFile = async (file: ProjectFileItem) => {
     if (!file.storage_path) return;
+    // Permission gate: check file-level, fall back to folder-level
+    const filePerm = allFilePermissions.get(file.id);
+    const folderPerm = file.folder_id ? allPermissions.get(file.folder_id) : undefined;
+    if (!hasFileAccess(filePerm ?? folderPerm)) return;
     const url = await downloadFileUrl(file.storage_path);
     if (url) {
       const a = document.createElement('a');
@@ -596,7 +618,13 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
     const logged = await logDownloadAll(selectedProjectId, user.id);
     if (logged) {
       setMonthlyDownloadsCount((prev) => prev + 1);
-      for (const file of files) {
+      // Filter files through permission checks
+      const accessibleFiles = files.filter((file) => {
+        const filePerm = allFilePermissions.get(file.id);
+        const folderPerm = file.folder_id ? allPermissions.get(file.folder_id) : undefined;
+        return hasFileAccess(filePerm ?? folderPerm);
+      });
+      for (const file of accessibleFiles) {
         if (file.storage_path) {
           const url = await downloadFileUrl(file.storage_path);
           if (url) {
@@ -661,11 +689,19 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
     const rows: TableRow[] = [];
 
     for (const folder of children) {
+      // Check folder-level permission
+      const folderPerm = allPermissions.get(folder.id);
+      if (!hasFileAccess(folderPerm)) continue; // skip folder + children
+
       rows.push({ type: 'folder', folder, depth });
 
       if (!collapsedFolders.has(folder.id)) {
         const folderFiles = filesInFolderMap.get(folder.id) ?? [];
         for (const file of folderFiles) {
+          // Check file-level permission, fall back to folder permission
+          const filePerm = allFilePermissions.get(file.id);
+          const effectivePerm = filePerm ?? folderPerm;
+          if (!hasFileAccess(effectivePerm)) continue;
           rows.push({ type: 'file', file, folderId: folder.id, depth: depth + 1 });
         }
         rows.push(...buildRows(folder.id, depth + 1));
@@ -675,7 +711,7 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
     return rows;
   };
 
-  const tableRows = useMemo(() => buildRows(null, 0), [folderChildrenMap, filesInFolderMap, collapsedFolders]);
+  const tableRows = useMemo(() => buildRows(null, 0), [folderChildrenMap, filesInFolderMap, collapsedFolders, allPermissions, allFilePermissions, hasFileAccess]);
 
   // ── Render ───────────────────────────────────────────────────────
 
