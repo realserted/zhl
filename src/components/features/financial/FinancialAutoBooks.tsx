@@ -13,7 +13,7 @@ import {
   getUploadSheets, createUploadSheet, deleteUploadSheet, updateSheetColumnHeaders,
 } from '@/lib/db/financial';
 import { logUserAction } from '@/lib/db/user-logs';
-import { Upload, Plus, Trash2, X, Check, Pencil, Bot, User } from 'lucide-react';
+import { Upload, Plus, Trash2, X, Check, Pencil, Bot, User, AlertTriangle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 /** Call the server-side Gemini API route to auto-categorize transactions. */
@@ -21,9 +21,10 @@ async function aiCategorize(
   txs: { id: string; description: string }[],
   categories: { id: string; name: string }[],
   customPrompt?: string,
-): Promise<Map<string, string>> {
-  const result = new Map<string, string>();
-  if (txs.length === 0 || categories.length === 0) return result;
+): Promise<{ catMap: Map<string, string>; lowConfidenceIds: Set<string> }> {
+  const catMap = new Map<string, string>();
+  const lowConfidenceIds = new Set<string>();
+  if (txs.length === 0 || categories.length === 0) return { catMap, lowConfidenceIds };
 
   try {
     const res = await fetch('/api/ai/categorize', {
@@ -31,17 +32,20 @@ async function aiCategorize(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ transactions: txs, categories, customPrompt: customPrompt || undefined }),
     });
-    if (!res.ok) return result;
+    if (!res.ok) return { catMap, lowConfidenceIds };
     const data = await res.json();
     if (Array.isArray(data.results)) {
       for (const r of data.results) {
-        if (r.txId && r.categoryId) result.set(r.txId, r.categoryId);
+        if (r.txId && r.categoryId) {
+          catMap.set(r.txId, r.categoryId);
+          if (r.confidence === 'low') lowConfidenceIds.add(r.txId);
+        }
       }
     }
   } catch {
     console.error('AI categorize failed');
   }
-  return result;
+  return { catMap, lowConfidenceIds };
 }
 
 interface Props {
@@ -63,6 +67,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
   const [newTypeName, setNewTypeName] = useState('');
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [newCatName, setNewCatName] = useState('');
+  const [newCatType, setNewCatType] = useState<'expense' | 'income'>('expense');
   const [editingHeader, setEditingHeader] = useState<{ sheetId: string; index: number } | null>(null);
   const [headerEditValue, setHeaderEditValue] = useState('');
   const [confirmDeleteSheet, setConfirmDeleteSheet] = useState<string | null>(null);
@@ -147,12 +152,13 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
 
   const handleAddCategory = async () => {
     if (!newCatName.trim()) return;
-    const cat = await createTxCategory(selectedProjectId, newCatName.trim(), '●', '#8b5cf6');
+    const cat = await createTxCategory(selectedProjectId, newCatName.trim(), '●', '#8b5cf6', newCatType);
     if (cat) {
       setTxCategories((prev) => [...prev, cat]);
-      log(`Added transaction category "${newCatName.trim()}"`);
+      log(`Added transaction category "${newCatName.trim()}" (${newCatType})`);
     }
     setNewCatName('');
+    setNewCatType('expense');
     setShowAddCategory(false);
   };
 
@@ -336,18 +342,24 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
       const autoTxs = created.filter((t) => !t.auto_grouping && t.description);
       if (autoTxs.length > 0 && txCategories.length > 0) {
         const bankTypePrompt = bankTypes.find((b) => b.id === selectedBankType)?.ai_prompt;
-        const catMap = await aiCategorize(
+        const { catMap, lowConfidenceIds } = await aiCategorize(
           autoTxs.map((t) => ({ id: t.id, description: t.description! })),
           txCategories.map((c) => ({ id: c.id, name: c.name })),
           bankTypePrompt,
         );
         if (catMap.size > 0) {
           const updates = Array.from(catMap.entries());
-          await Promise.all(updates.map(([txId, catId]) => updateTransaction(txId, 'category_id', catId)));
+          await Promise.all(updates.map(([txId, catId]) => {
+            const needsReview = lowConfidenceIds.has(txId);
+            return Promise.all([
+              updateTransaction(txId, 'category_id', catId),
+              needsReview ? updateTransaction(txId, 'ai_needs_review', true) : Promise.resolve(true),
+            ]);
+          }));
           setTransactions((prev) =>
             prev.map((t) => {
               const catId = catMap.get(t.id);
-              return catId ? { ...t, category_id: catId } : t;
+              return catId ? { ...t, category_id: catId, ai_needs_review: lowConfidenceIds.has(t.id) } : t;
             }),
           );
         }
@@ -428,7 +440,12 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
   const handleCategoryChange = async (txId: string, categoryId: string) => {
     const ok = await updateTransaction(txId, 'category_id', categoryId || null);
     if (ok) {
-      setTransactions((prev) => prev.map((t) => (t.id === txId ? { ...t, category_id: categoryId || null } : t)));
+      // Clear review flag in DB when user manually changes category
+      const tx = transactions.find((t) => t.id === txId);
+      if (tx?.ai_needs_review) {
+        await updateTransaction(txId, 'ai_needs_review', false);
+      }
+      setTransactions((prev) => prev.map((t) => (t.id === txId ? { ...t, category_id: categoryId || null, ai_needs_review: false } : t)));
     }
   };
 
@@ -442,15 +459,17 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
         const tx = transactions.find((t) => t.id === txId);
         if (tx && !tx.category_id && tx.description && txCategories.length > 0) {
           const bankTypePrompt = bankTypes.find((b) => b.id === tx.bank_type_id)?.ai_prompt;
-          const catMap = await aiCategorize(
+          const { catMap, lowConfidenceIds } = await aiCategorize(
             [{ id: txId, description: tx.description }],
             txCategories.map((c) => ({ id: c.id, name: c.name })),
             bankTypePrompt,
           );
           const catId = catMap.get(txId);
           if (catId) {
+            const needsReview = lowConfidenceIds.has(txId);
             await updateTransaction(txId, 'category_id', catId);
-            setTransactions((prev) => prev.map((t) => (t.id === txId ? { ...t, category_id: catId } : t)));
+            if (needsReview) await updateTransaction(txId, 'ai_needs_review', true);
+            setTransactions((prev) => prev.map((t) => (t.id === txId ? { ...t, category_id: catId, ai_needs_review: needsReview } : t)));
           }
         }
       }
@@ -731,6 +750,14 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                   placeholder="Category name..."
                   className="px-2 py-1 bg-background border border-input rounded text-xs"
                 />
+                <select
+                  value={newCatType}
+                  onChange={(e) => setNewCatType(e.target.value as 'expense' | 'income')}
+                  className="px-2 py-1 bg-background border border-input rounded text-xs"
+                >
+                  <option value="expense">Expense</option>
+                  <option value="income">Gross Income</option>
+                </select>
                 <button onClick={handleAddCategory} className="text-xs text-accent font-semibold">Add</button>
               </div>
             ) : (
@@ -913,13 +940,19 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-1">
                       {tx.category_id ? (
-                        <span title={tx.auto_grouping === 'Do not group' ? 'Manually categorized' : 'AI categorized'}>
-                          {tx.auto_grouping === 'Do not group' ? (
-                            <User className="h-3.5 w-3.5 flex-shrink-0 text-orange-400" />
-                          ) : (
-                            <Bot className="h-3.5 w-3.5 flex-shrink-0 text-blue-400" />
-                          )}
-                        </span>
+                        tx.ai_needs_review ? (
+                          <span title="AI suggested — needs human review. The AI was not confident about this category.">
+                            <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-amber-400" />
+                          </span>
+                        ) : (
+                          <span title={tx.auto_grouping === 'Do not group' ? 'Manually categorized' : 'AI categorized'}>
+                            {tx.auto_grouping === 'Do not group' ? (
+                              <User className="h-3.5 w-3.5 flex-shrink-0 text-orange-400" />
+                            ) : (
+                              <Bot className="h-3.5 w-3.5 flex-shrink-0 text-blue-400" />
+                            )}
+                          </span>
+                        )
                       ) : null}
                       <select
                         value={tx.category_id ?? ''}

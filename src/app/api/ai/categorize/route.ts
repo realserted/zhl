@@ -13,6 +13,7 @@ interface CatInput {
 interface CategorizeResult {
   txId: string;
   categoryId: string | null;
+  confidence?: 'high' | 'low';
 }
 
 const BATCH_SIZE = 50;
@@ -52,10 +53,12 @@ export async function POST(req: NextRequest) {
     const prompt = `You are a financial transaction categorizer. Given these categories:
 ${categoryList}
 ${customInstructions}
-Categorize each transaction by its description. Pick the single best matching category_id. If no category fits well, use null.
+Categorize each transaction by its description. You MUST always pick the single best matching category_id — never leave it null. Even if the match is uncertain, pick the closest one.
+
+Also indicate your confidence: "high" if you are confident in the match, "low" if it is a guess or uncertain.
 
 Return ONLY a JSON array with this exact format, no other text:
-[{"txId": "...", "categoryId": "..." or null}]
+[{"txId": "...", "categoryId": "...", "confidence": "high" or "low"}]
 
 Transactions:
 ${txList}`;
@@ -91,9 +94,11 @@ ${txList}`;
         // Validate category IDs exist
         const validCatIds = new Set(categories.map((c) => c.id));
         for (const r of parsed) {
+          const validCatId = r.categoryId && validCatIds.has(r.categoryId) ? r.categoryId : null;
           allResults.push({
             txId: r.txId,
-            categoryId: r.categoryId && validCatIds.has(r.categoryId) ? r.categoryId : null,
+            categoryId: validCatId,
+            confidence: validCatId ? (r.confidence === 'low' ? 'low' : 'high') : undefined,
           });
         }
       }

@@ -275,10 +275,10 @@ export async function ensureDistinctTxCategories(projectId: string): Promise<Fin
   return getTxCategories(projectId);
 }
 
-export async function createTxCategory(projectId: string, name: string, icon: string, color: string): Promise<FinancialTxCategory | null> {
+export async function createTxCategory(projectId: string, name: string, icon: string, color: string, categoryType: 'expense' | 'income' = 'expense'): Promise<FinancialTxCategory | null> {
   const { data, error } = await supabase
     .from('zhl_financial_tx_categories')
-    .insert([{ project_id: projectId, name, icon, color }])
+    .insert([{ project_id: projectId, name, icon, color, category_type: categoryType }])
     .select()
     .single();
   if (error) return null;
@@ -290,7 +290,7 @@ export async function getTransactions(projectId: string): Promise<FinancialTrans
   return data ?? [];
 }
 
-export async function updateTransaction(id: string, field: string, value: string | number | null): Promise<boolean> {
+export async function updateTransaction(id: string, field: string, value: string | number | boolean | null): Promise<boolean> {
   const { error } = await supabase.from('zhl_financial_transactions').update({ [field]: value }).eq('id', id);
   return !error;
 }

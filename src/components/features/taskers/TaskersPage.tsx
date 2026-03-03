@@ -13,8 +13,9 @@ import {
   Loader2,
   Trash2,
   Sparkles,
+  AlertTriangle,
 } from 'lucide-react';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase/client';
 import { Tasker, TaskerLog } from '@/lib/types/tasker';
@@ -104,6 +105,51 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
   const [statusPrompt, setStatusPrompt] = useState('');
   const [generatingName, setGeneratingName] = useState(false);
   const [generatingStatus, setGeneratingStatus] = useState(false);
+
+  // Task name length validation
+  const TASK_NAME_MAX = 30;
+  const [taskNameSuggestion, setTaskNameSuggestion] = useState('');
+  const [suggestingName, setSuggestingName] = useState(false);
+  const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const taskNameTooLong = newTasker.task_name.length > TASK_NAME_MAX;
+
+  // Auto-suggest improvements (shorten if too long, fix spelling) after debounce
+  useEffect(() => {
+    if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+    const name = newTasker.task_name.trim();
+    if (name.length < 3) {
+      setTaskNameSuggestion('');
+      return;
+    }
+    suggestTimerRef.current = setTimeout(async () => {
+      setSuggestingName(true);
+      try {
+        const instructions = taskNameTooLong
+          ? `This task name is too long (max ${TASK_NAME_MAX} chars). Shorten it to under ${TASK_NAME_MAX} characters while keeping its meaning. Also fix any spelling or grammar errors. Return ONLY the corrected/shortened name, nothing else.`
+          : `Check this task name for spelling or grammar errors. If there are errors, return the corrected version. If the name is already correct, return exactly "OK". Return ONLY the corrected name or "OK", nothing else.`;
+        const res = await fetch('/api/ai/generate-tasker', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'task_name',
+            prompt: instructions,
+            context: name,
+          }),
+        });
+        const data = await res.json();
+        const result = data.result?.trim();
+        // Only show suggestion if AI returned something different from the input
+        if (result && result !== 'OK' && result.toLowerCase() !== name.toLowerCase()) {
+          setTaskNameSuggestion(result);
+        } else {
+          setTaskNameSuggestion('');
+        }
+      } catch { /* ignore */ }
+      setSuggestingName(false);
+    }, 800);
+    return () => { if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current); };
+  }, [newTasker.task_name, taskNameTooLong]);
 
   // Inline editing
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
@@ -448,6 +494,12 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
   const saveInlineEdit = async (taskerId: string, field: string, value: string) => {
     const tasker = taskers.find((t) => t.id === taskerId);
     if (!tasker || !user) return;
+
+    // Block saving task names that are too long
+    if (field === 'task_name' && value.length > TASK_NAME_MAX) {
+      setEditingCell(null);
+      return;
+    }
 
     const oldValue = (tasker as unknown as Record<string, unknown>)[field];
     if (oldValue === value) {
@@ -1137,7 +1189,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                     type="text"
                     value={newTasker.task_name}
                     onChange={(e) => setNewTasker({ ...newTasker, task_name: e.target.value })}
-                    className={inputClass + ' flex-1'}
+                    className={`${inputClass} flex-1${taskNameTooLong ? ' border-amber-400' : ''}`}
                     placeholder="Enter task name"
                   />
                   {taskerNamePrompt && (
@@ -1152,6 +1204,35 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                     </button>
                   )}
                 </div>
+                <div className="flex items-center justify-between mt-1">
+                  <span className={`text-xs ${taskNameTooLong ? 'text-amber-400' : 'text-muted-foreground'}`}>
+                    {newTasker.task_name.length}/{TASK_NAME_MAX}
+                  </span>
+                </div>
+                {taskNameTooLong && (
+                  <div className="mt-1 flex items-start gap-1.5 text-xs text-amber-400">
+                    <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                    <span>Task name is too long. Keep it short and concise.</span>
+                  </div>
+                )}
+                {suggestingName && (
+                  <div className="mt-1 text-xs text-muted-foreground">Checking spelling...</div>
+                )}
+                {taskNameSuggestion && !suggestingName && (
+                  <div className="mt-1 flex items-start gap-1.5 text-xs text-blue-400">
+                    <Sparkles className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                    <span>
+                      Suggested:{' '}
+                      <button
+                        type="button"
+                        onClick={() => { setNewTasker((prev) => ({ ...prev, task_name: taskNameSuggestion })); setTaskNameSuggestion(''); }}
+                        className="text-accent hover:underline"
+                      >
+                        &quot;{taskNameSuggestion}&quot;
+                      </button>
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1286,7 +1367,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
               <div className="flex items-center gap-3 pt-2">
                 <button
                   onClick={handleCreate}
-                  disabled={creating || !newTasker.task_name.trim()}
+                  disabled={creating || !newTasker.task_name.trim() || taskNameTooLong}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50"
                 >
                   {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}

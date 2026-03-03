@@ -52,6 +52,7 @@ export interface FinancialTxCategory {
   name: string;
   icon: string | null;
   color: string | null;
+  category_type: 'expense' | 'income';
   sort_order: number;
   created_at: string;
 }
@@ -68,6 +69,7 @@ export interface FinancialTransaction {
   auto_grouping: string | null;
   raw_data: Record<string, unknown> | null;
   sheet_id: string | null;
+  ai_needs_review: boolean;
   created_at: string;
   updated_at: string;
 }

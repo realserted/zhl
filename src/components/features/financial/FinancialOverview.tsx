@@ -173,14 +173,15 @@ export default function FinancialOverview({ selectedProjectId, userPermission }:
   const { incomeItems, expenseItems } = useMemo(() => {
     const income: { id: string; name: string }[] = [];
     const expense: { id: string; name: string }[] = [];
-    for (const [catId, monthMap] of txByCatMonth) {
-      let total = 0;
-      for (const v of monthMap.values()) total += v;
+    for (const [catId] of txByCatMonth) {
+      const cat = categoryMap.get(catId);
       const name =
         catId === '__uncategorized__'
           ? 'Uncategorized'
-          : (categoryMap.get(catId)?.name ?? 'Unknown');
-      if (total >= 0) income.push({ id: catId, name });
+          : (cat?.name ?? 'Unknown');
+      // Use explicit category_type; uncategorized defaults to expense
+      const type = cat?.category_type ?? 'expense';
+      if (type === 'income') income.push({ id: catId, name });
       else expense.push({ id: catId, name });
     }
     income.sort((a, b) => a.name.localeCompare(b.name));
