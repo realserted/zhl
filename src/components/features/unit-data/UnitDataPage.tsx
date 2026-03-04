@@ -57,7 +57,7 @@ function SortableFieldItem({ id, children }: { id: string; children: React.React
       <button
         {...attributes}
         {...listeners}
-        className="p-0.5 text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing flex-shrink-0 touch-none"
+        className="p-0.5 text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing shrink-0 touch-none"
         title="Drag to reorder"
       >
         <GripVertical className="h-3 w-3" />
@@ -766,16 +766,16 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
         onChange={handleExcelUpload}
       />
 
-      <div className="flex min-h-[calc(100vh-180px)]">
+      <div className="flex min-h-[calc(100vh-180px)] bg-muted/30">
         {/* ===== SIDEBAR ===== */}
         {sidebarOpen && (
-          <div className="w-64 flex-shrink-0 border-r border-border p-4 overflow-y-auto">
+          <div className="w-64 shrink-0 border-r border-border p-4 overflow-y-auto glass-card backdrop-blur-md bg-background/80 relative z-20">
             {/* Header */}
             <button
               onClick={() => setSidebarOpen(false)}
-              className="flex items-center gap-1 text-sm font-bold mb-4 hover:text-accent transition-colors"
+              className="flex items-center gap-1 text-[10px] font-bold tracking-widest text-muted-foreground mb-6 hover:text-primary transition-all group"
             >
-              <ChevronLeft className="h-4 w-4" />
+              <ChevronLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
               DATA VIEW
             </button>
 
@@ -786,20 +786,22 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
               </div>
             )}
 
-            {/* Load View Dropdown — owners only */}
             {isOwner ? (
-              <div className="mb-2">
-                <label className="text-xs text-muted-foreground block mb-1">Load View:</label>
-                <select
-                  value={selectedView}
-                  onChange={(e) => handleViewChange(e.target.value as ViewMode)}
-                  className="w-full border border-input rounded px-2 py-1 bg-background text-foreground text-xs"
-                >
-                  <option value="ALL FIELDS">ALL FIELDS</option>
-                  <option value="All Project Users">All Project Users</option>
-                  <option value="Personal View">Personal View</option>
-                  <option value="PM View">PM View</option>
-                </select>
+              <div className="mb-4">
+                <label className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase block mb-1.5 ml-1">Load View</label>
+                <div className="relative">
+                  <select
+                    value={selectedView}
+                    onChange={(e) => handleViewChange(e.target.value as ViewMode)}
+                    className="w-full border border-input rounded-xl px-3 py-2 bg-background/50 text-foreground text-xs font-medium focus:ring-2 focus:ring-primary/20 transition-all appearance-none pr-8"
+                  >
+                    <option value="ALL FIELDS">ALL FIELDS</option>
+                    <option value="All Project Users">All Project Users</option>
+                    <option value="Personal View">Personal View</option>
+                    <option value="PM View">PM View</option>
+                  </select>
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                </div>
               </div>
             ) : (
               <div className="mb-2">
@@ -831,45 +833,45 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
               <button
                 onClick={handleSaveView}
                 disabled={!hasUnsavedChanges}
-                className={`text-xs mb-4 block px-3 py-1 rounded ${
+                className={`text-[10px] font-bold tracking-wider uppercase mb-6 block w-full px-3 py-2 rounded-xl transition-all shadow-sm ${
                   hasUnsavedChanges
-                    ? 'bg-accent text-accent-foreground hover:opacity-90 font-semibold'
-                    : 'text-muted-foreground cursor-not-allowed'
+                    ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-90 active:scale-95'
+                    : 'bg-muted text-muted-foreground cursor-not-allowed border border-border/50'
                 }`}
               >
-                {hasUnsavedChanges ? 'Save View *' : 'Save View'}
+                {hasUnsavedChanges ? 'Save Changes *' : 'Changes Saved'}
               </button>
             )}
 
             {/* Add Category / Add Custom Field / Upload Excel — hidden for View-only */}
             {canEdit && (
-              <div className="space-y-2 mb-4">
+              <div className="flex flex-col gap-2 mb-6">
                 <button
                   onClick={() => setShowAddCategory(true)}
-                  className="flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent/80"
+                  className="flex items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all px-1"
                 >
-                  <Plus className="h-3 w-3" /> Add Category
+                  <Plus className="h-3.5 w-3.5" /> ADD CATEGORY
                 </button>
                 <button
                   onClick={() => {
                     if (categories.length > 0) setNewFieldCategory(categories[0].id);
                     setShowAddField(true);
                   }}
-                  className="flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent/80"
+                  className="flex items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all px-1"
                 >
-                  <Plus className="h-3 w-3" /> Add Custom Field
+                  <Plus className="h-3.5 w-3.5" /> ADD CUSTOM FIELD
                 </button>
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading}
-                  className="flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent/80 disabled:opacity-50"
+                  className="flex items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all disabled:opacity-50 px-1"
                 >
                   {uploading ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
-                    <FileSpreadsheet className="h-3 w-3" />
+                    <FileSpreadsheet className="h-3.5 w-3.5" />
                   )}
-                  {uploading ? 'Importing...' : 'Upload Excel'}
+                  {uploading ? 'IMPORTING...' : 'UPLOAD EXCEL'}
                 </button>
               </div>
             )}
@@ -892,7 +894,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                           ref={(el) => { if (el) el.indeterminate = someVisible && !allVisible; }}
                           onChange={() => toggleCategory(cat.id)}
                           disabled={!canToggleFields}
-                          className="rounded border-input flex-shrink-0"
+                          className="rounded border-input shrink-0"
                         />
                         {editingCategoryId === cat.id ? (
                           <input
@@ -906,16 +908,16 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                               if (e.key === 'Escape') setEditingCategoryId(null);
                             }}
                             onClick={(e) => e.preventDefault()}
-                            className="text-xs font-semibold text-accent bg-background border border-input rounded px-1 py-0.5 w-full focus:outline-none focus:ring-1 focus:ring-ring"
+                            className="text-xs font-bold text-primary bg-background/50 border border-primary/20 rounded-lg px-2 py-1 w-full focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                           />
                         ) : (
-                          <span className="text-xs font-semibold text-accent truncate flex items-center gap-1">
+                          <span className="text-[11px] font-bold tracking-wide text-primary truncate flex items-center gap-1 uppercase">
                             {cat.name}
                             {cat.linked_file_name && (
                               <a
                                 href={`/files?highlight=${encodeURIComponent(cat.linked_file_path ?? '')}`}
                                 onClick={(e) => e.stopPropagation()}
-                                className="flex-shrink-0"
+                                className="shrink-0"
                                 title={`Linked: ${cat.linked_file_name} — Click to view in Files`}
                               >
                                 <ExternalLink className="h-3 w-3 text-blue-500" />
@@ -927,7 +929,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                       {canEdit && editingCategoryId !== cat.id && (
                         <button
                           onClick={() => { setEditingCategoryId(cat.id); setEditingCategoryName(cat.name); }}
-                          className="p-0.5 text-muted-foreground hover:text-accent transition-colors flex-shrink-0 opacity-0 group-hover/cat:opacity-100"
+                          className="p-0.5 text-muted-foreground hover:text-accent transition-colors shrink-0 opacity-0 group-hover/cat:opacity-100"
                           title={`Rename "${cat.name}"`}
                         >
                           <Pencil className="h-3 w-3" />
@@ -936,7 +938,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                       {canEdit && (
                         <button
                           onClick={() => handleSoftDeleteCategory(cat.id)}
-                          className="p-0.5 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0 opacity-0 group-hover/cat:opacity-100"
+                          className="p-0.5 text-muted-foreground hover:text-destructive transition-colors shrink-0 opacity-0 group-hover/cat:opacity-100"
                           title={`Delete "${cat.name}"`}
                         >
                           <Trash2 className="h-3 w-3" />
@@ -966,7 +968,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                   checked={field.visible}
                                   onChange={() => toggleField(field.id)}
                                   disabled={!canToggleFields}
-                                  className="rounded border-input flex-shrink-0"
+                                  className="rounded border-input shrink-0"
                                 />
                                 {editingFieldId === field.id ? (
                                   <input
@@ -986,7 +988,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                   <span className={`text-xs flex items-center gap-1 ${field.visible ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
                                     {field.name}
                                     {field.is_file_link && (
-                                      <span title="File link field" className="flex-shrink-0">
+                                      <span title="File link field" className="shrink-0">
                                         <Upload className="h-3 w-3 text-muted-foreground" />
                                       </span>
                                     )}
@@ -994,14 +996,14 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                       <a
                                         href={`/files?highlight=${encodeURIComponent(field.linked_file_path ?? '')}`}
                                         onClick={(e) => e.stopPropagation()}
-                                        className="flex-shrink-0"
+                                        className="shrink-0"
                                         title={`Linked: ${field.linked_file_name} — Click to view in Files`}
                                       >
                                         <ExternalLink className="h-3 w-3 text-blue-500" />
                                       </a>
                                     )}
                                     {field.is_hyperlink && (
-                                      <span title="Shows to indicate a linked file column" className="flex-shrink-0">
+                                      <span title="Shows to indicate a linked file column" className="shrink-0">
                                         <Link className="h-3 w-3 text-muted-foreground" />
                                       </span>
                                     )}
@@ -1012,14 +1014,14 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                 <>
                                   <button
                                     onClick={() => { setEditingFieldId(field.id); setEditingFieldName(field.name); }}
-                                    className="p-0.5 text-muted-foreground hover:text-accent transition-colors flex-shrink-0 opacity-0 group-hover/field:opacity-100"
+                                    className="p-0.5 text-muted-foreground hover:text-accent transition-colors shrink-0 opacity-0 group-hover/field:opacity-100"
                                     title={`Rename "${field.name}"`}
                                   >
                                     <Pencil className="h-3 w-3" />
                                   </button>
                                   <button
                                     onClick={() => handleDeleteField(field.id)}
-                                    className="p-0.5 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0 opacity-0 group-hover/field:opacity-100"
+                                    className="p-0.5 text-muted-foreground hover:text-destructive transition-colors shrink-0 opacity-0 group-hover/field:opacity-100"
                                     title={`Delete "${field.name}"`}
                                   >
                                     <Trash2 className="h-3 w-3" />
@@ -1041,12 +1043,12 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                               checked={field.visible}
                               onChange={() => toggleField(field.id)}
                               disabled={!canToggleFields}
-                              className="rounded border-input flex-shrink-0"
+                              className="rounded border-input shrink-0"
                             />
                             <span className={`text-xs flex items-center gap-1 ${field.visible ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
                               {field.name}
                               {field.is_file_link && (
-                                <span title="File link field" className="flex-shrink-0">
+                                <span title="File link field" className="shrink-0">
                                   <Upload className="h-3 w-3 text-muted-foreground" />
                                 </span>
                               )}
@@ -1054,14 +1056,14 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                 <a
                                   href={`/files?highlight=${encodeURIComponent(field.linked_file_path ?? '')}`}
                                   onClick={(e) => e.stopPropagation()}
-                                  className="flex-shrink-0"
+                                  className="shrink-0"
                                   title={`Linked: ${field.linked_file_name} — Click to view in Files`}
                                 >
                                   <ExternalLink className="h-3 w-3 text-blue-500" />
                                 </a>
                               )}
                               {field.is_hyperlink && (
-                                <span title="Shows to indicate a linked file column" className="flex-shrink-0">
+                                <span title="Shows to indicate a linked file column" className="shrink-0">
                                   <Link className="h-3 w-3 text-muted-foreground" />
                                 </span>
                               )}
@@ -1102,7 +1104,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                         {isOwner ? (
                           <button
                             onClick={() => handleRestoreItem(item)}
-                            className="text-[10px] text-accent hover:underline flex-shrink-0 px-1"
+                            className="text-[10px] text-accent hover:underline shrink-0 px-1"
                             title="Restore"
                           >
                             Restore
@@ -1110,7 +1112,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                         ) : (
                           <button
                             onClick={() => handleRequestRecovery(item)}
-                            className="text-[10px] text-muted-foreground hover:text-accent flex-shrink-0 px-1"
+                            className="text-[10px] text-muted-foreground hover:text-accent shrink-0 px-1"
                             title="Request recovery from admin"
                           >
                             Request
@@ -1129,7 +1131,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
         {!sidebarOpen && (
           <button
             onClick={() => setSidebarOpen(true)}
-            className="flex-shrink-0 w-8 border-r border-border flex items-start justify-center pt-4 hover:bg-muted transition-colors"
+            className="shrink-0 w-8 border-r border-border flex items-start justify-center pt-4 hover:bg-muted transition-colors"
             title="Open DATA VIEW"
           >
             <ChevronRight className="h-4 w-4" />
@@ -1137,14 +1139,16 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
         )}
 
         {/* ===== DATA TABLE ===== */}
-        <div className="flex-1 overflow-x-auto p-4">
+        <div className="flex-1 overflow-x-auto p-4 lg:p-6">
           {visibleFields.length === 0 ? (
-            <div className="text-center py-12 text-sm text-muted-foreground">
-              No fields visible. Use the sidebar to enable columns.
+            <div className="text-center py-20 glass-card backdrop-blur-md bg-background/50 border rounded-2xl">
+              <p className="text-sm font-bold tracking-widest text-muted-foreground uppercase mb-2">No active columns</p>
+              <p className="text-xs text-muted-foreground/60">Use the sidebar to enable fields for this view.</p>
             </div>
           ) : (
-            <div className="border border-input rounded-lg overflow-x-auto">
-              <table className="text-xs sm:text-sm" style={{ tableLayout: 'fixed', width: totalTableWidth, minWidth: '100%' }}>
+            <div className="glass-card backdrop-blur-md bg-background/50 border border-white/10 dark:border-white/5 rounded-2xl overflow-hidden shadow-2xl relative">
+              <div className="overflow-x-auto">
+                <table className="text-xs sm:text-sm" style={{ tableLayout: 'fixed', width: totalTableWidth, minWidth: '100%' }}>
                 {/* Colgroup drives column widths for table-layout:fixed */}
                 <colgroup>
                   {categories.map((cat) => {
@@ -1172,17 +1176,19 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                         <th
                           key={cat.id}
                           colSpan={isCollapsed ? 1 : catVisibleFields.length}
-                          className="px-3 py-2 text-left bg-muted/50 border-r border-input last:border-r-0"
+                          className={`${isCollapsed ? 'px-1' : 'px-4'} py-3 text-left bg-muted/30 border-r border-border/50 last:border-r-0 transition-all`}
                         >
-                          <div className="flex items-center gap-2">
-                            <span className="text-amber-500">&#128193;</span>
-                            <span className="font-semibold text-xs text-accent">{cat.name}</span>
+                          <div className={`flex items-center ${isCollapsed ? 'justify-center gap-1' : 'gap-2'}`}>
+                            <span className="text-amber-500 drop-shadow-sm shrink-0">&#128193;</span>
+                            {!isCollapsed && (
+                              <span className="font-bold text-[10px] tracking-widest uppercase text-primary drop-shadow-sm truncate">{cat.name}</span>
+                            )}
                             <button
                               onClick={() => toggleCategoryCollapse(cat.id)}
-                              className="ml-1 text-muted-foreground hover:text-accent transition-colors"
+                              className={`${isCollapsed ? '' : 'ml-auto'} p-1 text-muted-foreground hover:text-primary transition-all rounded-lg hover:bg-primary/5 shrink-0`}
                               title={isCollapsed ? 'Expand' : 'Collapse'}
                             >
-                              {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                              {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                             </button>
                           </div>
                         </th>
@@ -1210,20 +1216,20 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                       return catVisibleFields.map((field) => (
                         <th
                           key={field.id}
-                          className="relative px-3 py-2 text-left font-semibold text-xs whitespace-nowrap border-r border-input last:border-r-0 select-none overflow-hidden"
+                          className="relative px-4 py-4 text-left font-bold text-[11px] tracking-wider uppercase text-muted-foreground whitespace-nowrap border-r border-border/50 last:border-r-0 select-none overflow-hidden group/th bg-muted/20"
                           title={field.tooltip ?? undefined}
                         >
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-2 group-hover/th:text-primary transition-colors">
                             {field.name}
-                            {field.is_file_link && <Upload className="h-3 w-3 text-muted-foreground" />}
-                            {field.is_hyperlink && <Link className="h-3 w-3 text-muted-foreground" />}
+                            {field.is_file_link && <Upload className="h-3.5 w-3.5 opacity-60" />}
+                            {field.is_hyperlink && <Link className="h-3.5 w-3.5 opacity-60" />}
                           </div>
                           {/* Resize handle */}
                           <div
                             onMouseDown={(e) => handleResizeMouseDown(e, field.id)}
-                            className="absolute top-0 right-0 h-full w-2 cursor-col-resize group/resize"
+                            className="absolute top-0 right-0 h-full w-2 cursor-col-resize group/resize z-10"
                           >
-                            <div className="absolute right-0 top-0 h-full w-0.5 bg-transparent group-hover/resize:bg-accent/60 group-active/resize:bg-accent transition-colors" />
+                            <div className="absolute right-0 top-0 h-full w-px bg-transparent group-hover/resize:bg-primary transition-colors" />
                           </div>
                         </th>
                       ));
@@ -1264,7 +1270,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                             return (
                               <td
                                 key={field.id}
-                                className="px-3 py-2 border-r border-input last:border-r-0 overflow-hidden"
+                                className="px-4 py-3 border-r border-border/50 last:border-r-0 overflow-hidden group/td"
                               >
                                 {isEditing ? (
                                   <input
@@ -1277,15 +1283,15 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                       if (e.key === 'Enter') saveCell(row.id, field.id, editValue);
                                       if (e.key === 'Escape') setEditingCell(null);
                                     }}
-                                    className="w-full px-1 py-0.5 bg-background border border-input rounded text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                                    className="w-full px-2 py-1 bg-background/50 border border-primary/20 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
                                   />
                                 ) : (
-                                  <span
+                                  <div
                                     onClick={canEdit ? () => {
                                       setEditingCell({ rowId: row.id, fieldId: field.id });
                                       setEditValue(cellValue);
                                     } : undefined}
-                                    className={`${canEdit ? 'cursor-pointer hover:bg-muted/50' : ''} px-1 py-0.5 rounded min-w-[3rem] min-h-[1.25rem] text-xs flex items-center gap-1`}
+                                    className={`${canEdit ? 'cursor-pointer hover:bg-primary/5' : ''} px-2 py-1 rounded-lg min-w-12 min-h-5 text-xs flex items-center gap-2 transition-all font-medium`}
                                     title={canEdit ? 'Click to edit' : undefined}
                                   >
                                     {field.is_hyperlink && cellValue ? (
@@ -1293,13 +1299,15 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                         href={safeHref(cellValue)}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="text-blue-500 hover:underline"
+                                        className="text-blue-500 hover:text-blue-400 underline decoration-blue-500/30 underline-offset-4"
                                         onClick={(e) => e.stopPropagation()}
                                       >
                                         {cellValue}
                                       </a>
                                     ) : (
-                                      cellValue || <span className="text-muted-foreground/40">-</span>
+                                      <span className={cellValue ? 'text-foreground/90' : 'text-muted-foreground/30'}>
+                                        {cellValue || '-'}
+                                      </span>
                                     )}
                                     {val?.file_url && (
                                       <button
@@ -1308,13 +1316,13 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                           const url = await downloadFileUrl(val.file_url!);
                                           if (url) window.open(url, '_blank');
                                         }}
-                                        className="flex-shrink-0 p-0.5 text-blue-500 hover:text-blue-400 transition-colors"
+                                        className="shrink-0 p-1 text-blue-500 hover:text-blue-400 transition-colors bg-blue-500/5 rounded-md"
                                         title={`Linked to: ${getRowLabel(row.id)} — Click to download`}
                                       >
-                                        <Link className="h-3.5 w-3.5" />
+                                        <Link className="h-3 w-3" />
                                       </button>
                                     )}
-                                  </span>
+                                  </div>
                                 )}
                               </td>
                             );
@@ -1336,6 +1344,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                   )}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
 
@@ -1343,9 +1352,10 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
           {canEdit && (
             <button
               onClick={handleAddRow}
-              className="mt-4 inline-flex items-center gap-2 text-xs font-semibold text-accent hover:text-accent/80 transition-colors"
+              className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-xl text-xs font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-95 group mb-4 ml-1"
             >
-              <Plus className="h-3 w-3" /> Add Row
+              <Plus className="h-4 w-4 transition-transform group-hover:rotate-90" />
+              ADD NEW ROW
             </button>
           )}
         </div>
@@ -1353,36 +1363,40 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
 
       {/* ===== ADD CATEGORY MODAL ===== */}
       {showAddCategory && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-sm shadow-xl">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">Add Category</h2>
-              <button onClick={() => setShowAddCategory(false)} className="p-1 hover:bg-muted rounded">
+        <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-background/40 backdrop-blur-md" onClick={() => setShowAddCategory(false)} />
+          <div className="glass-card bg-background/90 border border-white/10 rounded-3xl p-8 w-full max-w-sm shadow-2xl relative animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold tracking-tight">Add Category</h2>
+              <button onClick={() => setShowAddCategory(false)} className="p-2 hover:bg-muted rounded-full transition-colors">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <input
-              type="text"
-              value={newCategoryName}
-              onChange={(e) => setNewCategoryName(e.target.value)}
-              className={inputClass}
-              placeholder="Category name"
-              onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
-            />
-            <div className="flex items-center gap-3 mt-4">
-              <button
-                onClick={handleAddCategory}
-                disabled={!newCategoryName.trim()}
-                className="px-4 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50"
-              >
-                Add
-              </button>
-              <button
-                onClick={() => setShowAddCategory(false)}
-                className="px-4 py-2 border border-input rounded-lg text-sm font-semibold hover:bg-muted"
-              >
-                Cancel
-              </button>
+            <div className="space-y-6">
+              <input
+                type="text"
+                autoFocus
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
+                placeholder="Enter category name..."
+                onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
+              />
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={handleAddCategory}
+                  disabled={!newCategoryName.trim()}
+                  className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]"
+                >
+                  Create Category
+                </button>
+                <button
+                  onClick={() => setShowAddCategory(false)}
+                  className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1390,62 +1404,67 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
 
       {/* ===== ADD CUSTOM FIELD MODAL ===== */}
       {showAddField && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md shadow-xl">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">Add Custom Field</h2>
-              <button onClick={() => setShowAddField(false)} className="p-1 hover:bg-muted rounded">
+        <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-background/40 backdrop-blur-md" onClick={() => setShowAddField(false)} />
+          <div className="glass-card bg-background/90 border border-white/10 rounded-3xl p-8 w-full max-w-md shadow-2xl relative animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold tracking-tight">Add Custom Field</h2>
+              <button onClick={() => setShowAddField(false)} className="p-2 hover:bg-muted rounded-full transition-colors">
                 <X className="h-5 w-5" />
               </button>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Category</label>
-                <select
-                  value={newFieldCategory}
-                  onChange={(e) => setNewFieldCategory(e.target.value)}
-                  className={inputClass}
-                >
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Category</label>
+                <div className="relative">
+                  <select
+                    value={newFieldCategory}
+                    onChange={(e) => setNewFieldCategory(e.target.value)}
+                    className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium appearance-none"
+                  >
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                </div>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Field Name</label>
+                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Field Name</label>
                 <input
                   type="text"
+                  autoFocus
                   value={newFieldName}
                   onChange={(e) => setNewFieldName(e.target.value)}
-                  className={inputClass}
-                  placeholder="Field name"
+                  className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
+                  placeholder="Enter field name..."
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Tooltip</label>
+                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Tooltip</label>
                 <input
                   type="text"
                   value={newFieldTooltip}
                   onChange={(e) => setNewFieldTooltip(e.target.value)}
-                  className={inputClass}
-                  placeholder="Tooltip text (shown on hover)"
+                  className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
+                  placeholder="Help text shown on hover..."
                 />
               </div>
-            </div>
-            <div className="flex items-center gap-3 mt-4">
-              <button
-                onClick={handleAddField}
-                disabled={!newFieldName.trim() || !newFieldCategory}
-                className="px-4 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50"
-              >
-                Add Field
-              </button>
-              <button
-                onClick={() => setShowAddField(false)}
-                className="px-4 py-2 border border-input rounded-lg text-sm font-semibold hover:bg-muted"
-              >
-                Cancel
-              </button>
+              <div className="flex flex-col gap-3 mt-6">
+                <button
+                  onClick={handleAddField}
+                  disabled={!newFieldName.trim() || !newFieldCategory}
+                  className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]"
+                >
+                  Create Field
+                </button>
+                <button
+                  onClick={() => setShowAddField(false)}
+                  className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>
