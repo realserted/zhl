@@ -42,6 +42,7 @@ import {
 } from '@/lib/types/files';
 import { supabase } from '@/lib/supabase/client';
 import { logUserAction } from '@/lib/db/user-logs';
+import { Modal } from '@/components/shared/Modal';
 
 interface FilesPageProps {
   selectedProjectId: string | null;
@@ -1234,256 +1235,231 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
       {/* ── Modals ── */}
 
       {confirmDeleteFolder && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-background/40 backdrop-blur-md" onClick={() => setConfirmDeleteFolder(null)} />
-          <div className="glass-card bg-background/90 border border-white/10 rounded-3xl p-8 w-full max-w-sm shadow-2xl relative animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold tracking-tight">Delete Folder?</h2>
-              <button onClick={() => setConfirmDeleteFolder(null)} className="p-2 hover:bg-muted rounded-full transition-colors">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <p className="text-sm text-muted-foreground mb-8 leading-relaxed">
+        <Modal
+          isOpen={!!confirmDeleteFolder}
+          onClose={() => setConfirmDeleteFolder(null)}
+          title="Delete Folder?"
+          description={
+            <>
               This will permanently delete the folder and all files inside it. This action <span className="text-destructive font-bold uppercase tracking-tighter">cannot be undone</span>.
-            </p>
-            <div className="flex flex-col gap-3">
-              <button
-                onClick={() => handleDeleteFolder(confirmDeleteFolder)}
-                className="w-full px-4 py-3 bg-destructive text-destructive-foreground rounded-2xl text-sm font-bold shadow-lg shadow-destructive/20 hover:opacity-90 transition-all active:scale-[0.98]"
-              >
-                Delete Folder
-              </button>
-              <button
-                onClick={() => setConfirmDeleteFolder(null)}
-                className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
-              >
-                Cancel
-              </button>
-            </div>
+            </>
+          }
+          maxWidth="sm"
+        >
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={() => handleDeleteFolder(confirmDeleteFolder)}
+              className="w-full px-4 py-3 bg-destructive text-destructive-foreground rounded-2xl text-sm font-bold shadow-lg shadow-destructive/20 hover:opacity-90 transition-all active:scale-[0.98]"
+            >
+              Delete Folder
+            </button>
+            <button
+              onClick={() => setConfirmDeleteFolder(null)}
+              className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
+            >
+              Cancel
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
 
-      {showAddCustomField && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-background/40 backdrop-blur-md" onClick={() => setShowAddCustomField(false)} />
-          <div className="glass-card bg-background/90 border border-white/10 rounded-3xl p-8 w-full max-w-md shadow-2xl relative animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold tracking-tight">Add Custom Field</h2>
-              <button onClick={() => setShowAddCustomField(false)} className="p-2 hover:bg-muted rounded-full transition-colors">
-                <X className="h-5 w-5" />
-              </button>
+      <Modal
+        isOpen={showAddCustomField}
+        onClose={() => setShowAddCustomField(false)}
+        title="Add Custom Field"
+        maxWidth="md"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Field Name</label>
+            <input
+              type="text"
+              autoFocus
+              value={newCustomFieldName}
+              onChange={(e) => setNewCustomFieldName(e.target.value)}
+              className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
+              placeholder="Enter field name..."
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Target</label>
+            <div className="relative">
+              <select
+                value={newCustomFieldTarget}
+                onChange={(e) => setNewCustomFieldTarget(e.target.value as 'folder' | 'file')}
+                className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium appearance-none"
+              >
+                <option value="file">File</option>
+                <option value="folder">Folder</option>
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             </div>
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Warning Message</label>
+            <textarea
+              value={newCustomFieldWarning}
+              onChange={(e) => setNewCustomFieldWarning(e.target.value)}
+              className="w-full min-h-[90px] px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
+              placeholder="Critical alert message..."
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Ignore Warning Days</label>
+            <input
+              type="number"
+              min={0}
+              value={newCustomFieldIgnoreDays}
+              onChange={(e) => setNewCustomFieldIgnoreDays(e.target.value)}
+              className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
+            />
+          </div>
+          <label className="inline-flex items-center gap-3 text-xs font-bold tracking-wide uppercase text-muted-foreground cursor-pointer select-none px-1">
+            <input
+              type="checkbox"
+              checked={newCustomFieldRequired}
+              onChange={(e) => setNewCustomFieldRequired(e.target.checked)}
+              className="rounded border-border h-4 w-4 text-primary focus:ring-primary/20"
+            />
+            Required field
+          </label>
+          <div className="flex flex-col gap-3 mt-6">
+            <button
+              onClick={handleAddCustomField}
+              disabled={!newCustomFieldName.trim()}
+              className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]"
+            >
+              Create Field
+            </button>
+            <button
+              onClick={() => setShowAddCustomField(false)}
+              className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showBackupRequest}
+        onClose={() => setShowBackupRequest(false)}
+        title="Request Backup"
+        maxWidth="md"
+        description="Request a manual backup from admins/developers when you need a full restore point."
+      >
+        <div className="space-y-6">
+          <textarea
+            value={backupReason}
+            onChange={(e) => setBackupReason(e.target.value)}
+            className="w-full min-h-[120px] px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
+            placeholder="Reason for backup request..."
+          />
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={handleRequestBackup}
+              disabled={!backupReason.trim()}
+              className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]"
+            >
+              Submit Request
+            </button>
+            <button
+              onClick={() => setShowBackupRequest(false)}
+              className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
+            >
+              Cancel
+            </button>
+          </div>
+          {isAdmin && (
+            <p className="text-[10px] text-center font-bold tracking-widest uppercase text-primary/60 px-2 leading-tight">
+              Admin mode: Fulfill requests in the database management console.
+            </p>
+          )}
+        </div>
+      </Modal>
+      <Modal
+        isOpen={showLinkModal}
+        onClose={() => setShowLinkModal(false)}
+        title="Link to Unit Data"
+        maxWidth="lg"
+        description="Link files to a category or field in Unit Data. A link indicator will appear on the sidebar to highlight linked items."
+      >
+        <div className="space-y-4 mb-8">
+          {unitCategories.length === 0 ? (
+            <div className="text-center py-8 bg-muted/20 rounded-2xl border border-dashed border-border/50">
+              <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">No categories found</p>
+              <p className="text-[10px] text-muted-foreground/60 mt-1 uppercase tracking-tighter">Create categories and fields in Unit Data first.</p>
+            </div>
+          ) : (
             <div className="space-y-4">
-              <div>
-                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Field Name</label>
-                <input
-                  type="text"
-                  autoFocus
-                  value={newCustomFieldName}
-                  onChange={(e) => setNewCustomFieldName(e.target.value)}
-                  className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
-                  placeholder="Enter field name..."
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Target</label>
-                <div className="relative">
-                  <select
-                    value={newCustomFieldTarget}
-                    onChange={(e) => setNewCustomFieldTarget(e.target.value as 'folder' | 'file')}
-                    className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium appearance-none"
-                  >
-                    <option value="file">File</option>
-                    <option value="folder">Folder</option>
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Warning Message</label>
-                <textarea
-                  value={newCustomFieldWarning}
-                  onChange={(e) => setNewCustomFieldWarning(e.target.value)}
-                  className="w-full min-h-[90px] px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
-                  placeholder="Critical alert message..."
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Ignore Warning Days</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={newCustomFieldIgnoreDays}
-                  onChange={(e) => setNewCustomFieldIgnoreDays(e.target.value)}
-                  className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
-                />
-              </div>
-              <label className="inline-flex items-center gap-3 text-xs font-bold tracking-wide uppercase text-muted-foreground cursor-pointer select-none px-1">
-                <input
-                  type="checkbox"
-                  checked={newCustomFieldRequired}
-                  onChange={(e) => setNewCustomFieldRequired(e.target.checked)}
-                  className="rounded border-border h-4 w-4 text-primary focus:ring-primary/20"
-                />
-                Required field
-              </label>
-              <div className="flex flex-col gap-3 mt-6">
-                <button
-                  onClick={handleAddCustomField}
-                  disabled={!newCustomFieldName.trim()}
-                  className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]"
-                >
-                  Create Field
-                </button>
-                <button
-                  onClick={() => setShowAddCustomField(false)}
-                  className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showBackupRequest && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-background/40 backdrop-blur-md" onClick={() => setShowBackupRequest(false)} />
-          <div className="glass-card bg-background/90 border border-white/10 rounded-3xl p-8 w-full max-w-md shadow-2xl relative animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold tracking-tight">Request Backup</h2>
-              <button onClick={() => setShowBackupRequest(false)} className="p-2 hover:bg-muted rounded-full transition-colors">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
-              Request a manual backup from admins/developers when you need a full restore point.
-            </p>
-            <div className="space-y-6">
-              <textarea
-                value={backupReason}
-                onChange={(e) => setBackupReason(e.target.value)}
-                className="w-full min-h-[120px] px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
-                placeholder="Reason for backup request..."
-              />
-              <div className="flex flex-col gap-3">
-                <button
-                  onClick={handleRequestBackup}
-                  disabled={!backupReason.trim()}
-                  className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]"
-                >
-                  Submit Request
-                </button>
-                <button
-                  onClick={() => setShowBackupRequest(false)}
-                  className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
-                >
-                  Cancel
-                </button>
-              </div>
-              {isAdmin && (
-                <p className="text-[10px] text-center font-bold tracking-widest uppercase text-primary/60 px-2 leading-tight">
-                  Admin mode: Fulfill requests in the database management console.
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-      {showLinkModal && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-background/40 backdrop-blur-md" onClick={() => setShowLinkModal(false)} />
-          <div className="glass-card bg-background/90 border border-white/10 rounded-3xl p-8 w-full max-w-lg shadow-2xl relative animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between mb-6 shrink-0">
-              <h2 className="text-xl font-bold tracking-tight">Link to Unit Data</h2>
-              <button onClick={() => setShowLinkModal(false)} className="p-2 hover:bg-muted rounded-full transition-colors">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <p className="text-sm text-muted-foreground mb-6 leading-relaxed shrink-0">
-              Link files to a category or field in Unit Data. A link indicator will appear on the sidebar to highlight linked items.
-            </p>
-
-            <div className="flex-1 overflow-y-auto pr-2 space-y-4 mb-8 custom-scrollbar">
-              {unitCategories.length === 0 ? (
-                <div className="text-center py-8 bg-muted/20 rounded-2xl border border-dashed border-border/50">
-                  <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">No categories found</p>
-                  <p className="text-[10px] text-muted-foreground/60 mt-1 uppercase tracking-tighter">Create categories and fields in Unit Data first.</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {pendingLinkFiles.map((item, idx) => {
-                    const sel = linkSelections.get(idx);
-                    const selectedValue = sel ? `${sel.type}:${sel.id}` : '';
-                    return (
-                      <div key={idx} className="glass-card bg-muted/10 border border-border/50 rounded-2xl p-4 shadow-sm">
-                        <div className="flex items-center gap-3 mb-4">
-                          <div className="p-1.5 rounded-lg bg-primary/10 shrink-0">
-                            <FileText className="h-4 w-4 text-primary" />
-                          </div>
-                          <p className="text-sm font-bold tracking-tight truncate">{item.name}</p>
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground ml-1">Select Target</label>
-                          <div className="relative">
-                            <select
-                              value={selectedValue}
-                              onChange={(e) => {
-                                const next = new Map(linkSelections);
-                                if (e.target.value) {
-                                  const [type, id] = e.target.value.split(':') as ['field' | 'category', string];
-                                  next.set(idx, { type, id });
-                                } else {
-                                  next.delete(idx);
-                                }
-                                setLinkSelections(next);
-                              }}
-                              className="w-full px-4 py-2.5 bg-background/50 border border-primary/20 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-bold appearance-none"
-                            >
-                              <option value="">-- No Link --</option>
-                              {unitCategories.map((cat) => (
-                                <optgroup key={cat.id} label={cat.name} className="font-bold uppercase tracking-widest text-[10px]">
-                                  <option value={`category:${cat.id}`}>
-                                    {cat.name} (Category){cat.linked_file_name ? ` · ALREADY LINKED` : ''}
-                                  </option>
-                                  {cat.fields.map((f) => (
-                                    <option key={f.id} value={`field:${f.id}`}>
-                                      ↳ {f.name}{f.linked_file_name ? ` · ALREADY LINKED` : ''}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              ))}
-                            </select>
-                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                          </div>
-                        </div>
+              {pendingLinkFiles.map((item, idx) => {
+                const sel = linkSelections.get(idx);
+                const selectedValue = sel ? `${sel.type}:${sel.id}` : '';
+                return (
+                  <div key={idx} className="glass-card bg-muted/10 border border-border/50 rounded-2xl p-4 shadow-sm">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="p-1.5 rounded-lg bg-primary/10 shrink-0">
+                        <FileText className="h-4 w-4 text-primary" />
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+                      <p className="text-sm font-bold tracking-tight truncate">{item.name}</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground ml-1">Select Target</label>
+                      <div className="relative">
+                        <select
+                          value={selectedValue}
+                          onChange={(e) => {
+                            const next = new Map(linkSelections);
+                            if (e.target.value) {
+                              const [type, id] = e.target.value.split(':') as ['field' | 'category', string];
+                              next.set(idx, { type, id });
+                            } else {
+                              next.delete(idx);
+                            }
+                            setLinkSelections(next);
+                          }}
+                          className="w-full px-4 py-2.5 bg-background/50 border border-primary/20 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-bold appearance-none"
+                        >
+                          <option value="">-- No Link --</option>
+                          {unitCategories.map((cat) => (
+                            <optgroup key={cat.id} label={cat.name} className="font-bold uppercase tracking-widest text-[10px]">
+                              <option value={`category:${cat.id}`}>
+                                {cat.name} (Category){cat.linked_file_name ? ` · ALREADY LINKED` : ''}
+                              </option>
+                              {cat.fields.map((f) => (
+                                <option key={f.id} value={`field:${f.id}`}>
+                                  ↳ {f.name}{f.linked_file_name ? ` · ALREADY LINKED` : ''}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-
-            <div className="flex flex-col gap-3 shrink-0">
-              <button
-                disabled={linkingInProgress || linkSelections.size === 0}
-                onClick={handleLinkFiles}
-                className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]"
-              >
-                {linkingInProgress ? 'Linking...' : 'Link Selected'}
-              </button>
-              <button
-                onClick={() => setShowLinkModal(false)}
-                className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
-              >
-                Skip / Cancel
-              </button>
-            </div>
-          </div>
+          )}
         </div>
-      )}
+
+        <div className="flex flex-col gap-3 shrink-0">
+          <button
+            disabled={linkingInProgress || linkSelections.size === 0}
+            onClick={handleLinkFiles}
+            className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]"
+          >
+            {linkingInProgress ? 'Linking...' : 'Link Selected'}
+          </button>
+          <button
+            onClick={() => setShowLinkModal(false)}
+            className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
+          >
+            Skip / Cancel
+          </button>
+        </div>
+      </Modal>
     </main>
   );
 }

@@ -35,6 +35,7 @@ import { getProjectSettings } from '@/lib/db/project-settings';
 import { logUserAction } from '@/lib/db/user-logs';
 import { ProjectPermission } from '@/lib/types/project';
 import * as XLSX from 'xlsx';
+import { Modal } from '@/components/shared/Modal';
 
 interface UnitDataPageProps {
   selectedProjectId: string | null;
@@ -1362,113 +1363,101 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
       </div>
 
       {/* ===== ADD CATEGORY MODAL ===== */}
-      {showAddCategory && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-background/40 backdrop-blur-md" onClick={() => setShowAddCategory(false)} />
-          <div className="glass-card bg-background/90 border border-white/10 rounded-3xl p-8 w-full max-w-sm shadow-2xl relative animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold tracking-tight">Add Category</h2>
-              <button onClick={() => setShowAddCategory(false)} className="p-2 hover:bg-muted rounded-full transition-colors">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="space-y-6">
-              <input
-                type="text"
-                autoFocus
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
-                placeholder="Enter category name..."
-                onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
-              />
-              <div className="flex flex-col gap-3">
-                <button
-                  onClick={handleAddCategory}
-                  disabled={!newCategoryName.trim()}
-                  className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]"
-                >
-                  Create Category
-                </button>
-                <button
-                  onClick={() => setShowAddCategory(false)}
-                  className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
+      <Modal
+        isOpen={showAddCategory}
+        onClose={() => setShowAddCategory(false)}
+        title="Add Category"
+        maxWidth="sm"
+      >
+        <div className="space-y-6">
+          <input
+            type="text"
+            autoFocus
+            value={newCategoryName}
+            onChange={(e) => setNewCategoryName(e.target.value)}
+            className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
+            placeholder="Enter category name..."
+            onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
+          />
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={handleAddCategory}
+              disabled={!newCategoryName.trim()}
+              className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]"
+            >
+              Create Category
+            </button>
+            <button
+              onClick={() => setShowAddCategory(false)}
+              className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
+            >
+              Cancel
+            </button>
           </div>
         </div>
-      )}
+      </Modal>
 
       {/* ===== ADD CUSTOM FIELD MODAL ===== */}
-      {showAddField && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-background/40 backdrop-blur-md" onClick={() => setShowAddField(false)} />
-          <div className="glass-card bg-background/90 border border-white/10 rounded-3xl p-8 w-full max-w-md shadow-2xl relative animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold tracking-tight">Add Custom Field</h2>
-              <button onClick={() => setShowAddField(false)} className="p-2 hover:bg-muted rounded-full transition-colors">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Category</label>
-                <div className="relative">
-                  <select
-                    value={newFieldCategory}
-                    onChange={(e) => setNewFieldCategory(e.target.value)}
-                    className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium appearance-none"
-                  >
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Field Name</label>
-                <input
-                  type="text"
-                  autoFocus
-                  value={newFieldName}
-                  onChange={(e) => setNewFieldName(e.target.value)}
-                  className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
-                  placeholder="Enter field name..."
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Tooltip</label>
-                <input
-                  type="text"
-                  value={newFieldTooltip}
-                  onChange={(e) => setNewFieldTooltip(e.target.value)}
-                  className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
-                  placeholder="Help text shown on hover..."
-                />
-              </div>
-              <div className="flex flex-col gap-3 mt-6">
-                <button
-                  onClick={handleAddField}
-                  disabled={!newFieldName.trim() || !newFieldCategory}
-                  className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]"
-                >
-                  Create Field
-                </button>
-                <button
-                  onClick={() => setShowAddField(false)}
-                  className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
-                >
-                  Cancel
-                </button>
-              </div>
+      <Modal
+        isOpen={showAddField}
+        onClose={() => setShowAddField(false)}
+        title="Add Custom Field"
+        maxWidth="md"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Category</label>
+            <div className="relative">
+              <select
+                value={newFieldCategory}
+                onChange={(e) => setNewFieldCategory(e.target.value)}
+                className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium appearance-none"
+              >
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             </div>
           </div>
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Field Name</label>
+            <input
+              type="text"
+              autoFocus
+              value={newFieldName}
+              onChange={(e) => setNewFieldName(e.target.value)}
+              className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
+              placeholder="Enter field name..."
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Tooltip</label>
+            <input
+              type="text"
+              value={newFieldTooltip}
+              onChange={(e) => setNewFieldTooltip(e.target.value)}
+              className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
+              placeholder="Help text shown on hover..."
+            />
+          </div>
+          <div className="flex flex-col gap-3 mt-6">
+            <button
+              onClick={handleAddField}
+              disabled={!newFieldName.trim() || !newFieldCategory}
+              className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]"
+            >
+              Create Field
+            </button>
+            <button
+              onClick={() => setShowAddField(false)}
+              className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
-      )}
+      </Modal>
     </main>
   );
 }

@@ -31,6 +31,7 @@ import { logUserAction } from '@/lib/db/user-logs';
 import { createNotification } from '@/lib/db/notifications';
 import { ProjectPermission } from '@/lib/types/project';
 import { getProjectSettings } from '@/lib/db/project-settings';
+import { Modal } from '@/components/shared/Modal';
 
 const STATUS_OPTIONS = ['Open', 'In Progress', 'Complete', 'Archived'] as const;
 
@@ -1225,440 +1226,410 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
       </div>
 
       {/* ===== CREATE TASKER MODAL ===== */}
-      {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-md p-4">
-          <div className="glass-card bg-background/90 border border-border/50 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
-            <div className="flex items-center justify-between p-6 border-b border-border/50">
-              <h2 className="text-xl font-bold tracking-tight">Create New Tasker</h2>
-              <button onClick={() => setShowCreate(false)} className="p-2 hover:bg-muted rounded-xl transition-all">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              <div>
-                <label className="block text-sm font-medium mb-1">Task Name *</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newTasker.task_name}
-                    onChange={(e) => setNewTasker({ ...newTasker, task_name: e.target.value })}
-                    className={`${inputClass} flex-1${taskNameTooLong ? ' border-amber-400' : ''}`}
-                    placeholder="Enter task name"
-                  />
-                  {taskerNamePrompt && (
-                    <button
-                      type="button"
-                      onClick={handleGenerateTaskName}
-                      disabled={generatingName}
-                      title="Generate task name with AI"
-                      className="px-2 py-1 border border-input rounded-md hover:bg-muted transition-colors disabled:opacity-50"
-                    >
-                      {generatingName ? <Loader2 className="h-4 w-4 animate-spin text-accent" /> : <Sparkles className="h-4 w-4 text-accent" />}
-                    </button>
-                  )}
-                </div>
-                <div className="flex items-center justify-between mt-1">
-                  <span className={`text-xs ${taskNameTooLong ? 'text-amber-400' : 'text-muted-foreground'}`}>
-                    {newTasker.task_name.length}/{TASK_NAME_MAX}
-                  </span>
-                </div>
-                {taskNameTooLong && (
-                  <div className="mt-1 flex items-start gap-1.5 text-xs text-amber-400">
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                    <span>Task name is too long. Keep it short and concise.</span>
-                  </div>
-                )}
-                {suggestingName && (
-                  <div className="mt-1 text-xs text-muted-foreground">Checking spelling...</div>
-                )}
-                {taskNameSuggestion && !suggestingName && (
-                  <div className="mt-1 flex items-start gap-1.5 text-xs text-blue-400">
-                    <Sparkles className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                    <span>
-                      Suggested:{' '}
-                      <button
-                        type="button"
-                        onClick={() => { setNewTasker((prev) => ({ ...prev, task_name: taskNameSuggestion })); setTaskNameSuggestion(''); }}
-                        className="text-accent hover:underline"
-                      >
-                        &quot;{taskNameSuggestion}&quot;
-                      </button>
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Description</label>
-                <textarea
-                  value={newTasker.description}
-                  onChange={(e) => setNewTasker({ ...newTasker, description: e.target.value })}
-                  className={inputClass + ' min-h-[80px]'}
-                  placeholder="Task description"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Status</label>
-                  <select
-                    value={newTasker.status}
-                    onChange={(e) =>
-                      setNewTasker({ ...newTasker, status: e.target.value as Tasker['status'] })
-                    }
-                    className={inputClass}
-                  >
-                    {STATUS_OPTIONS.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Priority</label>
-                  <select
-                    value={newTasker.priority}
-                    onChange={(e) =>
-                      setNewTasker({ ...newTasker, priority: parseInt(e.target.value) })
-                    }
-                    className={inputClass}
-                  >
-                    {[0, 1, 2, 3, 4, 5].map((n) => (
-                      <option key={n} value={n}>
-                        {PRIORITY_LABELS[n]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Responsible <span className="text-muted-foreground font-normal">(defaults to you)</span>
-                  </label>
-                  <select
-                    value={newTasker.responsible_name}
-                    onChange={(e) =>
-                      setNewTasker({ ...newTasker, responsible_name: e.target.value })
-                    }
-                    className={inputClass}
-                  >
-                    <option value="">{`Default (${displayName || 'you'})`}</option>
-                    {projectUserOptions.map((u) => (
-                      <option key={`new-responsible-${u.user_name}`} value={u.user_name}>
-                        {u.user_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">CC</label>
-                  <select
-                    value={newTasker.cc_name}
-                    onChange={(e) => setNewTasker({ ...newTasker, cc_name: e.target.value })}
-                    className={inputClass}
-                  >
-                    <option value="">Who needs to know</option>
-                    {projectUserOptions.map((u) => (
-                      <option key={`new-cc-${u.user_name}`} value={u.user_name}>
-                        {u.user_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">&quot;Got the Ball&quot;</label>
-                  <select
-                    value={newTasker.got_the_ball_name}
-                    onChange={(e) =>
-                      setNewTasker({ ...newTasker, got_the_ball_name: e.target.value })
-                    }
-                    className={inputClass}
-                  >
-                    <option value="">Who actually does it</option>
-                    {projectUserOptions.map((u) => (
-                      <option key={`new-gtb-${u.user_name}`} value={u.user_name}>
-                        {u.user_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Due Date</label>
-                  <input
-                    type="date"
-                    value={newTasker.due_date}
-                    onChange={(e) => setNewTasker({ ...newTasker, due_date: e.target.value })}
-                    className={inputClass}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Issues</label>
-                <input
-                  type="text"
-                  value={newTasker.issues}
-                  onChange={(e) => setNewTasker({ ...newTasker, issues: e.target.value })}
-                  className={inputClass}
-                  placeholder="Any issues"
-                />
-              </div>
-
-              {/* Datalist for user autocomplete */}
-              <datalist id="project-users">
-                {projectUserOptions.map((u) => (
-                  <option key={u.user_name} value={u.user_name} />
-                ))}
-              </datalist>
-
-              <div className="flex items-center gap-3 pt-4 border-t border-border/50">
+      <Modal
+        isOpen={showCreate}
+        onClose={() => setShowCreate(false)}
+        title="Create New Tasker"
+        maxWidth="3xl"
+      >
+        <div className="space-y-6 overflow-y-auto">
+          <div>
+            <label className="block text-sm font-medium mb-1">Task Name *</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newTasker.task_name}
+                onChange={(e) => setNewTasker({ ...newTasker, task_name: e.target.value })}
+                className={`${inputClass} flex-1${taskNameTooLong ? ' border-amber-400' : ''}`}
+                placeholder="Enter task name"
+              />
+              {taskerNamePrompt && (
                 <button
-                  onClick={handleCreate}
-                  disabled={creating || !newTasker.task_name.trim() || taskNameTooLong}
-                  className="inline-flex items-center gap-2 px-6 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-95 disabled:opacity-50"
+                  type="button"
+                  onClick={handleGenerateTaskName}
+                  disabled={generatingName}
+                  title="Generate task name with AI"
+                  className="px-2 py-1 border border-input rounded-md hover:bg-muted transition-colors disabled:opacity-50"
                 >
-                  {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                  CREATE TASKER
+                  {generatingName ? <Loader2 className="h-4 w-4 animate-spin text-accent" /> : <Sparkles className="h-4 w-4 text-accent" />}
                 </button>
-                <button
-                  onClick={() => setShowCreate(false)}
-                  className="px-6 py-2.5 border border-border/50 rounded-xl text-sm font-bold hover:bg-muted transition-all active:scale-95"
-                >
-                  CANCEL
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ===== DESCRIPTION MODAL ===== */}
-      {descriptionModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-md p-4">
-          <div className="glass-card bg-background/90 border border-border/50 rounded-2xl p-6 w-full max-w-lg shadow-2xl">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold tracking-tight">Description: {descriptionModal.task_name}</h2>
-              <button
-                onClick={() => setDescriptionModal(null)}
-                className="p-2 hover:bg-muted rounded-xl transition-all"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <textarea
-              value={descriptionModal.description ?? ''}
-              onChange={(e) =>
-                setDescriptionModal({ ...descriptionModal, description: e.target.value })
-              }
-              className={inputClass + ' min-h-[150px]'}
-              placeholder="Add a description..."
-            />
-            <div className="flex items-center gap-3 mt-6 pt-6 border-t border-border/50">
-              <button
-                onClick={async () => {
-                  if (!user) return;
-                  const ok = await updateTasker(descriptionModal.id, {
-                    description: descriptionModal.description,
-                  });
-                  if (ok) {
-                    setTaskers((prev) =>
-                      prev.map((t) =>
-                        t.id === descriptionModal.id
-                          ? { ...t, description: descriptionModal.description }
-                          : t
-                      )
-                    );
-                    await addTaskerLog({
-                      tasker_id: descriptionModal.id,
-                      user_id: user.id,
-                      user_name: displayName,
-                      type: 'change',
-                      message: 'Updated description',
-                    });
-                    if (selectedProjectId) {
-                      logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action: `Updated description for tasker "${descriptionModal.task_name}"` });
-                    }
-                  }
-                  setDescriptionModal(null);
-                }}
-                className="px-6 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-95"
-              >
-                SAVE
-              </button>
-              <button
-                onClick={() => setDescriptionModal(null)}
-                className="px-6 py-2.5 border border-border/50 rounded-xl text-sm font-bold hover:bg-muted transition-all active:scale-95"
-              >
-                CANCEL
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ===== LOG / CHAT MODAL ===== */}
-      {logModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-md p-4">
-          <div className="glass-card bg-background/90 border border-border/50 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-border/50">
-              <h2 className="text-xl font-bold tracking-tight">Log: {logModal.task_name}</h2>
-              <button
-                onClick={() => {
-                  setLogModal(null);
-                  setLogs([]);
-                  setNewMessage('');
-                }}
-                className="p-2 hover:bg-muted rounded-xl transition-all"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 min-h-[300px] bg-muted/10">
-              {loadingLogs ? (
-                <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
-                  <Loader2 className="w-8 h-8 animate-spin text-accent" />
-                  <span className="text-sm font-bold uppercase tracking-widest">Loading Logs...</span>
-                </div>
-              ) : logs.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground opacity-50">
-                  <MessageCircle className="w-12 h-12 mb-2" />
-                  <p className="text-sm font-bold uppercase tracking-widest">No logs yet.</p>
-                  <p className="text-xs font-medium">Start the conversation below.</p>
-                </div>
-              ) : (
-                logs.map((log) => (
-                  <div
-                    key={log.id}
-                    className={`flex flex-col gap-1 ${
-                      log.type === 'change'
-                        ? 'items-center py-2'
-                        : log.user_name === displayName 
-                          ? 'items-end' 
-                          : 'items-start'
-                    }`}
-                  >
-                    {log.type === 'change' ? (
-                      <div className="px-4 py-1.5 bg-muted/50 rounded-full border border-border/50 text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                        <span className="w-1 h-1 rounded-full bg-current opacity-50" />
-                        {log.message}
-                        <span className="opacity-50">— {new Date(log.created_at).toLocaleDateString()}</span>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-2 px-1">
-                          <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-                            {log.user_name}
-                          </span>
-                          <span className="text-[9px] font-medium text-muted-foreground/50">
-                            {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        </div>
-                        <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm font-medium shadow-sm border ${
-                          log.user_name === displayName 
-                            ? 'bg-accent text-accent-foreground rounded-tr-none border-accent/20' 
-                            : 'bg-background border-border/50 rounded-tl-none'
-                        }`}>
-                          {log.message}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ))
               )}
-              <div ref={logEndRef} />
             </div>
-
-            {/* Chat Input */}
-            <div className="p-6 border-t border-border/50 bg-background/50 backdrop-blur-sm">
-              <div className="flex items-center gap-3">
-                <input
-                  type="text"
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
-                  className={inputClass}
-                  placeholder="Type a message..."
-                />
-                <button
-                  onClick={handleSendMessage}
-                  disabled={sendingMessage || !newMessage.trim()}
-                  className="p-3 bg-primary text-primary-foreground rounded-xl hover:opacity-90 disabled:opacity-50 transition-all active:scale-95 shadow-lg shadow-primary/20"
-                >
-                  {sendingMessage ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <Send className="w-5 h-5" />
-                  )}
-                </button>
+            <div className="flex items-center justify-between mt-1">
+              <span className={`text-xs ${taskNameTooLong ? 'text-amber-400' : 'text-muted-foreground'}`}>
+                {newTasker.task_name.length}/{TASK_NAME_MAX}
+              </span>
+            </div>
+            {taskNameTooLong && (
+              <div className="mt-1 flex items-start gap-1.5 text-xs text-amber-400">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>Task name is too long. Keep it short and concise.</span>
               </div>
+            )}
+            {suggestingName && (
+              <div className="mt-1 text-xs text-muted-foreground">Checking spelling...</div>
+            )}
+            {taskNameSuggestion && !suggestingName && (
+              <div className="mt-1 flex items-start gap-1.5 text-xs text-blue-400">
+                <Sparkles className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>
+                  Suggested:{' '}
+                  <button
+                    type="button"
+                    onClick={() => { setNewTasker((prev) => ({ ...prev, task_name: taskNameSuggestion })); setTaskNameSuggestion(''); }}
+                    className="text-accent hover:underline"
+                  >
+                    &quot;{taskNameSuggestion}&quot;
+                  </button>
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Description</label>
+            <textarea
+              value={newTasker.description}
+              onChange={(e) => setNewTasker({ ...newTasker, description: e.target.value })}
+              className={inputClass + ' min-h-[80px]'}
+              placeholder="Task description"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Status</label>
+              <select
+                value={newTasker.status}
+                onChange={(e) =>
+                  setNewTasker({ ...newTasker, status: e.target.value as Tasker['status'] })
+                }
+                className={inputClass}
+              >
+                {STATUS_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Priority</label>
+              <select
+                value={newTasker.priority}
+                onChange={(e) =>
+                  setNewTasker({ ...newTasker, priority: parseInt(e.target.value) })
+                }
+                className={inputClass}
+              >
+                {[0, 1, 2, 3, 4, 5].map((n) => (
+                  <option key={n} value={n}>
+                    {PRIORITY_LABELS[n]}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* ===== HELP REQUEST MODAL ===== */}
-      {helpModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-md p-4">
-          <div className="glass-card bg-background/90 border border-border/50 rounded-2xl p-8 w-full max-w-sm shadow-2xl">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold tracking-tight">Request Help</h2>
-              <button
-                onClick={() => {
-                  setHelpModal(null);
-                  setHelpUser('');
-                }}
-                className="p-2 hover:bg-muted rounded-xl transition-all"
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Responsible <span className="text-muted-foreground font-normal">(defaults to you)</span>
+              </label>
+              <select
+                value={newTasker.responsible_name}
+                onChange={(e) =>
+                  setNewTasker({ ...newTasker, responsible_name: e.target.value })
+                }
+                className={inputClass}
               >
-                <X className="h-5 w-5" />
-              </button>
+                <option value="">{`Default (${displayName || 'you'})`}</option>
+                {projectUserOptions.map((u) => (
+                  <option key={`new-responsible-${u.user_name}`} value={u.user_name}>
+                    {u.user_name}
+                  </option>
+                ))}
+              </select>
             </div>
-            <p className="text-sm text-muted-foreground mb-4 font-medium">
-              Request help from a user for: <strong className="text-foreground">{helpModal.task_name}</strong>
-            </p>
+            <div>
+              <label className="block text-sm font-medium mb-1">CC</label>
+              <select
+                value={newTasker.cc_name}
+                onChange={(e) => setNewTasker({ ...newTasker, cc_name: e.target.value })}
+                className={inputClass}
+              >
+                <option value="">Who needs to know</option>
+                {projectUserOptions.map((u) => (
+                  <option key={`new-cc-${u.user_name}`} value={u.user_name}>
+                    {u.user_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">&quot;Got the Ball&quot;</label>
+              <select
+                value={newTasker.got_the_ball_name}
+                onChange={(e) =>
+                  setNewTasker({ ...newTasker, got_the_ball_name: e.target.value })
+                }
+                className={inputClass}
+              >
+                <option value="">Who actually does it</option>
+                {projectUserOptions.map((u) => (
+                  <option key={`new-gtb-${u.user_name}`} value={u.user_name}>
+                    {u.user_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Due Date</label>
+              <input
+                type="date"
+                value={newTasker.due_date}
+                onChange={(e) => setNewTasker({ ...newTasker, due_date: e.target.value })}
+                className={inputClass}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Issues</label>
             <input
               type="text"
-              value={helpUser}
-              onChange={(e) => setHelpUser(e.target.value)}
+              value={newTasker.issues}
+              onChange={(e) => setNewTasker({ ...newTasker, issues: e.target.value })}
               className={inputClass}
-              placeholder="Enter user name"
-              list="project-users-help"
+              placeholder="Any issues"
             />
-            <datalist id="project-users-help">
-              {projectUserOptions.map((u) => (
-                <option key={u.user_name} value={u.user_name} />
-              ))}
-            </datalist>
-            <div className="flex items-center gap-3 mt-8">
+          </div>
+
+          {/* Datalist for user autocomplete */}
+          <datalist id="project-users">
+            {projectUserOptions.map((u) => (
+              <option key={u.user_name} value={u.user_name} />
+            ))}
+          </datalist>
+
+          <div className="flex flex-col gap-3 mt-6">
+            <button
+              onClick={handleCreate}
+              disabled={creating || !newTasker.task_name.trim() || taskNameTooLong}
+              className="w-full flex justify-center items-center gap-2 px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]"
+            >
+              {creating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
+              CREATE TASKER
+            </button>
+            <button
+              onClick={() => setShowCreate(false)}
+              className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
+            >
+              CANCEL
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ===== DESCRIPTION MODAL ===== */}
+      <Modal
+        isOpen={!!descriptionModal}
+        onClose={() => setDescriptionModal(null)}
+        title={`Description: ${descriptionModal?.task_name}`}
+        maxWidth="lg"
+      >
+        <div className="flex flex-col gap-6">
+          <textarea
+            value={descriptionModal?.description ?? ''}
+            onChange={(e) =>
+              setDescriptionModal(prev => prev ? { ...prev, description: e.target.value } : null)
+            }
+            className={inputClass + ' min-h-[150px]'}
+            placeholder="Add a description..."
+          />
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={async () => {
+                if (!user || !descriptionModal) return;
+                const ok = await updateTasker(descriptionModal.id, {
+                  description: descriptionModal.description,
+                });
+                if (ok) {
+                  setTaskers((prev) =>
+                    prev.map((t) =>
+                      t.id === descriptionModal.id
+                        ? { ...t, description: descriptionModal.description }
+                        : t
+                    )
+                  );
+                  await addTaskerLog({
+                    tasker_id: descriptionModal.id,
+                    user_id: user.id,
+                    user_name: displayName,
+                    type: 'change',
+                    message: 'Updated description',
+                  });
+                  if (selectedProjectId) {
+                    logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action: `Updated description for tasker "${descriptionModal.task_name}"` });
+                  }
+                }
+                setDescriptionModal(null);
+              }}
+              className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-[0.98]"
+            >
+              SAVE
+            </button>
+            <button
+              onClick={() => setDescriptionModal(null)}
+              className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
+            >
+              CANCEL
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ===== LOG / CHAT MODAL ===== */}
+      <Modal
+        isOpen={!!logModal}
+        onClose={() => {
+          setLogModal(null);
+          setLogs([]);
+          setNewMessage('');
+        }}
+        title={`Log: ${logModal?.task_name}`}
+        maxWidth="lg"
+      >
+        <div className="flex flex-col h-[60vh] -mx-8 -mb-8">
+          <div className="flex-1 overflow-y-auto px-8 py-4 space-y-4 bg-muted/10 custom-scrollbar">
+            {loadingLogs ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
+                <Loader2 className="w-8 h-8 animate-spin text-accent" />
+                <span className="text-sm font-bold uppercase tracking-widest">Loading Logs...</span>
+              </div>
+            ) : logs.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground opacity-50">
+                <MessageCircle className="w-12 h-12 mb-2" />
+                <p className="text-sm font-bold uppercase tracking-widest">No logs yet.</p>
+                <p className="text-xs font-medium">Start the conversation below.</p>
+              </div>
+            ) : (
+              logs.map((log) => (
+                <div
+                  key={log.id}
+                  className={`flex flex-col gap-1 ${
+                    log.type === 'change'
+                      ? 'items-center py-2'
+                      : log.user_name === displayName 
+                        ? 'items-end' 
+                        : 'items-start'
+                  }`}
+                >
+                  {log.type === 'change' ? (
+                    <div className="px-4 py-1.5 bg-muted/50 rounded-full border border-border/50 text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                      <span className="w-1 h-1 rounded-full bg-current opacity-50" />
+                      {log.message}
+                      <span className="opacity-50">— {new Date(log.created_at).toLocaleDateString()}</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 px-1">
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                          {log.user_name}
+                        </span>
+                        <span className="text-[9px] font-medium text-muted-foreground/50">
+                          {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm font-medium shadow-sm border ${
+                        log.user_name === displayName 
+                          ? 'bg-accent text-accent-foreground rounded-tr-none border-accent/20' 
+                          : 'bg-background border-border/50 rounded-tl-none'
+                      }`}>
+                        {log.message}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))
+            )}
+            <div ref={logEndRef} />
+          </div>
+
+          <div className="p-6 border-t border-border/50 bg-background/50 backdrop-blur-sm shrink-0">
+            <div className="flex items-center gap-3">
+              <input
+                type="text"
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+                className={inputClass}
+                placeholder="Type a message..."
+              />
               <button
-                onClick={handleHelpRequest}
-                disabled={!helpUser.trim()}
-                className="flex-1 px-6 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-95 disabled:opacity-50"
+                onClick={handleSendMessage}
+                disabled={sendingMessage || !newMessage.trim()}
+                className="p-3 bg-primary text-primary-foreground rounded-xl hover:opacity-90 disabled:opacity-50 transition-all active:scale-95 shadow-lg shadow-primary/20"
               >
-                SEND REQUEST
-              </button>
-              <button
-                onClick={() => {
-                  setHelpModal(null);
-                  setHelpUser('');
-                }}
-                className="flex-1 px-6 py-2.5 border border-border/50 rounded-xl text-sm font-bold hover:bg-muted transition-all active:scale-95"
-              >
-                CANCEL
+                {sendingMessage ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Send className="w-5 h-5" />
+                )}
               </button>
             </div>
           </div>
         </div>
-      )}
+      </Modal>
+
+      {/* ===== HELP REQUEST MODAL ===== */}
+      <Modal
+        isOpen={!!helpModal}
+        onClose={() => {
+          setHelpModal(null);
+          setHelpUser('');
+        }}
+        title="Request Help"
+        maxWidth="sm"
+        description={`Request help from a user for: ${helpModal?.task_name}`}
+      >
+        <div className="space-y-6">
+          <input
+            type="text"
+            value={helpUser}
+            onChange={(e) => setHelpUser(e.target.value)}
+            className={inputClass}
+            placeholder="Enter user name"
+            list="project-users-help"
+          />
+          <datalist id="project-users-help">
+            {projectUserOptions.map((u) => (
+              <option key={u.user_name} value={u.user_name} />
+            ))}
+          </datalist>
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={handleHelpRequest}
+              disabled={!helpUser.trim()}
+              className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-[0.98] disabled:opacity-50"
+            >
+              SEND REQUEST
+            </button>
+            <button
+              onClick={() => {
+                setHelpModal(null);
+                setHelpUser('');
+              }}
+              className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
+            >
+              CANCEL
+            </button>
+          </div>
+        </div>
+      </Modal>
     </main>
   );
 }

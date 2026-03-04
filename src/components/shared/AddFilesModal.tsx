@@ -8,6 +8,7 @@ import { getFileFolders, uploadFile, renameFile, linkFileToUnitData } from '@/li
 import { getCategories, getRows, getValues, upsertValue } from '@/lib/db/unit-data';
 import { ProjectFileFolder } from '@/lib/types/files';
 import { CategoryWithFields, UnitDataRow, UnitDataValue } from '@/lib/types/unit-data';
+import { Modal } from '@/components/shared/Modal';
 
 interface AddFilesModalProps {
   open: boolean;
@@ -99,23 +100,6 @@ export default function AddFilesModal({ open, onClose }: AddFilesModalProps) {
     return () => { cancelled = true; };
   }, [selectedProjectId]);
 
-  // Escape key + body scroll lock
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handleEsc);
-
-    return () => {
-      document.body.style.overflow = prev;
-      document.removeEventListener('keydown', handleEsc);
-    };
-  }, [open, onClose]);
-
   // Derived: folder tree for dropdown
   const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
 
@@ -205,168 +189,154 @@ export default function AddFilesModal({ open, onClose }: AddFilesModalProps) {
     }
   };
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-
-      {/* Modal */}
-      <div className="relative bg-background border border-border rounded-lg shadow-xl w-full max-w-lg mx-4 p-6 max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold text-foreground">Add Files</h2>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-muted rounded transition-colors"
+    <Modal
+      isOpen={open}
+      onClose={onClose}
+      title="Add Files"
+      maxWidth="lg"
+    >
+      <div className="space-y-4">
+        {/* Project Name */}
+        <div>
+          <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">
+            Project Name
+          </label>
+          <select
+            value={selectedProjectId}
+            onChange={(e) => setSelectedProjectId(e.target.value)}
+            className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium appearance-none"
           >
-            <X className="h-5 w-5 text-muted-foreground" />
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* File Picker */}
+        <div>
+          <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">
+            File
+          </label>
+          <input
+            ref={fileInputRef}
+            type="file"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-input rounded-2xl px-4 py-6 text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors bg-background/50"
+          >
+            <FileUp className="h-5 w-5" />
+            {file ? file.name : 'Click to select a file'}
           </button>
         </div>
 
-        <div className="space-y-4">
-          {/* Project Name */}
+        {/* Rename File To */}
+        {file && (
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1">
-              Project Name
-            </label>
-            <select
-              value={selectedProjectId}
-              onChange={(e) => setSelectedProjectId(e.target.value)}
-              className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-            >
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* File Picker */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">
-              File
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">
+              Rename File To
             </label>
             <input
-              ref={fileInputRef}
-              type="file"
-              onChange={handleFileChange}
-              className="hidden"
+              type="text"
+              value={fileName}
+              onChange={(e) => setFileName(e.target.value)}
+              className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
+              placeholder="Enter file name"
             />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-input rounded-md px-4 py-6 text-sm text-muted-foreground hover:border-accent hover:text-accent transition-colors"
-            >
-              <FileUp className="h-5 w-5" />
-              {file ? file.name : 'Click to select a file'}
-            </button>
           </div>
+        )}
 
-          {/* Rename File To */}
-          {file && (
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1">
-                Rename File To
-              </label>
-              <input
-                type="text"
-                value={fileName}
-                onChange={(e) => setFileName(e.target.value)}
-                className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                placeholder="Enter file name"
-              />
-            </div>
-          )}
-
-          {/* Organize Under */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">
-              Organize Under
-            </label>
-            <select
-              value={selectedFolderId}
-              onChange={(e) => setSelectedFolderId(e.target.value)}
-              className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-            >
-              <option value="">(Root / No folder)</option>
-              {folderTree.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Which Unit Is This For */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">
-              Which Unit Is This For?
-            </label>
-            <select
-              value={selectedRowId}
-              onChange={(e) => setSelectedRowId(e.target.value)}
-              disabled={rowOptions.length === 0}
-              className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50"
-            >
-              <option value="">
-                {rowOptions.length === 0 ? 'No units found' : '(None)'}
+        {/* Organize Under */}
+        <div>
+          <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">
+            Organize Under
+          </label>
+          <select
+            value={selectedFolderId}
+            onChange={(e) => setSelectedFolderId(e.target.value)}
+            className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium appearance-none"
+          >
+            <option value="">(Root / No folder)</option>
+            {folderTree.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.label}
               </option>
-              {rowOptions.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* What Column Should This Go Under */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">
-              What Column Should This Go Under?
-            </label>
-            <select
-              value={selectedFieldId}
-              onChange={(e) => setSelectedFieldId(e.target.value)}
-              disabled={fieldOptions.length === 0}
-              className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50"
-            >
-              <option value="">
-                {fieldOptions.length === 0 ? 'No fields found' : '(None)'}
-              </option>
-              {fieldOptions.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Error */}
-          {error && (
-            <p className="text-sm text-red-500 font-medium">{error}</p>
-          )}
+            ))}
+          </select>
         </div>
 
-        {/* Footer */}
-        <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-border">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium border border-input rounded-md bg-background text-foreground hover:bg-muted transition-colors"
+        {/* Which Unit Is This For */}
+        <div>
+          <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">
+            Which Unit Is This For?
+          </label>
+          <select
+            value={selectedRowId}
+            onChange={(e) => setSelectedRowId(e.target.value)}
+            disabled={rowOptions.length === 0}
+            className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium appearance-none disabled:opacity-50"
           >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={submitting || !file}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Upload className="h-4 w-4" />
-            {submitting ? 'Uploading...' : 'Upload'}
-          </button>
+            <option value="">
+              {rowOptions.length === 0 ? 'No units found' : '(None)'}
+            </option>
+            {rowOptions.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.label}
+              </option>
+            ))}
+          </select>
         </div>
+
+        {/* What Column Should This Go Under */}
+        <div>
+          <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">
+            What Column Should This Go Under?
+          </label>
+          <select
+            value={selectedFieldId}
+            onChange={(e) => setSelectedFieldId(e.target.value)}
+            disabled={fieldOptions.length === 0}
+            className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium appearance-none disabled:opacity-50"
+          >
+            <option value="">
+              {fieldOptions.length === 0 ? 'No fields found' : '(None)'}
+            </option>
+            {fieldOptions.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <p className="text-sm text-destructive font-bold">{error}</p>
+        )}
       </div>
-    </div>
+
+      {/* Footer */}
+      <div className="flex flex-col gap-3 mt-6 pt-6 border-t border-border/50">
+        <button
+          onClick={handleSubmit}
+          disabled={submitting || !file}
+          className="w-full flex justify-center items-center gap-2 px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all disabled:opacity-50 active:scale-[0.98]"
+        >
+          <Upload className="h-4 w-4" />
+          {submitting ? 'Uploading...' : 'Upload'}
+        </button>
+        <button
+          onClick={onClose}
+          className="w-full flex justify-center px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
+        >
+          Cancel
+        </button>
+      </div>
+    </Modal>
   );
 }
