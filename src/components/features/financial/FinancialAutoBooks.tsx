@@ -13,7 +13,7 @@ import {
   getUploadSheets, createUploadSheet, deleteUploadSheet, updateSheetColumnHeaders,
 } from '@/lib/db/financial';
 import { logUserAction } from '@/lib/db/user-logs';
-import { Upload, Plus, Trash2, X, Check, Pencil, Bot, User, AlertTriangle } from 'lucide-react';
+import { Upload, Plus, Trash2, X, Check, Pencil, Bot, User, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 /** Call the server-side Gemini API route to auto-categorize transactions. */
@@ -74,8 +74,22 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
   const [notice, setNotice] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const quickFileInputRef = useRef<HTMLInputElement>(null);
   const displayNameRef = useRef('Unknown');
   const userEmailRef = useRef('');
+
+  // ── Excel preview modal state ─────────────────────────────────
+  const TEMPLATE_FIELDS = ['Date', 'Amount', 'Description', 'Category', 'Notes', 'Auto-Grouping'] as const;
+  type TemplateField = typeof TEMPLATE_FIELDS[number];
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewRows, setPreviewRows] = useState<unknown[][]>([]);
+  const [previewFile, setPreviewFile] = useState<File | null>(null);
+  const [previewWorkbook, setPreviewWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [headerRow, setHeaderRow] = useState(0); // 1-indexed row used as column names (0 = none)
+  const [dataStartRow, setDataStartRow] = useState(1); // 1-indexed row where data starts
+  const [columnMapping, setColumnMapping] = useState<Record<number, TemplateField | 'skip'>>({}); // colIndex -> field
+  const [previewPage, setPreviewPage] = useState(0);
+  const PREVIEW_PAGE_SIZE = 20;
 
   const permLevel = userPermission?.perm_reports ?? 'Admin';
   const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
@@ -181,13 +195,229 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
     return undefined;
   };
 
-  // ── Upload handler ───────────────────────────────────────────
+  // ── Upload handler — opens preview modal ────────────────────
 
   const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selectedBankType) return;
 
-    const sheetName = file.name.replace(/\.[^/.]+$/, ''); // filename without extension
+    const sheetName = file.name.replace(/\.[^/.]+$/, '');
+    const duplicateSheet = sheets.some(
+      (s) =>
+        s.bank_type_id === selectedBankType &&
+        s.name.trim().toLowerCase() === sheetName.trim().toLowerCase()
+    );
+    if (duplicateSheet) {
+      setNotice(`"${sheetName}" already exists for this bank type. Duplicate file upload blocked.`);
+      e.target.value = '';
+      return;
+    }
+
+    // Parse excel and open preview modal
+    const data = await file.arrayBuffer();
+    const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+    const xlSheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rawRows = XLSX.utils.sheet_to_json<unknown[]>(xlSheet, { defval: '', header: 1 });
+
+    // Convert Date objects to strings for preview
+    const cleaned = rawRows.map((row) =>
+      (row as unknown[]).map((cell) => {
+        if (cell instanceof Date) return isNaN(cell.getTime()) ? '' : cell.toISOString().split('T')[0];
+        return cell;
+      })
+    );
+
+    setPreviewRows(cleaned);
+    setPreviewFile(file);
+    setPreviewWorkbook(workbook);
+    setPreviewPage(0);
+
+    // Auto-detect: find the first row that looks like data (has a date-like or numeric value)
+    let detectedStart = 1;
+    for (let r = 0; r < cleaned.length; r++) {
+      const row = cleaned[r];
+      const hasDate = row.some((c) => {
+        const s = String(c ?? '').trim();
+        return /^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(s) || /^\d{4}-\d{2}-\d{2}$/.test(s);
+      });
+      const hasNumber = row.some((c) => {
+        if (typeof c === 'number' && c !== 0) return true;
+        const s = String(c ?? '').replace(/[$,]/g, '').trim();
+        return s && !isNaN(Number(s)) && Number(s) !== 0;
+      });
+      if (hasDate || hasNumber) { detectedStart = r + 1; break; } // 1-indexed
+    }
+    setDataStartRow(detectedStart);
+
+    // Header row = row just before data start (if available)
+    const detectedHeaderRow = detectedStart >= 2 ? detectedStart - 1 : 0;
+    setHeaderRow(detectedHeaderRow);
+
+    // Auto-detect column mapping from header row
+    const maxCols = Math.max(...cleaned.map((r) => r.length), 0);
+    const newMapping: Record<number, TemplateField | 'skip'> = {};
+    const hdrRowData = detectedHeaderRow >= 1 ? cleaned[detectedHeaderRow - 1] : null;
+
+    for (let c = 0; c < maxCols; c++) {
+      const headerVal = hdrRowData ? String(hdrRowData[c] ?? '').toLowerCase() : '';
+      if (/date|posting|trans.*date|posted/i.test(headerVal)) { newMapping[c] = 'Date'; continue; }
+      if (/^amount$|transaction.*amount|instructed.*amount/i.test(headerVal)) { newMapping[c] = 'Amount'; continue; }
+      if (/description|memo|narrative|payee|details/i.test(headerVal)) { newMapping[c] = 'Description'; continue; }
+      if (/category/i.test(headerVal)) { newMapping[c] = 'Category'; continue; }
+      if (/notes?$/i.test(headerVal)) { newMapping[c] = 'Notes'; continue; }
+      if (/group|auto/i.test(headerVal)) { newMapping[c] = 'Auto-Grouping'; continue; }
+      newMapping[c] = 'skip';
+    }
+    setColumnMapping(newMapping);
+    setPreviewOpen(true);
+    e.target.value = '';
+  };
+
+  // ── Process excel with user's mapping config ───────────────
+
+  const processExcelWithMapping = async () => {
+    if (!previewFile || !selectedBankType || !previewWorkbook) return;
+    setPreviewOpen(false);
+
+    const sheetName = previewFile.name.replace(/\.[^/.]+$/, '');
+    const startIdx = dataStartRow - 1; // Convert to 0-indexed
+
+    // Build mapped column headers from the mapping
+    const maxCols = Math.max(...previewRows.map((r) => r.length), 0);
+    const hdrRowData = headerRow >= 1 ? previewRows[headerRow - 1] : null;
+    const columnHeaders: string[] = [];
+    for (let c = 0; c < maxCols; c++) {
+      const mapping = columnMapping[c];
+      if (mapping && mapping !== 'skip') {
+        columnHeaders.push(mapping);
+      } else {
+        columnHeaders.push(hdrRowData ? String(hdrRowData[c] ?? `Col${c + 1}`) : `Col${c + 1}`);
+      }
+    }
+
+    // Find which column index maps to each template field
+    const dateColIdx = Object.entries(columnMapping).find(([, v]) => v === 'Date')?.[0];
+    const amountColIdx = Object.entries(columnMapping).find(([, v]) => v === 'Amount')?.[0];
+    const descColIdx = Object.entries(columnMapping).find(([, v]) => v === 'Description')?.[0];
+
+    const parsed: { date: string; amount: number; description: string; raw_data: Record<string, unknown> }[] = [];
+
+    for (let r = startIdx; r < previewRows.length; r++) {
+      const row = previewRows[r];
+      if (!row || row.every((c) => c === '' || c == null)) continue;
+
+      // Build raw_data from all columns
+      const rawData: Record<string, unknown> = {};
+      for (let c = 0; c < row.length; c++) {
+        const val = row[c];
+        if (val === '' || val == null) continue;
+        rawData[columnHeaders[c] || `Col${c + 1}`] = val;
+      }
+      if (Object.keys(rawData).length === 0) continue;
+
+      // Extract mapped fields
+      const dateVal = dateColIdx != null ? row[Number(dateColIdx)] : undefined;
+      const amountVal = amountColIdx != null ? row[Number(amountColIdx)] : undefined;
+      const descVal = descColIdx != null ? row[Number(descColIdx)] : undefined;
+
+      const dateStr = parseDate(dateVal);
+      const amount = amountVal != null ? parseAmount(amountVal) : 0;
+      let description = descVal != null ? String(descVal ?? '').trim() : '';
+
+      // Fallback description from non-numeric values
+      if (!description) {
+        for (let i = row.length - 1; i >= 0; i--) {
+          const v = String(row[i] ?? '').trim();
+          if (v && v !== '*' && isNaN(Number(v.replace(/,/g, ''))) && !parseDate(v)) {
+            description = v;
+            break;
+          }
+        }
+      }
+
+      if (!dateStr && !amount && !description) continue;
+      if (!dateStr && description && /^(beginning balance|total credits|total debits|ending balance)/i.test(description)) continue;
+
+      parsed.push({ date: dateStr, amount, description, raw_data: rawData });
+    }
+
+    if (parsed.length > 0) {
+      const existingSigs = new Set(
+        transactions
+          .filter((t) => t.bank_type_id === selectedBankType)
+          .map((t) => txSignature(t.date ?? '', Number(t.amount ?? 0), t.description ?? ''))
+      );
+      const uploadSigs = new Set<string>();
+      const uniqueParsed = parsed.filter((row) => {
+        const sig = txSignature(row.date, Number(row.amount ?? 0), row.description ?? '');
+        if (uploadSigs.has(sig)) return false;
+        uploadSigs.add(sig);
+        if (existingSigs.has(sig)) return false;
+        return true;
+      });
+
+      if (uniqueParsed.length === 0) {
+        setNotice(`"${sheetName}" contains no new entries. Duplicate file upload blocked.`);
+        return;
+      }
+
+      const sheet = await createUploadSheet(selectedProjectId, selectedBankType, sheetName, columnHeaders, user?.id ?? null);
+      const sheetId = sheet?.id ?? null;
+      const created = await bulkCreateTransactions(selectedProjectId, selectedBankType, sheetId, uniqueParsed);
+      setTransactions((prev) => [...created, ...prev]);
+      if (sheet) {
+        setSheets((prev) => [...prev, sheet]);
+        setSelectedSheetId(sheet.id);
+      }
+      log(`Uploaded ${created.length} transactions from "${previewFile.name}"`);
+
+      // AI auto-categorize
+      const autoTxs = created.filter((t) => !t.auto_grouping && t.description);
+      if (autoTxs.length > 0 && txCategories.length > 0) {
+        const bankTypePrompt = bankTypes.find((b) => b.id === selectedBankType)?.ai_prompt;
+        const { catMap, lowConfidenceIds } = await aiCategorize(
+          autoTxs.map((t) => ({ id: t.id, description: t.description! })),
+          txCategories.map((c) => ({ id: c.id, name: c.name })),
+          bankTypePrompt,
+        );
+        if (catMap.size > 0) {
+          const updates = Array.from(catMap.entries());
+          await Promise.all(updates.map(([txId, catId]) => {
+            const needsReview = lowConfidenceIds.has(txId);
+            return Promise.all([
+              updateTransaction(txId, 'category_id', catId),
+              needsReview ? updateTransaction(txId, 'ai_needs_review', true) : Promise.resolve(true),
+            ]);
+          }));
+          setTransactions((prev) =>
+            prev.map((t) => {
+              const catId = catMap.get(t.id);
+              return catId ? { ...t, category_id: catId, ai_needs_review: lowConfidenceIds.has(t.id) } : t;
+            }),
+          );
+        }
+      }
+
+      const duplicateCount = Math.max(0, parsed.length - uniqueParsed.length);
+      setNotice(
+        duplicateCount > 0
+          ? `Uploaded "${sheetName}" with ${created.length} new rows (${duplicateCount} duplicate entries skipped).`
+          : `Uploaded "${sheetName}" with ${created.length} rows.`
+      );
+    }
+
+    setPreviewFile(null);
+    setPreviewWorkbook(null);
+    setPreviewRows([]);
+  };
+
+  // ── Quick upload (clean files — row 1 = headers, row 2+ = data) ──
+
+  const handleQuickUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedBankType) return;
+
+    const sheetName = file.name.replace(/\.[^/.]+$/, '');
     const duplicateSheet = sheets.some(
       (s) =>
         s.bank_type_id === selectedBankType &&
@@ -203,24 +433,9 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
     const workbook = XLSX.read(data, { type: 'array', cellDates: true });
     const xlSheet = workbook.Sheets[workbook.SheetNames[0]];
 
-    let rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(xlSheet, { defval: '' });
+    // Row 1 = headers, row 2+ = data — use standard sheet_to_json which treats row 1 as headers
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(xlSheet, { defval: '' });
 
-    const firstRow = rows[0];
-    const keys = firstRow ? Object.keys(firstRow) : [];
-    const hasRecognizableHeaders = keys.some((k) => /date|amount|description|posting|transaction|memo|debit|credit/i.test(k));
-
-    if (!hasRecognizableHeaders) {
-      const rawRows = XLSX.utils.sheet_to_json<unknown[]>(xlSheet, { defval: '', header: 1 });
-      rows = rawRows.map((arr) => {
-        const obj: Record<string, unknown> = {};
-        if (Array.isArray(arr)) {
-          arr.forEach((val, i) => { obj[`Col${i + 1}`] = val; });
-        }
-        return obj;
-      });
-    }
-
-    // Collect column headers from the first valid row
     const columnHeaders: string[] = [];
     const parsed: { date: string; amount: number; description: string; raw_data: Record<string, unknown> }[] = [];
 
@@ -234,20 +449,18 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
           rawData[key] = val;
         }
       }
-
       if (Object.keys(rawData).length === 0) continue;
 
-      // Collect headers from first data row
       if (columnHeaders.length === 0) {
         Object.keys(rawData).forEach((k) => columnHeaders.push(k));
       }
 
-      const dateVal = findCol(row, ['Date', 'Posting Date', 'Transaction Date', 'Trans Date', 'Posted Date', 'Col1']);
+      const dateVal = findCol(row, ['Date', 'Posting Date', 'Transaction Date', 'Trans Date', 'Posted Date']);
       const descVal = findCol(row, ['Description', 'Memo', 'Narrative', 'Payee', 'Details', 'Transaction Description']);
 
       let amount = 0;
       const creditDebitIndicator = String(findCol(row, ['Credit Debit Indicator', 'Debit/Credit']) ?? '').toLowerCase();
-      const amountVal = findCol(row, ['Amount', 'Transaction Amount', 'Instructed Amount', 'Col2']);
+      const amountVal = findCol(row, ['Amount', 'Transaction Amount', 'Instructed Amount']);
 
       if (amountVal !== undefined) {
         amount = parseAmount(amountVal);
@@ -282,7 +495,6 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
     }
 
     if (parsed.length > 0) {
-      // Pre-filter duplicates against existing local rows and this upload itself.
       const existingSigs = new Set(
         transactions
           .filter((t) => t.bank_type_id === selectedBankType)
@@ -303,7 +515,6 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
         return;
       }
 
-      // Create a sheet only when there are net-new rows to persist.
       const sheet = await createUploadSheet(selectedProjectId, selectedBankType, sheetName, columnHeaders, user?.id ?? null);
       const sheetId = sheet?.id ?? null;
       const created = await bulkCreateTransactions(selectedProjectId, selectedBankType, sheetId, uniqueParsed);
@@ -314,7 +525,6 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
       }
       log(`Uploaded ${created.length} transactions from "${file.name}"`);
 
-      // AI auto-categorize new transactions that are set to "Auto" (default)
       const autoTxs = created.filter((t) => !t.auto_grouping && t.description);
       if (autoTxs.length > 0 && txCategories.length > 0) {
         const bankTypePrompt = bankTypes.find((b) => b.id === selectedBankType)?.ai_prompt;
@@ -324,8 +534,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
           bankTypePrompt,
         );
         if (catMap.size > 0) {
-          const updates = Array.from(catMap.entries());
-          await Promise.all(updates.map(([txId, catId]) => {
+          await Promise.all(Array.from(catMap.entries()).map(([txId, catId]) => {
             const needsReview = lowConfidenceIds.has(txId);
             return Promise.all([
               updateTransaction(txId, 'category_id', catId),
@@ -562,23 +771,43 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
 
       {/* Upload area */}
       {canEdit && (
-        <div
-          onClick={() => {
-            if (!selectedBankType) { setNotice('Select a bank type first.'); return; }
-            fileInputRef.current?.click();
-          }}
-          className="border-2 border-dashed border-border rounded-lg p-8 mb-6 cursor-pointer hover:border-accent/50 transition-colors text-center max-w-xs"
-        >
-          <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-          <p className="font-semibold text-sm">Upload Financials</p>
-          <p className="text-xs text-muted-foreground">.xlsx, .xls, .csv</p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            onChange={handleExcelUpload}
-            className="hidden"
-          />
+        <div className="flex gap-4 mb-6 flex-wrap">
+          <div
+            onClick={() => {
+              if (!selectedBankType) { setNotice('Select a bank type first.'); return; }
+              quickFileInputRef.current?.click();
+            }}
+            className="border-2 border-dashed border-border rounded-lg p-6 cursor-pointer hover:border-accent/50 transition-colors text-center w-52"
+          >
+            <Upload className="h-7 w-7 mx-auto mb-1.5 text-muted-foreground" />
+            <p className="font-semibold text-sm">Quick Upload</p>
+            <p className="text-xs text-muted-foreground">Clean file — row 1 is headers</p>
+            <input
+              ref={quickFileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleQuickUpload}
+              className="hidden"
+            />
+          </div>
+          <div
+            onClick={() => {
+              if (!selectedBankType) { setNotice('Select a bank type first.'); return; }
+              fileInputRef.current?.click();
+            }}
+            className="border-2 border-dashed border-border rounded-lg p-6 cursor-pointer hover:border-accent/50 transition-colors text-center w-52"
+          >
+            <Upload className="h-7 w-7 mx-auto mb-1.5 text-muted-foreground" />
+            <p className="font-semibold text-sm">Upload with Preview</p>
+            <p className="text-xs text-muted-foreground">Configure rows &amp; columns</p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleExcelUpload}
+              className="hidden"
+            />
+          </div>
         </div>
       )}
 
@@ -975,6 +1204,213 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
           </tbody>
         </table>
       </div>
+
+      {/* ── Excel Preview Modal ──────────────────────────────── */}
+      {previewOpen && previewRows.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-background border border-border rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+              <div>
+                <h3 className="text-sm font-bold">Preview &amp; Configure Upload</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {previewFile?.name} — {previewRows.length} rows detected
+                </p>
+              </div>
+              <button onClick={() => { setPreviewOpen(false); setPreviewFile(null); setPreviewWorkbook(null); setPreviewRows([]); }} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Controls */}
+            <div className="px-5 py-3 border-b border-border flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold whitespace-nowrap">Header row:</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={previewRows.length}
+                  value={headerRow}
+                  onChange={(e) => {
+                    const v = Math.max(0, Math.min(previewRows.length, parseInt(e.target.value) || 0));
+                    setHeaderRow(v);
+                    if (v >= dataStartRow) setDataStartRow(v + 1);
+                    setPreviewPage(0);
+                  }}
+                  className="w-16 px-2 py-1 bg-background border border-input rounded text-xs text-center"
+                />
+                <span className="text-xs text-muted-foreground">(0 = none)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold whitespace-nowrap">Data starts at row:</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={previewRows.length}
+                  value={dataStartRow}
+                  onChange={(e) => {
+                    const v = Math.max(1, Math.min(previewRows.length, parseInt(e.target.value) || 1));
+                    setDataStartRow(v);
+                    // Auto-set header row to the row just before data
+                    if (v >= 2) setHeaderRow(v - 1);
+                    setPreviewPage(0);
+                  }}
+                  className="w-16 px-2 py-1 bg-background border border-input rounded text-xs text-center"
+                />
+                <span className="text-xs text-muted-foreground">
+                  ({previewRows.length - dataStartRow + 1} data rows)
+                </span>
+              </div>
+            </div>
+
+            {/* Column mapping row — shows header names from the selected header row */}
+            <div className="px-5 py-2 border-b border-border overflow-x-auto">
+              <div className="flex items-center gap-1 min-w-max">
+                <div className="w-12 flex-shrink-0 text-xs font-semibold text-muted-foreground text-center">Row</div>
+                {Array.from({ length: Math.max(...previewRows.map((r) => r.length), 0) }, (_, colIdx) => {
+                  const hdrVal = headerRow >= 1 ? String(previewRows[headerRow - 1]?.[colIdx] ?? '').trim() : '';
+                  return (
+                    <div key={colIdx} className="w-32 flex-shrink-0">
+                      {hdrVal && (
+                        <div className="text-xs text-blue-400 font-medium truncate mb-0.5 px-1" title={hdrVal}>
+                          {hdrVal}
+                        </div>
+                      )}
+                      <select
+                        value={columnMapping[colIdx] ?? 'skip'}
+                        onChange={(e) => {
+                          const val = e.target.value as TemplateField | 'skip';
+                          setColumnMapping((prev) => {
+                            const next = { ...prev };
+                            if (val !== 'skip') {
+                              for (const [k, v] of Object.entries(next)) {
+                                if (v === val) next[Number(k)] = 'skip';
+                              }
+                            }
+                            next[colIdx] = val;
+                            return next;
+                          });
+                        }}
+                        className={`w-full px-1.5 py-1 border rounded text-xs ${
+                          columnMapping[colIdx] && columnMapping[colIdx] !== 'skip'
+                            ? 'border-accent bg-accent/10 text-accent font-semibold'
+                            : 'border-input bg-background text-muted-foreground'
+                        }`}
+                      >
+                        <option value="skip">— Skip —</option>
+                        {TEMPLATE_FIELDS.map((f) => (
+                          <option key={f} value={f}>{f}</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Data preview table */}
+            <div className="flex-1 overflow-auto px-5 py-2">
+              <div className="min-w-max">
+                {(() => {
+                  const pageStart = previewPage * PREVIEW_PAGE_SIZE;
+                  const pageEnd = Math.min(pageStart + PREVIEW_PAGE_SIZE, previewRows.length);
+                  const visibleRows = previewRows.slice(pageStart, pageEnd);
+                  const maxCols = Math.max(...previewRows.map((r) => r.length), 0);
+
+                  return visibleRows.map((row, rIdx) => {
+                    const actualRowIdx = pageStart + rIdx;
+                    const isHeaderRowIdx = headerRow >= 1 && actualRowIdx === headerRow - 1;
+                    const isBeforeStart = actualRowIdx < dataStartRow - 1;
+                    const isStartRow = actualRowIdx === dataStartRow - 1;
+
+                    return (
+                      <div
+                        key={actualRowIdx}
+                        className={`flex items-center gap-1 ${
+                          isHeaderRowIdx
+                            ? 'bg-blue-500/10 font-semibold'
+                            : isBeforeStart
+                            ? 'opacity-40 bg-amber-500/5'
+                            : isStartRow
+                            ? 'bg-accent/10 border-l-2 border-accent'
+                            : 'hover:bg-muted/30'
+                        }`}
+                      >
+                        <div
+                          className={`w-12 flex-shrink-0 text-xs text-center py-1 cursor-pointer hover:text-accent font-mono ${
+                            isHeaderRowIdx ? 'text-blue-500 font-bold' : isStartRow ? 'text-accent font-bold' : 'text-muted-foreground'
+                          }`}
+                          onClick={() => { setDataStartRow(actualRowIdx + 1); if (actualRowIdx >= 1) setHeaderRow(actualRowIdx); setPreviewPage(0); }}
+                          title={`Click to set data start at row ${actualRowIdx + 1}`}
+                        >
+                          {actualRowIdx + 1}
+                        </div>
+                        {Array.from({ length: maxCols }, (_, cIdx) => {
+                          const val = row[cIdx];
+                          const mapped = columnMapping[cIdx];
+                          const isMapped = mapped && mapped !== 'skip';
+                          return (
+                            <div
+                              key={cIdx}
+                              className={`w-32 flex-shrink-0 px-1.5 py-1 text-xs truncate border-r border-border/30 ${
+                                isMapped && !isBeforeStart ? 'font-medium' : ''
+                              }`}
+                              title={String(val ?? '')}
+                            >
+                              {val != null && val !== '' ? String(val) : <span className="text-muted-foreground/30">-</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+
+            {/* Pagination + Actions */}
+            <div className="px-5 py-3 border-t border-border flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={previewPage === 0}
+                  onClick={() => setPreviewPage((p) => Math.max(0, p - 1))}
+                  className="p-1 rounded border border-input text-xs disabled:opacity-30 hover:bg-muted"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <span className="text-xs text-muted-foreground">
+                  Rows {previewPage * PREVIEW_PAGE_SIZE + 1}–{Math.min((previewPage + 1) * PREVIEW_PAGE_SIZE, previewRows.length)} of {previewRows.length}
+                </span>
+                <button
+                  disabled={(previewPage + 1) * PREVIEW_PAGE_SIZE >= previewRows.length}
+                  onClick={() => setPreviewPage((p) => p + 1)}
+                  className="p-1 rounded border border-input text-xs disabled:opacity-30 hover:bg-muted"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  Mapped: {Object.values(columnMapping).filter((v) => v !== 'skip').length}/{TEMPLATE_FIELDS.length} fields
+                </span>
+                <button
+                  onClick={() => { setPreviewOpen(false); setPreviewFile(null); setPreviewWorkbook(null); setPreviewRows([]); }}
+                  className="px-3 py-1.5 text-xs border border-input rounded hover:bg-muted"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={processExcelWithMapping}
+                  disabled={!Object.values(columnMapping).some((v) => v !== 'skip')}
+                  className="px-4 py-1.5 text-xs bg-accent text-white rounded font-semibold hover:bg-accent/90 disabled:opacity-50"
+                >
+                  Upload {previewRows.length - dataStartRow + 1} rows
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

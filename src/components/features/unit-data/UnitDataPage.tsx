@@ -27,6 +27,8 @@ import {
   DeletedItem,
   upsertValue,
   getCurrentFieldVisibility,
+  permanentDeleteField,
+  permanentDeleteCategory,
 } from '@/lib/db/unit-data';
 import { createRecoveryRequest } from '@/lib/db/unit-data-recovery';
 import { downloadFileUrl } from '@/lib/db/files';
@@ -159,7 +161,19 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
 
   // Excel upload
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const quickFileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+
+  // Excel preview modal state
+  const [udPreviewOpen, setUdPreviewOpen] = useState(false);
+  const [udPreviewRows, setUdPreviewRows] = useState<unknown[][]>([]);
+  const [udPreviewFile, setUdPreviewFile] = useState<File | null>(null);
+  const [udPreviewWorkbook, setUdPreviewWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [udHeaderRow, setUdHeaderRow] = useState(1); // 1-indexed: which row contains column names
+  const [udDataStartRow, setUdDataStartRow] = useState(2); // 1-indexed: where data begins
+  const [udColumnSkip, setUdColumnSkip] = useState<Record<number, boolean>>({}); // colIdx → skip
+  const [udPreviewPage, setUdPreviewPage] = useState(0);
+  const UD_PREVIEW_PAGE_SIZE = 20;
 
   // Load user info
   useEffect(() => {
@@ -558,6 +572,27 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
     }
   };
 
+  const handlePermanentDelete = async (item: DeletedItem) => {
+    if (!window.confirm(`Permanently delete "${item.name}"? This cannot be undone.`)) return;
+    const ok = item.type === 'category'
+      ? await permanentDeleteCategory(item.id)
+      : await permanentDeleteField(item.id);
+    if (ok) {
+      setDeletedItems((prev) => prev.filter((d) => d.id !== item.id));
+      log(`Permanently deleted ${item.type} "${item.name}"`);
+    }
+  };
+
+  const handleEmptyTrash = async () => {
+    if (!window.confirm(`Permanently delete all ${deletedItems.length} items? This cannot be undone.`)) return;
+    for (const item of deletedItems) {
+      if (item.type === 'category') await permanentDeleteCategory(item.id);
+      else await permanentDeleteField(item.id);
+    }
+    setDeletedItems([]);
+    log(`Emptied trash (${deletedItems.length} items permanently deleted)`);
+  };
+
   // Request recovery (non-owner users)
   const handleRequestRecovery = async (item: DeletedItem) => {
     if (!user || !selectedProjectId) return;
@@ -655,8 +690,8 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
     }
   };
 
-  // Excel upload handler
-  const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Quick Excel upload — row 1 = headers, row 2+ = data (clean files)
+  const handleQuickExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selectedProjectId || !user) return;
 
@@ -665,70 +700,185 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
     try {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data, { type: 'array' });
-
-      // Use the file name (without extension) as the category name
       const fileName = file.name.replace(/\.(xlsx?|csv)$/i, '');
 
       for (const sheetName of workbook.SheetNames) {
         const sheet = workbook.Sheets[sheetName];
         const jsonData = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
-
         if (jsonData.length === 0) continue;
 
-        // Category name: file name if single sheet, or "fileName - sheetName" if multiple sheets
         const catName = workbook.SheetNames.length === 1 ? fileName : `${fileName} - ${sheetName}`;
-
-        // Create category
         const cat = await createCategory(selectedProjectId, catName, categories.length);
         if (!cat) continue;
 
-        // First row = column headers = field names
         const headers = (jsonData[0] as string[]).map((h) => String(h ?? '').trim()).filter(Boolean);
         const fields: UnitDataField[] = [];
-
         for (let fi = 0; fi < headers.length; fi++) {
           const field = await createField(cat.id, selectedProjectId, headers[fi], 'text', null, false, false, fi);
           if (field) fields.push(field);
         }
 
-        // Remaining rows = data
-        const newRows: UnitDataRow[] = [];
+        // Reuse existing rows first, create new ones only if needed
+        const existingRows = await getRows(selectedProjectId);
+        let dataRowIndex = 0;
+        let createdCount = 0;
         for (let ri = 1; ri < jsonData.length; ri++) {
           const rowData = jsonData[ri] as string[];
           if (!rowData || rowData.every((cell) => cell === null || cell === undefined || String(cell).trim() === '')) continue;
 
-          const row = await createRow(selectedProjectId, rows.length + newRows.length);
-          if (!row) continue;
-          newRows.push(row);
+          let targetRow: UnitDataRow;
+          if (dataRowIndex < existingRows.length) {
+            targetRow = existingRows[dataRowIndex];
+          } else {
+            const newRow = await createRow(selectedProjectId, existingRows.length + createdCount);
+            if (!newRow) { dataRowIndex++; continue; }
+            targetRow = newRow;
+            createdCount++;
+          }
+          dataRowIndex++;
 
-          // Insert values for each field
           for (let fi = 0; fi < fields.length; fi++) {
             const cellVal = rowData[fi] !== null && rowData[fi] !== undefined ? String(rowData[fi]).trim() : '';
-            if (cellVal) {
-              await upsertValue(row.id, fields[fi].id, cellVal);
-            }
+            if (cellVal) await upsertValue(targetRow.id, fields[fi].id, cellVal);
           }
         }
 
-        // Update local state
-        setCategories((prev) => [...prev, { ...cat, fields }]);
-        setRows((prev) => [...prev, ...newRows]);
-
-        // Reload values to get all the newly inserted ones
-        const valData = await getValues(selectedProjectId);
-        const vMap = new Map<string, UnitDataValue>();
-        valData.forEach((v) => vMap.set(`${v.row_id}-${v.field_id}`, v));
-        setValueMap(vMap);
-
-        log(`Imported Excel "${file.name}" as category "${catName}" (${fields.length} fields, ${newRows.length} rows)`);
+        log(`Imported Excel "${file.name}" as category "${catName}" (${fields.length} fields, ${dataRowIndex} rows)`);
       }
+      // Reload all data from DB to ensure UI is fully up to date
+      await loadData(selectedProjectId);
     } catch (err) {
       console.error('Error processing Excel file:', err);
       alert('Failed to process the Excel file. Please check the format and try again.');
     } finally {
       setUploading(false);
-      // Reset file input so same file can be re-uploaded
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (quickFileInputRef.current) quickFileInputRef.current.value = '';
+    }
+  };
+
+  // Excel upload with preview — opens modal for row/column configuration
+  const handleExcelUploadPreview = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedProjectId || !user) return;
+
+    const data = await file.arrayBuffer();
+    const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+    const xlSheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rawRows = XLSX.utils.sheet_to_json<unknown[]>(xlSheet, { defval: '', header: 1 });
+
+    const cleaned = rawRows.map((row) =>
+      (row as unknown[]).map((cell) => {
+        if (cell instanceof Date) return isNaN(cell.getTime()) ? '' : cell.toISOString().split('T')[0];
+        return cell;
+      })
+    );
+
+    setUdPreviewRows(cleaned);
+    setUdPreviewFile(file);
+    setUdPreviewWorkbook(workbook);
+    setUdPreviewPage(0);
+
+    // Auto-detect header row: find first row where most cells are non-empty strings (not numbers)
+    let detectedHeader = 1;
+    for (let r = 0; r < Math.min(cleaned.length, 20); r++) {
+      const row = cleaned[r];
+      const stringCells = row.filter((c) => {
+        const s = String(c ?? '').trim();
+        return s && isNaN(Number(s.replace(/[$,]/g, '')));
+      });
+      if (stringCells.length >= 2) { detectedHeader = r + 1; break; }
+    }
+    setUdHeaderRow(detectedHeader);
+
+    // Data starts right after the header row
+    let detectedDataStart = detectedHeader + 1;
+    // But look for first row after header that has actual data
+    for (let r = detectedHeader; r < cleaned.length; r++) {
+      const row = cleaned[r];
+      if (row.some((c) => c !== '' && c != null)) { detectedDataStart = r + 1; break; }
+    }
+    setUdDataStartRow(detectedDataStart);
+
+    // Reset column skip state
+    const maxCols = Math.max(...cleaned.map((r) => r.length), 0);
+    const skipMap: Record<number, boolean> = {};
+    for (let c = 0; c < maxCols; c++) skipMap[c] = false;
+    setUdColumnSkip(skipMap);
+
+    setUdPreviewOpen(true);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // Process excel with user's preview configuration
+  const processUdExcelWithMapping = async () => {
+    if (!udPreviewFile || !selectedProjectId || !user || !udPreviewWorkbook) return;
+    setUdPreviewOpen(false);
+    setUploading(true);
+
+    try {
+      const fileName = udPreviewFile.name.replace(/\.(xlsx?|csv)$/i, '');
+      const catName = fileName;
+
+      const cat = await createCategory(selectedProjectId, catName, categories.length);
+      if (!cat) return;
+
+      // Get headers from the designated header row
+      const headerRowIdx = udHeaderRow - 1; // 0-indexed
+      const headerRowData = udPreviewRows[headerRowIdx] ?? [];
+      const dataStartIdx = udDataStartRow - 1; // 0-indexed
+
+      // Build included columns (not skipped)
+      const includedCols: { colIdx: number; name: string }[] = [];
+      for (let c = 0; c < headerRowData.length; c++) {
+        if (udColumnSkip[c]) continue;
+        const name = String(headerRowData[c] ?? '').trim() || `Column ${c + 1}`;
+        includedCols.push({ colIdx: c, name });
+      }
+
+      // Create fields
+      const fields: UnitDataField[] = [];
+      for (let fi = 0; fi < includedCols.length; fi++) {
+        const field = await createField(cat.id, selectedProjectId, includedCols[fi].name, 'text', null, false, false, fi);
+        if (field) fields.push(field);
+      }
+
+      // Reuse existing rows first, create new ones only if needed
+      const existingRows = await getRows(selectedProjectId);
+      let dataRowIndex = 0;
+      let createdCount = 0;
+      for (let r = dataStartIdx; r < udPreviewRows.length; r++) {
+        const rowData = udPreviewRows[r];
+        if (!rowData || rowData.every((cell) => cell === '' || cell == null)) continue;
+
+        let targetRow: UnitDataRow;
+        if (dataRowIndex < existingRows.length) {
+          targetRow = existingRows[dataRowIndex];
+        } else {
+          const newRow = await createRow(selectedProjectId, existingRows.length + createdCount);
+          if (!newRow) { dataRowIndex++; continue; }
+          targetRow = newRow;
+          createdCount++;
+        }
+        dataRowIndex++;
+
+        for (let fi = 0; fi < fields.length; fi++) {
+          const colIdx = includedCols[fi].colIdx;
+          const cellVal = rowData[colIdx] !== null && rowData[colIdx] !== undefined ? String(rowData[colIdx]).trim() : '';
+          if (cellVal) await upsertValue(targetRow.id, fields[fi].id, cellVal);
+        }
+      }
+
+      log(`Imported Excel "${udPreviewFile.name}" as category "${catName}" (${fields.length} fields, ${dataRowIndex} rows)`);
+      // Reload all data from DB to ensure UI is fully up to date
+      await loadData(selectedProjectId);
+    } catch (err) {
+      console.error('Error processing Excel file:', err);
+      alert('Failed to process the Excel file. Please check the format and try again.');
+    } finally {
+      setUploading(false);
+      setUdPreviewFile(null);
+      setUdPreviewWorkbook(null);
+      setUdPreviewRows([]);
     }
   };
 
@@ -757,14 +907,9 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
 
   return (
     <main className="bg-background text-foreground min-h-screen">
-      {/* Hidden file input for Excel upload */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".xlsx,.xls,.csv"
-        className="hidden"
-        onChange={handleExcelUpload}
-      />
+      {/* Hidden file inputs for Excel upload */}
+      <input ref={quickFileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleQuickExcelUpload} />
+      <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleExcelUploadPreview} />
 
       <div className="flex min-h-[calc(100vh-180px)]">
         {/* ===== SIDEBAR ===== */}
@@ -859,18 +1004,26 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                 >
                   <Plus className="h-3 w-3" /> Add Custom Field
                 </button>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
-                  className="flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent/80 disabled:opacity-50"
-                >
-                  {uploading ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <FileSpreadsheet className="h-3 w-3" />
-                  )}
-                  {uploading ? 'Importing...' : 'Upload Excel'}
-                </button>
+                {uploading ? (
+                  <div className="flex items-center gap-1 text-xs font-semibold text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Importing...
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => quickFileInputRef.current?.click()}
+                      className="flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent/80"
+                    >
+                      <FileSpreadsheet className="h-3 w-3" /> Quick Upload
+                    </button>
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent/80"
+                    >
+                      <Upload className="h-3 w-3" /> Upload with Preview
+                    </button>
+                  </>
+                )}
               </div>
             )}
 
@@ -1089,6 +1242,14 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                 </button>
                 {showDeleted && (
                   <div className="space-y-1">
+                    {isOwner && (
+                      <button
+                        onClick={handleEmptyTrash}
+                        className="text-[10px] text-red-500 hover:text-red-400 font-semibold mb-1"
+                      >
+                        Empty All
+                      </button>
+                    )}
                     {deletedItems.map((item) => (
                       <div key={item.id} className="flex items-center gap-1 py-0.5">
                         <div className="flex-1 min-w-0">
@@ -1100,13 +1261,22 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                           </span>
                         </div>
                         {isOwner ? (
-                          <button
-                            onClick={() => handleRestoreItem(item)}
-                            className="text-[10px] text-accent hover:underline flex-shrink-0 px-1"
-                            title="Restore"
-                          >
-                            Restore
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleRestoreItem(item)}
+                              className="text-[10px] text-accent hover:underline flex-shrink-0 px-1"
+                              title="Restore"
+                            >
+                              Restore
+                            </button>
+                            <button
+                              onClick={() => handlePermanentDelete(item)}
+                              className="text-muted-foreground hover:text-red-500 flex-shrink-0"
+                              title="Permanently delete"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </>
                         ) : (
                           <button
                             onClick={() => handleRequestRecovery(item)}
@@ -1446,6 +1616,197 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
               >
                 Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── Excel Preview Modal ──────────────────────────────── */}
+      {udPreviewOpen && udPreviewRows.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-background border border-border rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+              <div>
+                <h3 className="text-sm font-bold">Preview &amp; Configure Upload</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {udPreviewFile?.name} — {udPreviewRows.length} rows detected
+                </p>
+              </div>
+              <button onClick={() => { setUdPreviewOpen(false); setUdPreviewFile(null); setUdPreviewWorkbook(null); setUdPreviewRows([]); }} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Controls */}
+            <div className="px-5 py-3 border-b border-border flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold whitespace-nowrap">Header row:</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={udPreviewRows.length}
+                  value={udHeaderRow}
+                  onChange={(e) => {
+                    const v = Math.max(1, Math.min(udPreviewRows.length, parseInt(e.target.value) || 1));
+                    setUdHeaderRow(v);
+                    if (udDataStartRow <= v) setUdDataStartRow(v + 1);
+                    setUdPreviewPage(0);
+                  }}
+                  className="w-16 px-2 py-1 bg-background border border-input rounded text-xs text-center"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold whitespace-nowrap">Data starts at row:</label>
+                <input
+                  type="number"
+                  min={udHeaderRow + 1}
+                  max={udPreviewRows.length}
+                  value={udDataStartRow}
+                  onChange={(e) => {
+                    const v = Math.max(2, Math.min(udPreviewRows.length, parseInt(e.target.value) || 2));
+                    setUdDataStartRow(v);
+                    // Auto-set header row to the row just before data
+                    setUdHeaderRow(v - 1);
+                    setUdPreviewPage(0);
+                  }}
+                  className="w-16 px-2 py-1 bg-background border border-input rounded text-xs text-center"
+                />
+                <span className="text-xs text-muted-foreground">
+                  ({Math.max(0, udPreviewRows.length - udDataStartRow + 1)} data rows)
+                </span>
+              </div>
+            </div>
+
+            {/* Column toggle row */}
+            <div className="px-5 py-2 border-b border-border overflow-x-auto">
+              <div className="flex items-center gap-1 min-w-max">
+                <div className="w-12 flex-shrink-0 text-xs font-semibold text-muted-foreground text-center">Row</div>
+                {Array.from({ length: Math.max(...udPreviewRows.map((r) => r.length), 0) }, (_, colIdx) => {
+                  const headerVal = udPreviewRows[udHeaderRow - 1]?.[colIdx];
+                  const isSkipped = udColumnSkip[colIdx];
+                  return (
+                    <div key={colIdx} className="w-32 flex-shrink-0">
+                      <button
+                        onClick={() => setUdColumnSkip((prev) => ({ ...prev, [colIdx]: !prev[colIdx] }))}
+                        className={`w-full px-1.5 py-1 border rounded text-xs truncate ${
+                          isSkipped
+                            ? 'border-input bg-muted/50 text-muted-foreground line-through'
+                            : 'border-accent bg-accent/10 text-accent font-semibold'
+                        }`}
+                        title={isSkipped ? 'Click to include' : 'Click to skip'}
+                      >
+                        {headerVal != null && String(headerVal).trim() ? String(headerVal) : `Col ${colIdx + 1}`}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Click a column header to include/skip it.</p>
+            </div>
+
+            {/* Data preview table */}
+            <div className="flex-1 overflow-auto px-5 py-2">
+              <div className="min-w-max">
+                {(() => {
+                  const pageStart = udPreviewPage * UD_PREVIEW_PAGE_SIZE;
+                  const pageEnd = Math.min(pageStart + UD_PREVIEW_PAGE_SIZE, udPreviewRows.length);
+                  const visibleRows = udPreviewRows.slice(pageStart, pageEnd);
+                  const maxCols = Math.max(...udPreviewRows.map((r) => r.length), 0);
+
+                  return visibleRows.map((row, rIdx) => {
+                    const actualRowIdx = pageStart + rIdx;
+                    const isHeaderRow = actualRowIdx === udHeaderRow - 1;
+                    const isBeforeData = actualRowIdx < udDataStartRow - 1;
+                    const isDataStartRow = actualRowIdx === udDataStartRow - 1;
+
+                    return (
+                      <div
+                        key={actualRowIdx}
+                        className={`flex items-center gap-1 ${
+                          isHeaderRow
+                            ? 'bg-blue-500/10 font-semibold'
+                            : isBeforeData
+                            ? 'opacity-40 bg-amber-500/5'
+                            : isDataStartRow
+                            ? 'bg-accent/10 border-l-2 border-accent'
+                            : 'hover:bg-muted/30'
+                        }`}
+                      >
+                        <div
+                          className={`w-12 flex-shrink-0 text-xs text-center py-1 cursor-pointer hover:text-accent font-mono ${
+                            isHeaderRow ? 'text-blue-500 font-bold' : isDataStartRow ? 'text-accent font-bold' : 'text-muted-foreground'
+                          }`}
+                          onClick={() => {
+                            setUdDataStartRow(actualRowIdx + 1);
+                            // Auto-set header row to the row just before data
+                            if (actualRowIdx >= 1) setUdHeaderRow(actualRowIdx);
+                            setUdPreviewPage(0);
+                          }}
+                          title={`Click to set data start at row ${actualRowIdx + 1}`}
+                        >
+                          {actualRowIdx + 1}
+                        </div>
+                        {Array.from({ length: maxCols }, (_, cIdx) => {
+                          const val = row[cIdx];
+                          const isSkipped = udColumnSkip[cIdx];
+                          return (
+                            <div
+                              key={cIdx}
+                              className={`w-32 flex-shrink-0 px-1.5 py-1 text-xs truncate border-r border-border/30 ${
+                                isSkipped ? 'opacity-30 line-through' : ''
+                              }`}
+                              title={String(val ?? '')}
+                            >
+                              {val != null && val !== '' ? String(val) : <span className="text-muted-foreground/30">-</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+
+            {/* Pagination + Actions */}
+            <div className="px-5 py-3 border-t border-border flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={udPreviewPage === 0}
+                  onClick={() => setUdPreviewPage((p) => Math.max(0, p - 1))}
+                  className="p-1 rounded border border-input text-xs disabled:opacity-30 hover:bg-muted"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <span className="text-xs text-muted-foreground">
+                  Rows {udPreviewPage * UD_PREVIEW_PAGE_SIZE + 1}–{Math.min((udPreviewPage + 1) * UD_PREVIEW_PAGE_SIZE, udPreviewRows.length)} of {udPreviewRows.length}
+                </span>
+                <button
+                  disabled={(udPreviewPage + 1) * UD_PREVIEW_PAGE_SIZE >= udPreviewRows.length}
+                  onClick={() => setUdPreviewPage((p) => p + 1)}
+                  className="p-1 rounded border border-input text-xs disabled:opacity-30 hover:bg-muted"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {Object.values(udColumnSkip).filter((v) => !v).length} columns included
+                </span>
+                <button
+                  onClick={() => { setUdPreviewOpen(false); setUdPreviewFile(null); setUdPreviewWorkbook(null); setUdPreviewRows([]); }}
+                  className="px-3 py-1.5 text-xs border border-input rounded hover:bg-muted"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={processUdExcelWithMapping}
+                  disabled={Object.values(udColumnSkip).every((v) => v)}
+                  className="px-4 py-1.5 text-xs bg-accent text-white rounded font-semibold hover:bg-accent/90 disabled:opacity-50"
+                >
+                  Upload {Math.max(0, udPreviewRows.length - udDataStartRow + 1)} rows
+                </button>
+              </div>
             </div>
           </div>
         </div>

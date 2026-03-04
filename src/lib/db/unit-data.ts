@@ -178,6 +178,30 @@ export async function getDeletedItems(projectId: string): Promise<DeletedItem[]>
   );
 }
 
+export async function permanentDeleteField(fieldId: string): Promise<boolean> {
+  // Delete all values for this field first
+  await supabase.from('zhl_unit_data_values').delete().eq('field_id', fieldId);
+  const { error } = await supabase.from('zhl_unit_data_fields').delete().eq('id', fieldId);
+  if (error) { console.error('Error permanently deleting field:', error.message); return false; }
+  return true;
+}
+
+export async function permanentDeleteCategory(categoryId: string): Promise<boolean> {
+  // Get all fields in this category
+  const { data: fields } = await supabase.from('zhl_unit_data_fields').select('id').eq('category_id', categoryId);
+  // Delete all values for those fields
+  if (fields && fields.length > 0) {
+    const fieldIds = fields.map((f: { id: string }) => f.id);
+    await supabase.from('zhl_unit_data_values').delete().in('field_id', fieldIds);
+  }
+  // Delete the fields
+  await supabase.from('zhl_unit_data_fields').delete().eq('category_id', categoryId);
+  // Delete the category
+  const { error } = await supabase.from('zhl_unit_data_categories').delete().eq('id', categoryId);
+  if (error) { console.error('Error permanently deleting category:', error.message); return false; }
+  return true;
+}
+
 export async function updateFieldVisibility(fieldId: string, visible: boolean): Promise<boolean> {
   const { error } = await supabase
     .from('zhl_unit_data_fields')
