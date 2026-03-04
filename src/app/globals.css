@@ -16,7 +16,7 @@
     --destructive-foreground: 0 0% 100%;
     --border: 0 0% 89.8%;
     --input: 0 0% 89.8%;
-    --primary: 22.2 47.3% 11.2%;
+    --primary: 142 80% 30%;
     --primary-foreground: 210 40% 98%;
     --secondary: 217.2 91.2% 59.8%;
     --secondary-foreground: 222.2 47.4% 11.2%;
@@ -38,7 +38,8 @@
     --destructive-foreground: 0 0% 3.6%;
     --border: 0 0% 14.9%;
     --input: 0 0% 14.9%;
-    --primary: 210 40% 98%;
+    /* --primary: 210 40% 98%; */
+    --primary: 142 85% 45%;
     --primary-foreground: 222.2 47.4% 11.2%;
     --secondary: 217.2 32.6% 17.5%;
     --secondary-foreground: 210 40% 98%;
@@ -72,4 +73,8 @@
   --color-ring: hsl(var(--ring));
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+}
+
+button:not(:disabled) {
+  cursor: pointer;
 }

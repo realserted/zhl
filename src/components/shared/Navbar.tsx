@@ -3,9 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import NavLogo from './NavLogo';
-import NavTabs from './NavTabs';
 import NavActions from './NavActions';
-import NavUserProfile from './NavUserProfile';
 import { ThemeToggle } from './ThemeToggle';
 import { ArrowLeft, ChevronDown, Bell, Loader2 } from 'lucide-react';
 import { Project } from '@/lib/types/project';
@@ -16,14 +14,22 @@ import { getNotifications, getUnreadCount, markAsRead, markAllAsRead, deleteAllN
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase/client';
 
+export interface NavTab {
+  id: string;
+  label: string;
+  permKey: string | null;
+  badge?: string;
+}
+
 interface NavbarProps {
   projects: Project[];
   selectedProject: Project | null;
   onProjectChange: (project: Project) => void;
   userPermission?: ProjectPermission | null;
+  onTabsComputed?: (data: { tabs: NavTab[]; activeTab: string; handleTabChange: (tabId: string) => void }) => void;
 }
 
-export default function Navbar({ projects, selectedProject, onProjectChange, userPermission }: NavbarProps) {
+export default function Navbar({ projects, selectedProject, onProjectChange, userPermission, onTabsComputed }: NavbarProps) {
   const { user } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -226,6 +232,12 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // Expose computed tabs to parent for sidebar
+  useEffect(() => {
+    onTabsComputed?.({ tabs, activeTab, handleTabChange });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs.length, activeTab]);
+
   return (
     <nav className="sticky top-0 z-50 w-full bg-background border-b border-border dark:border-border">
       {/* Back Button */}
@@ -244,7 +256,9 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
 
       {/* Top Navigation Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-border gap-3 sm:gap-0">
-        <NavLogo />
+        {/* <div className="flex items-center gap-2">
+          <NavLogo />
+        </div> */}
 
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-8 w-full sm:w-auto">
           {/* Project and Projects Dropdowns */}
@@ -302,8 +316,8 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
           </div>
         </div>
 
-        {/* Right Section: Notifications, Theme Toggle and User Profile */}
-        <div className="flex items-center gap-2 sm:gap-4 ml-auto sm:ml-0 sm:border-l sm:border-border sm:pl-6">
+        {/* Right Section: Notifications and Theme Toggle */}
+        <div className="flex items-center gap-2 sm:gap-4 ml-auto sm:ml-0">
           {/* Notification Bell */}
           <div className="relative" ref={notifDropdownRef}>
             <button
@@ -379,14 +393,12 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
           </div>
 
           <ThemeToggle />
-          <NavUserProfile />
         </div>
       </div>
 
-      {/* Tabs Navigation */}
-      <div className="px-6 py-4 border-b border-border">
-        <NavTabs tabs={tabs} activeTab={activeTab} onTabChange={handleTabChange} />
-      </div>
     </nav>
   );
 }
+
+/** Expose computed tabs, activeTab, and handleTabChange for the sidebar */
+export { type NavbarProps };
