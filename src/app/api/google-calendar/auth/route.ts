@@ -29,6 +29,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid auth token.' }, { status: 401 });
   }
 
-  const url = getAuthUrl(userData.user.id);
-  return NextResponse.json({ url });
+  try {
+    const url = getAuthUrl(userData.user.id);
+    return NextResponse.json({ url });
+  } catch (err) {
+    console.error('Google Calendar auth error:', err);
+    return NextResponse.json({ error: 'Failed to generate Google auth URL.' }, { status: 500 });
+  }
 }

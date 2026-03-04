@@ -80,17 +80,27 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
   const handleConnectGoogleCalendar = async () => {
     if (!user) return;
     setGcalLoading(true);
+    setGcalFeedback('');
     try {
       const session = await supabase.auth.getSession();
       const accessToken = session.data.session?.access_token;
-      if (!accessToken) return;
+      if (!accessToken) {
+        setGcalFeedback('Failed: no active session. Please log in again.');
+        setGcalLoading(false);
+        return;
+      }
 
       const res = await fetch('/api/google-calendar/auth', {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const data = await res.json();
-      if (data.url) window.location.href = data.url;
-    } catch {
+      if (data.url) {
+        window.location.href = data.url;
+        return; // Don't clear loading — page is navigating away
+      }
+      setGcalFeedback(data.error || 'Failed to get Google authorization URL.');
+    } catch (err) {
+      console.error('Google Calendar connect error:', err);
       setGcalFeedback('Failed to start Google Calendar connection.');
     }
     setGcalLoading(false);
