@@ -808,100 +808,115 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
 
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4">
         {/* ── Left Pane ── */}
-        <aside className="space-y-3">
+        <aside className="space-y-4 p-4 glass-card backdrop-blur-md bg-background/80 border border-white/10 rounded-2xl shadow-xl self-start sticky top-20">
           {/* Security notice */}
-          <p className="text-xs font-semibold text-amber-600 border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 rounded px-3 py-2">
-            All files are highly secure and encrypted - only authorized users can access.
-          </p>
+          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-500/5 border border-amber-500/20 text-amber-600 dark:text-amber-500">
+            <ShieldCheck className="h-4 w-4 shrink-0 mt-0.5" />
+            <p className="text-[11px] font-medium leading-relaxed">
+              All files are highly secure and encrypted - only authorized users can access.
+            </p>
+          </div>
 
           {/* Permissions toggle */}
           <button
             onClick={() => setShowPermissions((p) => !p)}
-            className="text-accent hover:underline text-sm w-full text-left"
+            className="text-[10px] font-bold tracking-widest uppercase text-primary hover:text-primary/80 transition-all flex items-center gap-1.5 px-1"
           >
-            {showPermissions ? '< Hide Permissions' : '> Show Permissions'}
+            {showPermissions ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            {showPermissions ? 'Hide Permissions' : 'Show Permissions'}
           </button>
 
           {/* Actions */}
-          <div className="space-y-2 text-sm">
+          <div className="space-y-3 pt-2">
             <button
               onClick={() => setCollapsedFolders(new Set())}
-              className="text-accent hover:underline block"
+              className="w-full text-left text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all px-1"
             >
-              Expand all Folders (but not files)
+              Expand all Folders
             </button>
 
             <button
               onClick={() => setShowAddCustomField(true)}
               disabled={!canEdit}
-              className="text-purple-600 dark:text-purple-400 hover:underline disabled:opacity-50 inline-flex items-center gap-1"
+              className="flex items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all disabled:opacity-50 px-1"
             >
               <Plus className="h-3.5 w-3.5" /> Add Custom Field
             </button>
 
-            <button
-              onClick={handleDownloadAll}
-              disabled={downloadingAll || monthlyDownloadsCount >= 1}
-              className="text-accent hover:underline disabled:opacity-50 flex items-center gap-1"
-            >
-              <Download className="h-3.5 w-3.5" /> Download All Files (max 1x/mo)
-            </button>
-            {monthlyDownloadsCount >= 1 && (
-              <p className="text-[11px] text-muted-foreground pl-5">Next available: {nextMonthLabel(new Date())}</p>
-            )}
+            <div className="space-y-1">
+              <button
+                onClick={handleDownloadAll}
+                disabled={downloadingAll || monthlyDownloadsCount >= 1}
+                className="flex items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all disabled:opacity-50 px-1"
+              >
+                <Download className="h-3.5 w-3.5" /> Download All Files
+              </button>
+              {monthlyDownloadsCount >= 1 && (
+                <p className="text-[10px] text-muted-foreground/60 font-medium pl-6 font-mono uppercase tracking-tighter">Next: {nextMonthLabel(new Date())}</p>
+              )}
+            </div>
 
             <button
               onClick={() => canEdit && folderInputRef.current?.click()}
               disabled={!canEdit || uploading}
-              className="text-purple-600 dark:text-purple-400 hover:underline disabled:opacity-50 flex items-center gap-1"
+              className="flex items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all disabled:opacity-50 px-1"
             >
               <Plus className="h-3.5 w-3.5" /> Add New Folder
             </button>
 
             <button
               onClick={() => setShowBackupRequest(true)}
-              className="text-accent hover:underline flex items-center gap-1"
+              className="flex items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all px-1"
             >
               <DatabaseBackup className="h-3.5 w-3.5" /> Request Backup
             </button>
           </div>
 
+          <div className="h-px bg-white/5 mx-1" />
+
           {/* Backup info */}
-          <div className="border border-input rounded-lg p-3 text-xs space-y-1">
-            <p className="font-bold inline-flex items-center gap-1">
-              <ShieldCheck className="h-3.5 w-3.5 text-green-600" /> Backup History
+          <div className="glass-card bg-muted/20 border border-border/50 rounded-xl p-3 space-y-2">
+            <p className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground inline-flex items-center gap-1.5 px-1">
+              <ShieldCheck className="h-3.5 w-3.5 text-green-500" /> Backup History
             </p>
-            <p className="text-muted-foreground">Managed by admins/dev team.</p>
-            <p>Backups: {backups.length}</p>
-            <p>Open requests: {backupRequests.filter((r) => r.status === 'pending').length}</p>
-            {backupRequests[0] && (
-              <p className="text-muted-foreground">Latest: {new Date(backupRequests[0].created_at).toLocaleDateString()} ({backupRequests[0].status})</p>
-            )}
+            <div className="space-y-1 px-1">
+              <p className="text-[11px] font-medium">Backups: <span className="text-primary">{backups.length}</span></p>
+              <p className="text-[11px] font-medium">Open requests: <span className="text-amber-500">{backupRequests.filter((r) => r.status === 'pending').length}</span></p>
+              {backupRequests[0] && (
+                <p className="text-[10px] text-muted-foreground/60 leading-tight">
+                  Latest: {new Date(backupRequests[0].created_at).toLocaleDateString()} <span className="uppercase tracking-tighter ml-1">[{backupRequests[0].status}]</span>
+                </p>
+              )}
+            </div>
           </div>
 
-          {notice && <p className="text-xs text-green-600 dark:text-green-400">{notice}</p>}
+          {notice && (
+            <div className="p-2.5 rounded-xl bg-green-500/5 border border-green-500/20 text-green-600 dark:text-green-500 text-[10px] font-bold tracking-wide uppercase px-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              {notice}
+            </div>
+          )}
 
           {uploading && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 text-[10px] font-bold tracking-widest uppercase text-primary px-3">
               <Loader2 className="h-3 w-3 animate-spin" /> Uploading...
             </div>
           )}
         </aside>
 
         {/* ── Right: Main Table ── */}
-        <div className="border border-border rounded-lg overflow-x-auto">
+        <div className="glass-card backdrop-blur-md bg-background/50 border border-white/10 dark:border-white/5 rounded-2xl overflow-hidden shadow-2xl relative">
           <table className="w-full text-sm border-collapse">
             <thead>
-              <tr className="border-b border-border bg-muted/40">
+              <tr className="border-b border-border bg-muted/30">
                 {/* Expand/collapse column */}
-                <th className="w-8 px-2 py-2 border-r border-border" />
+                <th className="w-8 px-2 py-2 border-r border-border/50" />
 
                 {/* Permission column headers — diagonal text */}
                 {showPermissions && permissionColumns.map((col) => (
-                  <th key={col.key} className="px-1 py-2 border-r border-border w-8 min-w-[32px]">
-                    <div className="flex items-end justify-center h-24">
+                  <th key={col.key} className="px-1 pb-3 border-r border-border/50 w-10 min-w-[40px]">
+                    <div className="flex items-end justify-center h-[140px]">
                       <span
-                        className="text-[10px] font-medium text-foreground whitespace-nowrap"
+                        className="text-[10px] font-bold tracking-wider uppercase text-foreground/80 whitespace-nowrap"
                         style={{
                           writingMode: 'vertical-rl',
                           transform: 'rotate(180deg)',
@@ -913,16 +928,21 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                   </th>
                 ))}
 
-                <th className="text-left px-3 py-2 font-semibold text-xs">Name</th>
-                <th className="text-right px-3 py-2 font-semibold text-xs w-24">Actions</th>
+                <th className="text-left px-4 py-4 font-bold text-[11px] tracking-wider uppercase text-primary whitespace-nowrap border-r border-border/50 drop-shadow-sm">
+                  Name
+                </th>
+                <th className="text-right px-4 py-4 font-bold text-[11px] tracking-wider uppercase text-primary w-24 whitespace-nowrap drop-shadow-sm">
+                  Actions
+                </th>
               </tr>
             </thead>
 
             <tbody>
               {tableRows.length === 0 && (
                 <tr>
-                  <td colSpan={showPermissions ? permissionColumns.length + 3 : 3} className="px-3 py-6 text-center text-xs text-muted-foreground">
-                    No folders yet. Click &quot;+ Add New Folder&quot; to upload a folder.
+                  <td colSpan={showPermissions ? permissionColumns.length + 3 : 3} className="px-4 py-12 text-center">
+                    <p className="text-sm font-bold tracking-widest text-muted-foreground uppercase mb-1">No folders yet</p>
+                    <p className="text-xs text-muted-foreground/60 uppercase tracking-tighter">Click "+ Add New Folder" to start.</p>
                   </td>
                 </tr>
               )}
@@ -942,10 +962,10 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                     <tr
                       key={`folder-${folder.id}`}
                       ref={isFolderHighlighted ? highlightRowRef : undefined}
-                      className={`border-b border-border hover:bg-muted/30 group transition-colors duration-1000 ${isFolderHighlighted ? 'bg-blue-500/20 ring-1 ring-blue-500/40' : ''}`}
+                      className={`border-b border-border/50 hover:bg-primary/5 group transition-all duration-300 ${isFolderHighlighted ? 'bg-primary/10 ring-1 ring-primary/20' : ''}`}
                     >
                       {/* Collapse toggle */}
-                      <td className="px-2 py-1.5 border-r border-border text-center">
+                      <td className="px-2 py-3 border-r border-border/50 text-center">
                         {(hasChildren || hasFiles) ? (
                           <button
                             onClick={() => {
@@ -956,7 +976,7 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                                 return next;
                               });
                             }}
-                            className="text-muted-foreground hover:text-foreground"
+                            className="text-muted-foreground hover:text-primary transition-colors p-1 rounded-md hover:bg-primary/10"
                           >
                             {isCollapsed
                               ? <ChevronRight className="h-3.5 w-3.5" />
@@ -967,20 +987,20 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
 
                       {/* Permission checkboxes */}
                       {showPermissions && permissionColumns.map((col) => (
-                        <td key={col.key} className="text-center px-1 py-1.5 border-r border-border">
+                        <td key={col.key} className="text-center px-1 py-1 border-r border-border/50 bg-muted/10">
                           <input
                             type="checkbox"
                             checked={Boolean(perms?.[col.key])}
                             disabled={!canManagePermissions}
                             onChange={() => togglePermission(folder.id, col.key)}
-                            className="rounded border-input h-3.5 w-3.5"
+                            className="rounded border-border h-3.5 w-3.5 text-primary focus:ring-primary/20"
                           />
                         </td>
                       ))}
 
                       {/* Folder name — click to expand/collapse */}
                       <td
-                        className="px-3 py-1.5 cursor-pointer"
+                        className="px-4 py-3 cursor-pointer select-none"
                         onClick={() => {
                           if (isRenaming) return;
                           setCollapsedFolders((prev) => {
@@ -991,9 +1011,11 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                           });
                         }}
                       >
-                        <div className="flex items-center gap-2" style={{ paddingLeft: `${row.depth * 20}px` }}>
-                          {hasWarning && <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
-                          <Folder className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                        <div className="flex items-center gap-3" style={{ paddingLeft: `${row.depth * 24}px` }}>
+                          {hasWarning && <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 animate-pulse" />}
+                          <div className="p-1.5 rounded-lg bg-amber-500/10 shrink-0">
+                            <Folder className="h-4 w-4 text-amber-500" />
+                          </div>
                           {isRenaming ? (
                             <input
                               autoFocus
@@ -1005,10 +1027,10 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                                 if (e.key === 'Escape') { setRenamingFolderId(null); setRenameValue(''); }
                               }}
                               onClick={(e) => e.stopPropagation()}
-                              className="text-sm bg-background border border-input rounded px-1 py-0 w-48"
+                              className="text-xs font-bold text-primary bg-background/50 border border-primary/20 rounded-lg px-2 py-1 w-64 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                             />
                           ) : (
-                            <span className="font-medium">{folder.name}</span>
+                            <span className="font-bold text-[13px] tracking-tight text-foreground/90 group-hover:text-primary transition-colors">{folder.name}</span>
                           )}
                           {(() => {
                             const linkInfo = linkedMap.get(`folder:${folder.id}`);
@@ -1018,7 +1040,7 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                               : linkInfo.name;
                             return (
                               <span
-                                className="inline-flex items-center gap-0.5 text-[10px] text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded cursor-default"
+                                className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wider uppercase text-blue-500 bg-blue-500/5 px-2 py-0.5 rounded-full border border-blue-500/10 cursor-default"
                                 title={`Linked to ${linkInfo.type}: ${label}`}
                               >
                                 <LinkIcon className="h-3 w-3" />
@@ -1026,56 +1048,56 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                               </span>
                             );
                           })()}
-                          {savingPermission === folder.id && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+                          {savingPermission === folder.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
                         </div>
                       </td>
 
                       {/* Actions */}
-                      <td className="px-3 py-1.5 text-right">
-                        <div className="hidden group-hover:inline-flex items-center gap-1.5">
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200">
                           {canEdit && (
                             <button
                               onClick={() => { setUploadTargetFolderId(folder.id); fileInputRef.current?.click(); }}
-                              className="text-muted-foreground hover:text-foreground"
-                              title="Upload files to this folder"
+                              className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all"
+                              title="Upload files"
                             >
-                              <Upload className="h-3.5 w-3.5" />
+                              <Upload className="h-4 w-4" />
                             </button>
                           )}
                           {canEdit && (
                             <button
                               onClick={() => { setUploadFolderTargetId(folder.id); subfolderInputRef.current?.click(); }}
-                              className="text-muted-foreground hover:text-foreground"
-                              title="Upload folder into this folder"
+                              className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all"
+                              title="Upload folder"
                             >
-                              <FolderUp className="h-3.5 w-3.5" />
+                              <FolderUp className="h-4 w-4" />
                             </button>
                           )}
                           {canEdit && !isRenaming && (
                             <button
                               onClick={() => { setRenamingFolderId(folder.id); setRenameValue(folder.name); }}
-                              className="text-muted-foreground hover:text-foreground"
-                              title="Rename folder"
+                              className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all"
+                              title="Rename"
                             >
-                              <Pencil className="h-3.5 w-3.5" />
+                              <Pencil className="h-4 w-4" />
                             </button>
                           )}
                           {canEdit && (
                             <button
                               onClick={() => setConfirmDeleteFolder(folder.id)}
-                              className="text-muted-foreground hover:text-destructive"
-                              title="Delete folder"
+                              className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-all"
+                              title="Delete"
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
+                              <Trash2 className="h-4 w-4" />
                             </button>
                           )}
                           {canEdit && (
                             <button
                               onClick={() => openLinkModal([{ name: folder.name, storagePath: `folder:${folder.id}` }])}
-                              className="text-muted-foreground hover:text-blue-500"
-                              title="Link folder to Unit Data"
+                              className="p-1.5 text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 rounded-lg transition-all"
+                              title="Link to Unit Data"
                             >
-                              <LinkIcon className="h-3.5 w-3.5" />
+                              <LinkIcon className="h-4 w-4" />
                             </button>
                           )}
                         </div>
@@ -1094,28 +1116,30 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                   <tr
                     key={`file-${file.id}`}
                     ref={isFileHighlighted ? highlightRowRef : undefined}
-                    className={`border-b border-border hover:bg-muted/30 group transition-colors duration-1000 ${isFileHighlighted ? 'bg-blue-500/20 ring-1 ring-blue-500/40' : ''}`}
+                    className={`border-b border-border/50 hover:bg-primary/5 group transition-all duration-300 ${isFileHighlighted ? 'bg-primary/10 ring-1 ring-primary/20' : ''}`}
                   >
                     {/* Empty collapse cell */}
-                    <td className="border-r border-border" />
+                    <td className="border-r border-border/50" />
 
                     {/* File permission checkboxes */}
                     {showPermissions && permissionColumns.map((col) => (
-                      <td key={col.key} className="text-center px-1 py-1 border-r border-border">
+                      <td key={col.key} className="text-center px-1 py-1 border-r border-border/50 bg-muted/5">
                         <input
                           type="checkbox"
                           checked={Boolean(filePerms?.[col.key])}
                           disabled={!canManagePermissions}
                           onChange={() => toggleFilePermission(file.id, col.key)}
-                          className="rounded border-input h-3.5 w-3.5"
+                          className="rounded border-border h-3.5 w-3.5 text-primary focus:ring-primary/20"
                         />
                       </td>
                     ))}
 
                     {/* File name */}
-                    <td className="px-3 py-1">
-                      <div className="flex items-center gap-2" style={{ paddingLeft: `${row.depth * 20 + 8}px` }}>
-                        <FileText className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-3" style={{ paddingLeft: `${row.depth * 24 + 12}px` }}>
+                        <div className="p-1.5 rounded-lg bg-blue-500/10 shrink-0">
+                          <FileText className="h-4 w-4 text-blue-500" />
+                        </div>
                         {isRenaming ? (
                           <input
                             autoFocus
@@ -1126,17 +1150,17 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                               if (e.key === 'Enter') handleRenameFile();
                               if (e.key === 'Escape') { setRenamingFileId(null); setRenameValue(''); }
                             }}
-                            className="text-sm bg-background border border-input rounded px-1 py-0 w-48"
+                            className="text-xs font-bold text-primary bg-background/50 border border-primary/20 rounded-lg px-2 py-1 w-64 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                           />
                         ) : file.storage_path ? (
                           <button
                             onClick={() => handleDownloadFile(file)}
-                            className="text-blue-500 hover:underline text-left"
+                            className="text-[13px] font-medium text-blue-500 hover:text-blue-400 hover:underline underline-offset-4 transition-all text-left wrap-break-word"
                           >
                             {file.name}
                           </button>
                         ) : (
-                          <span>{file.name}</span>
+                          <span className="text-[13px] font-medium text-foreground/80 wrap-break-word">{file.name}</span>
                         )}
                         {(() => {
                           const linkInfo = file.storage_path ? linkedMap.get(file.storage_path) : null;
@@ -1146,7 +1170,7 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                             : linkInfo.name;
                           return (
                             <span
-                              className="inline-flex items-center gap-0.5 text-[10px] text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded cursor-default"
+                              className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wider uppercase text-blue-500 bg-blue-500/5 px-2 py-0.5 rounded-full border border-blue-500/10 cursor-default"
                               title={`Linked to ${linkInfo.type}: ${label}`}
                             >
                               <LinkIcon className="h-3 w-3" />
@@ -1154,47 +1178,47 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                             </span>
                           );
                         })()}
-                        {savingPermission === file.id && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+                        {savingPermission === file.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
                       </div>
                     </td>
 
                     {/* Actions */}
-                    <td className="px-3 py-1 text-right">
-                      <div className="hidden group-hover:inline-flex items-center gap-1.5">
+                    <td className="px-4 py-2.5 text-right">
+                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200">
                         {file.storage_path && (
                           <button
                             onClick={() => handleDownloadFile(file)}
-                            className="text-muted-foreground hover:text-foreground"
+                            className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all"
                             title="Download"
                           >
-                            <Download className="h-3.5 w-3.5" />
+                            <Download className="h-4 w-4" />
                           </button>
                         )}
                         {canEdit && !isRenaming && (
                           <button
                             onClick={() => { setRenamingFileId(file.id); setRenameValue(file.name); }}
-                            className="text-muted-foreground hover:text-foreground"
+                            className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all"
                             title="Rename"
                           >
-                            <Pencil className="h-3.5 w-3.5" />
+                            <Pencil className="h-4 w-4" />
                           </button>
                         )}
                         {canEdit && (
                           <button
                             onClick={() => handleDeleteFile(file.id)}
-                            className="text-muted-foreground hover:text-destructive"
+                            className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-all"
                             title="Delete"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         )}
                         {canEdit && file.storage_path && (
                           <button
                             onClick={() => openLinkModal([{ name: file.name, storagePath: file.storage_path! }])}
-                            className="text-muted-foreground hover:text-blue-500"
-                            title="Link file to Unit Data"
+                            className="p-1.5 text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 rounded-lg transition-all"
+                            title="Link to Unit Data"
                           >
-                            <LinkIcon className="h-3.5 w-3.5" />
+                            <LinkIcon className="h-4 w-4" />
                           </button>
                         )}
                       </div>
@@ -1210,22 +1234,28 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
       {/* ── Modals ── */}
 
       {confirmDeleteFolder && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-card border border-border rounded-xl p-4">
-            <h2 className="text-base font-bold mb-2">Delete Folder?</h2>
-            <p className="text-xs text-muted-foreground mb-3">
-              This will permanently delete the folder and all files inside it. This action cannot be undone.
+        <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-background/40 backdrop-blur-md" onClick={() => setConfirmDeleteFolder(null)} />
+          <div className="glass-card bg-background/90 border border-white/10 rounded-3xl p-8 w-full max-w-sm shadow-2xl relative animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold tracking-tight">Delete Folder?</h2>
+              <button onClick={() => setConfirmDeleteFolder(null)} className="p-2 hover:bg-muted rounded-full transition-colors">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-8 leading-relaxed">
+              This will permanently delete the folder and all files inside it. This action <span className="text-destructive font-bold uppercase tracking-tighter">cannot be undone</span>.
             </p>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-3">
               <button
                 onClick={() => handleDeleteFolder(confirmDeleteFolder)}
-                className="px-3 py-1.5 text-xs rounded bg-destructive text-destructive-foreground"
+                className="w-full px-4 py-3 bg-destructive text-destructive-foreground rounded-2xl text-sm font-bold shadow-lg shadow-destructive/20 hover:opacity-90 transition-all active:scale-[0.98]"
               >
-                Delete
+                Delete Folder
               </button>
               <button
                 onClick={() => setConfirmDeleteFolder(null)}
-                className="px-3 py-1.5 text-xs rounded border border-input"
+                className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
               >
                 Cancel
               </button>
@@ -1235,189 +1265,220 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
       )}
 
       {showAddCustomField && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-card border border-border rounded-xl p-4">
-            <h2 className="text-base font-bold mb-3">Add Custom Field</h2>
-            <div className="space-y-3">
+        <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-background/40 backdrop-blur-md" onClick={() => setShowAddCustomField(false)} />
+          <div className="glass-card bg-background/90 border border-white/10 rounded-3xl p-8 w-full max-w-md shadow-2xl relative animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold tracking-tight">Add Custom Field</h2>
+              <button onClick={() => setShowAddCustomField(false)} className="p-2 hover:bg-muted rounded-full transition-colors">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
               <div>
-                <label className="text-xs font-semibold block mb-1">Field Name</label>
+                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Field Name</label>
                 <input
                   type="text"
+                  autoFocus
                   value={newCustomFieldName}
                   onChange={(e) => setNewCustomFieldName(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded border border-input bg-background"
+                  className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
+                  placeholder="Enter field name..."
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold block mb-1">Target</label>
-                <select
-                  value={newCustomFieldTarget}
-                  onChange={(e) => setNewCustomFieldTarget(e.target.value as 'folder' | 'file')}
-                  className="w-full px-3 py-2 text-sm rounded border border-input bg-background"
-                >
-                  <option value="file">File</option>
-                  <option value="folder">Folder</option>
-                </select>
+                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Target</label>
+                <div className="relative">
+                  <select
+                    value={newCustomFieldTarget}
+                    onChange={(e) => setNewCustomFieldTarget(e.target.value as 'folder' | 'file')}
+                    className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium appearance-none"
+                  >
+                    <option value="file">File</option>
+                    <option value="folder">Folder</option>
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                </div>
               </div>
               <div>
-                <label className="text-xs font-semibold block mb-1">Warning Message</label>
+                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Warning Message</label>
                 <textarea
                   value={newCustomFieldWarning}
                   onChange={(e) => setNewCustomFieldWarning(e.target.value)}
-                  className="w-full min-h-[70px] px-3 py-2 text-sm rounded border border-input bg-background"
+                  className="w-full min-h-[90px] px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
+                  placeholder="Critical alert message..."
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold block mb-1">Ignore Warning Days</label>
+                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Ignore Warning Days</label>
                 <input
                   type="number"
                   min={0}
                   value={newCustomFieldIgnoreDays}
                   onChange={(e) => setNewCustomFieldIgnoreDays(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded border border-input bg-background"
+                  className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
                 />
               </div>
-              <label className="inline-flex items-center gap-2 text-xs">
+              <label className="inline-flex items-center gap-3 text-xs font-bold tracking-wide uppercase text-muted-foreground cursor-pointer select-none px-1">
                 <input
                   type="checkbox"
                   checked={newCustomFieldRequired}
                   onChange={(e) => setNewCustomFieldRequired(e.target.checked)}
-                  className="rounded border-input"
+                  className="rounded border-border h-4 w-4 text-primary focus:ring-primary/20"
                 />
                 Required field
               </label>
-            </div>
-            <div className="flex items-center gap-2 mt-4">
-              <button
-                onClick={handleAddCustomField}
-                disabled={!newCustomFieldName.trim()}
-                className="px-3 py-1.5 text-xs rounded bg-accent text-accent-foreground disabled:opacity-50"
-              >
-                Add Field
-              </button>
-              <button
-                onClick={() => setShowAddCustomField(false)}
-                className="px-3 py-1.5 text-xs rounded border border-input"
-              >
-                Cancel
-              </button>
+              <div className="flex flex-col gap-3 mt-6">
+                <button
+                  onClick={handleAddCustomField}
+                  disabled={!newCustomFieldName.trim()}
+                  className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]"
+                >
+                  Create Field
+                </button>
+                <button
+                  onClick={() => setShowAddCustomField(false)}
+                  className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
       {showBackupRequest && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-card border border-border rounded-xl p-4">
-            <h2 className="text-base font-bold mb-3">Request Backup</h2>
-            <p className="text-xs text-muted-foreground mb-2">
-              Request a manual backup from admins/developers when you need a full restore point.
-            </p>
-            <textarea
-              value={backupReason}
-              onChange={(e) => setBackupReason(e.target.value)}
-              className="w-full min-h-[90px] px-3 py-2 text-sm rounded border border-input bg-background"
-            />
-            <div className="flex items-center gap-2 mt-3">
-              <button
-                onClick={handleRequestBackup}
-                disabled={!backupReason.trim()}
-                className="px-3 py-1.5 text-xs rounded bg-accent text-accent-foreground disabled:opacity-50"
-              >
-                Submit Request
-              </button>
-              <button
-                onClick={() => setShowBackupRequest(false)}
-                className="px-3 py-1.5 text-xs rounded border border-input"
-              >
-                Cancel
+        <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-background/40 backdrop-blur-md" onClick={() => setShowBackupRequest(false)} />
+          <div className="glass-card bg-background/90 border border-white/10 rounded-3xl p-8 w-full max-w-md shadow-2xl relative animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold tracking-tight">Request Backup</h2>
+              <button onClick={() => setShowBackupRequest(false)} className="p-2 hover:bg-muted rounded-full transition-colors">
+                <X className="h-5 w-5" />
               </button>
             </div>
-            {isAdmin && (
-              <p className="text-[11px] text-muted-foreground mt-2">You are admin: fulfill requests from this project in the database/admin tools.</p>
-            )}
+            <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
+              Request a manual backup from admins/developers when you need a full restore point.
+            </p>
+            <div className="space-y-6">
+              <textarea
+                value={backupReason}
+                onChange={(e) => setBackupReason(e.target.value)}
+                className="w-full min-h-[120px] px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
+                placeholder="Reason for backup request..."
+              />
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={handleRequestBackup}
+                  disabled={!backupReason.trim()}
+                  className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]"
+                >
+                  Submit Request
+                </button>
+                <button
+                  onClick={() => setShowBackupRequest(false)}
+                  className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+              {isAdmin && (
+                <p className="text-[10px] text-center font-bold tracking-widest uppercase text-primary/60 px-2 leading-tight">
+                  Admin mode: Fulfill requests in the database management console.
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}
       {showLinkModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-card border border-border rounded-xl p-4 max-h-[80vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-base font-bold">Link to Unit Data</h2>
-              <button onClick={() => setShowLinkModal(false)} className="p-1 hover:bg-muted rounded">
+        <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-background/40 backdrop-blur-md" onClick={() => setShowLinkModal(false)} />
+          <div className="glass-card bg-background/90 border border-white/10 rounded-3xl p-8 w-full max-w-lg shadow-2xl relative animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between mb-6 shrink-0">
+              <h2 className="text-xl font-bold tracking-tight">Link to Unit Data</h2>
+              <button onClick={() => setShowLinkModal(false)} className="p-2 hover:bg-muted rounded-full transition-colors">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <p className="text-xs text-muted-foreground mb-4">
-              Link files to a category or field in Unit Data. A link indicator will appear on the sidebar.
+            <p className="text-sm text-muted-foreground mb-6 leading-relaxed shrink-0">
+              Link files to a category or field in Unit Data. A link indicator will appear on the sidebar to highlight linked items.
             </p>
 
-            {unitCategories.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                No categories found in Unit Data. Create categories and fields first.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {pendingLinkFiles.map((item, idx) => {
-                  const sel = linkSelections.get(idx);
-                  const linkType = sel?.type ?? 'field';
-                  const selectedValue = sel ? `${sel.type}:${sel.id}` : '';
-                  return (
-                    <div key={idx} className="border border-input rounded p-3 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        <p className="text-sm font-medium truncate">{item.name}</p>
-                      </div>
-                      <div>
-                        <label className="text-xs font-semibold block mb-1">Link to</label>
-                        <select
-                          value={selectedValue}
-                          onChange={(e) => {
-                            const next = new Map(linkSelections);
-                            if (e.target.value) {
-                              const [type, id] = e.target.value.split(':') as ['field' | 'category', string];
-                              next.set(idx, { type, id });
-                            } else {
-                              next.delete(idx);
-                            }
-                            setLinkSelections(next);
-                          }}
-                          className="w-full px-2 py-1.5 text-xs rounded border border-input bg-background"
-                        >
-                          <option value="">-- None --</option>
-                          {unitCategories.map((cat) => (
-                            <optgroup key={cat.id} label={cat.name}>
-                              <option value={`category:${cat.id}`}>
-                                {cat.name} (Category){cat.linked_file_name ? ` — linked: ${cat.linked_file_name}` : ''}
-                              </option>
-                              {cat.fields.map((f) => (
-                                <option key={f.id} value={`field:${f.id}`}>
-                                  ↳ {f.name}{f.linked_file_name ? ` — linked: ${f.linked_file_name}` : ''}
-                                </option>
+            <div className="flex-1 overflow-y-auto pr-2 space-y-4 mb-8 custom-scrollbar">
+              {unitCategories.length === 0 ? (
+                <div className="text-center py-8 bg-muted/20 rounded-2xl border border-dashed border-border/50">
+                  <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">No categories found</p>
+                  <p className="text-[10px] text-muted-foreground/60 mt-1 uppercase tracking-tighter">Create categories and fields in Unit Data first.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {pendingLinkFiles.map((item, idx) => {
+                    const sel = linkSelections.get(idx);
+                    const selectedValue = sel ? `${sel.type}:${sel.id}` : '';
+                    return (
+                      <div key={idx} className="glass-card bg-muted/10 border border-border/50 rounded-2xl p-4 shadow-sm">
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="p-1.5 rounded-lg bg-primary/10 shrink-0">
+                            <FileText className="h-4 w-4 text-primary" />
+                          </div>
+                          <p className="text-sm font-bold tracking-tight truncate">{item.name}</p>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground ml-1">Select Target</label>
+                          <div className="relative">
+                            <select
+                              value={selectedValue}
+                              onChange={(e) => {
+                                const next = new Map(linkSelections);
+                                if (e.target.value) {
+                                  const [type, id] = e.target.value.split(':') as ['field' | 'category', string];
+                                  next.set(idx, { type, id });
+                                } else {
+                                  next.delete(idx);
+                                }
+                                setLinkSelections(next);
+                              }}
+                              className="w-full px-4 py-2.5 bg-background/50 border border-primary/20 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-bold appearance-none"
+                            >
+                              <option value="">-- No Link --</option>
+                              {unitCategories.map((cat) => (
+                                <optgroup key={cat.id} label={cat.name} className="font-bold uppercase tracking-widest text-[10px]">
+                                  <option value={`category:${cat.id}`}>
+                                    {cat.name} (Category){cat.linked_file_name ? ` · ALREADY LINKED` : ''}
+                                  </option>
+                                  {cat.fields.map((f) => (
+                                    <option key={f.id} value={`field:${f.id}`}>
+                                      ↳ {f.name}{f.linked_file_name ? ` · ALREADY LINKED` : ''}
+                                    </option>
+                                  ))}
+                                </optgroup>
                               ))}
-                            </optgroup>
-                          ))}
-                        </select>
+                            </select>
+                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
-            <div className="flex items-center gap-2 mt-4">
+            <div className="flex flex-col gap-3 shrink-0">
               <button
                 disabled={linkingInProgress || linkSelections.size === 0}
                 onClick={handleLinkFiles}
-                className="px-3 py-1.5 text-xs rounded bg-accent text-accent-foreground disabled:opacity-50"
+                className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]"
               >
                 {linkingInProgress ? 'Linking...' : 'Link Selected'}
               </button>
               <button
                 onClick={() => setShowLinkModal(false)}
-                className="px-3 py-1.5 text-xs rounded border border-input"
+                className="w-full px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
               >
-                Skip
+                Skip / Cancel
               </button>
             </div>
           </div>
