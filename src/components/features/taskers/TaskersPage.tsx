@@ -632,7 +632,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
 
     if (!canEditThis) {
       return (
-        <span className="px-1 py-0.5 block min-w-[2rem] min-h-[1.25rem]">
+        <span className="px-1 py-0.5 block min-w-8 min-h-5">
           {displayValue || <span className="text-muted-foreground/40">-</span>}
         </span>
       );
@@ -644,7 +644,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
           setEditingCell({ id: tasker.id, field });
           setEditValue(displayValue);
         }}
-        className="cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded block min-w-[2rem] min-h-[1.25rem]"
+        className="cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded block min-w-8 min-h-5"
         title="Click to edit"
       >
         {displayValue || <span className="text-muted-foreground/40">-</span>}
@@ -652,32 +652,41 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
     );
   };
 
-  const selectClass = 'border border-input rounded px-2 py-1 bg-background text-foreground text-xs';
+  const selectClass = 'bg-muted/50 border border-border/50 rounded-lg px-2 py-1 text-[11px] font-bold transition-all focus:ring-2 focus:ring-primary/20 outline-none';
   const inputClass =
-    'w-full px-3 py-2 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring';
+    'w-full px-3 py-2 bg-muted/50 border border-border/50 rounded-xl text-sm font-medium transition-all focus:ring-2 focus:ring-primary/20 outline-none placeholder:text-muted-foreground/50';
 
   return (
-    <main className="bg-background text-foreground min-h-screen">
-      <div className="max-w-full px-4 sm:px-6 py-6 sm:py-8">
-        {/* Title */}
-        <h1 className="text-2xl sm:text-3xl font-bold mb-6 sm:mb-8">Your Taskers</h1>
+    <main className="bg-muted/30 dark:bg-background/50 p-4 sm:p-8">
+      <div className="max-w-[1400px] mx-auto">
+        {/* Title Area */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight mb-1">Your Taskers</h1>
+            <p className="text-muted-foreground text-sm font-medium">
+              Manage and track all property-related tasks and responsibilities.
+            </p>
+          </div>
+        </div>
 
         {/* View Taskers and Create Section */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-8 mb-6 sm:mb-8">
+        <div className="glass-card rounded-2xl p-4 mb-8 flex flex-col lg:flex-row lg:items-center gap-6 shadow-sm border border-border/50">
           {/* View Taskers Filter */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-            <span className="font-semibold text-sm sm:text-base">View Taskers:</span>
-            <div className="flex gap-2 sm:gap-4 flex-wrap">
+          <div className="flex items-center gap-4">
+            <span className="text-sm font-bold text-muted-foreground uppercase tracking-wider">View:</span>
+            <div className="flex bg-muted/50 p-1 rounded-xl border border-input">
               {[
                 { key: 'all', label: 'All Taskers' },
-                { key: 'relevant', label: 'Only relevant' },
+                { key: 'relevant', label: 'Only Relevant' },
                 { key: 'pm', label: 'Only PM' },
               ].map((f) => (
                 <button
                   key={f.key}
                   onClick={() => setViewFilter(f.key)}
-                  className={`text-xs sm:text-sm hover:text-accent transition-colors ${
-                    viewFilter === f.key ? 'text-accent font-semibold' : ''
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    viewFilter === f.key 
+                      ? 'bg-background text-foreground shadow-sm' 
+                      : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
                   {f.label}
@@ -686,34 +695,44 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
             </div>
           </div>
 
-          {/* Create Tasker Button — hidden for View-only users */}
+          <div className="h-4 w-px bg-border hidden lg:block" />
+
+          {/* Create Tasker Button */}
           {canEdit && (
             <button
               onClick={() => setShowCreate(true)}
-              className="inline-flex items-center gap-2 text-xs sm:text-sm font-semibold text-accent hover:text-accent/80 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-95 group"
             >
-              <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
-              Create tasker
+              <Plus className="h-4 w-4 transition-transform group-hover:rotate-90" />
+              CREATE TASKER
             </button>
           )}
 
           {/* View Mode Toggle */}
-          <div className="sm:ml-auto flex items-center border border-input rounded-lg overflow-hidden">
+          <div className="lg:ml-auto flex bg-muted/50 p-1 rounded-xl border border-input">
             <button
               onClick={() => setViewMode('table')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors ${viewMode === 'table' ? 'bg-accent text-accent-foreground' : 'hover:bg-muted text-muted-foreground'}`}
+              className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                viewMode === 'table' 
+                  ? 'bg-background text-foreground shadow-sm' 
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
               title="Table view"
             >
-              <List className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Table</span>
+              <List className="h-4 w-4" />
+              <span>TABLE</span>
             </button>
             <button
               onClick={() => setViewMode('calendar')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors ${viewMode === 'calendar' ? 'bg-accent text-accent-foreground' : 'hover:bg-muted text-muted-foreground'}`}
+              className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                viewMode === 'calendar' 
+                  ? 'bg-background text-foreground shadow-sm' 
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
               title="Calendar view"
             >
-              <Calendar className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Calendar</span>
+              <Calendar className="h-4 w-4" />
+              <span>CALENDAR</span>
             </button>
           </div>
         </div>
@@ -758,36 +777,36 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
             const taskersForDate = (dateStr: string) => filteredTaskers.filter(t => t.due_date === dateStr);
 
             return (
-              <div className="border border-input rounded-lg overflow-hidden">
+              <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm flex flex-col">
                 {/* Calendar header */}
-                <div className="flex items-center justify-between px-4 py-3 bg-muted border-b border-input">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-border/50 bg-background/50 backdrop-blur-sm">
                   <button
                     onClick={() => setCalendarDate(d => d.month === 0 ? { year: d.year - 1, month: 11 } : { year: d.year, month: d.month - 1 })}
-                    className="p-1.5 rounded hover:bg-background transition-colors"
+                    className="p-2 rounded-xl hover:bg-muted transition-all active:scale-95 border border-border/50"
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </button>
-                  <div className="flex items-center gap-3">
-                    <span className="font-bold text-sm">{MONTH_NAMES[month]} {year}</span>
+                  <div className="flex items-center gap-4">
+                    <span className="font-bold text-lg tracking-tight">{MONTH_NAMES[month]} {year}</span>
                     <button
                       onClick={() => { const n = new Date(); setCalendarDate({ year: n.getFullYear(), month: n.getMonth() }); }}
-                      className="text-xs px-2 py-0.5 border border-input rounded hover:bg-background transition-colors text-muted-foreground"
+                      className="text-[10px] font-bold uppercase tracking-widest px-3 py-1 bg-muted/50 border border-border/50 rounded-lg hover:bg-muted transition-all"
                     >
                       Today
                     </button>
                   </div>
                   <button
                     onClick={() => setCalendarDate(d => d.month === 11 ? { year: d.year + 1, month: 0 } : { year: d.year, month: d.month + 1 })}
-                    className="p-1.5 rounded hover:bg-background transition-colors"
+                    className="p-2 rounded-xl hover:bg-muted transition-all active:scale-95 border border-border/50"
                   >
                     <ChevronRight className="h-4 w-4" />
                   </button>
                 </div>
 
                 {/* Day-of-week header */}
-                <div className="grid grid-cols-7 border-b border-input">
+                <div className="grid grid-cols-7 border-b border-border/50 bg-muted/30">
                   {DAY_NAMES.map(d => (
-                    <div key={d} className="px-2 py-2 text-center text-xs font-semibold text-muted-foreground bg-muted/50 border-r border-input last:border-r-0">
+                    <div key={d} className="px-2 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground border-r border-border/50 last:border-r-0">
                       {d}
                     </div>
                   ))}
@@ -801,22 +820,28 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                     return (
                       <div
                         key={idx}
-                        className={`min-h-[100px] p-1.5 border-r border-b border-input last:border-r-0 ${!cell.inMonth ? 'bg-muted/30' : 'bg-background'}`}
+                        className={`min-h-[120px] p-2 border-r border-b border-border/50 last:border-r-0 transition-colors group hover:bg-muted/20 ${!cell.inMonth ? 'bg-muted/10 opacity-60' : 'bg-transparent'}`}
                       >
                         {/* Day number */}
-                        <div className={`text-xs font-semibold mb-1 w-6 h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-accent text-accent-foreground' : cell.inMonth ? 'text-foreground' : 'text-muted-foreground/50'}`}>
+                        <div className={`text-xs font-bold mb-2 w-7 h-7 flex items-center justify-center rounded-xl transition-all ${
+                          isToday 
+                            ? 'bg-primary text-primary-foreground shadow-md scale-110' 
+                            : cell.inMonth 
+                              ? 'text-foreground group-hover:bg-muted/50' 
+                              : 'text-muted-foreground/30'
+                        }`}>
                           {cell.day}
                         </div>
                         {/* Tasker chips */}
-                        <div className="flex flex-col gap-0.5">
+                        <div className="flex flex-col gap-1">
                           {dayTaskers.map(t => (
                             <button
                               key={t.id}
                               onClick={() => openLogModal(t)}
                               title={`${t.task_name}${t.responsible_name ? ` — ${t.responsible_name}` : ''}`}
-                              className={`w-full text-left px-1.5 py-0.5 rounded text-[10px] font-medium truncate leading-tight ${STATUS_COLORS[t.status]} hover:opacity-80 transition-opacity`}
+                              className={`w-full text-left px-2 py-1 rounded-lg text-[9px] font-bold truncate leading-tight transition-all border border-transparent hover:border-border/50 shadow-sm ${STATUS_COLORS[t.status]} hover:opacity-90 active:scale-[0.98]`}
                             >
-                              {t.priority > 0 && <span className="mr-0.5">[{PRIORITY_LABELS[t.priority]}]</span>}
+                              {t.priority > 0 && <span className="opacity-70 mr-1">[{PRIORITY_LABELS[t.priority]}]</span>}
                               {t.task_name}
                             </button>
                           ))}
@@ -827,9 +852,10 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                 </div>
 
                 {/* Legend */}
-                <div className="flex flex-wrap items-center gap-3 px-4 py-2 border-t border-input bg-muted/30">
+                <div className="flex flex-wrap items-center gap-4 px-6 py-4 border-t border-border/50 bg-muted/30">
                   {Object.entries(STATUS_COLORS).map(([status, cls]) => (
-                    <span key={status} className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded ${cls}`}>
+                    <span key={status} className={`inline-flex items-center gap-2 text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded-lg border border-border/50 shadow-sm ${cls}`}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50" />
                       {status}
                     </span>
                   ))}
@@ -839,24 +865,24 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
           })()
         ) : (
           /* Taskers Table */
-          <div className="overflow-x-auto border border-input rounded-lg">
+          <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
             <table className="w-full text-xs sm:text-sm">
               <thead>
-                <tr className="bg-muted border-b border-input">
-                  <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Status</th>
-                  <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Task Name</th>
-                  <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Description</th>
-                  <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Update Status</th>
-                  <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Responsible</th>
-                  <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">CC</th>
-                  <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">&quot;Got the Ball&quot;</th>
-                  <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Priority</th>
-                  <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Due</th>
-                  <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Log</th>
-                  <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Help</th>
-                  <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Issues</th>
-                  <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Original due vs now</th>
-                  <th className="px-3 py-3 text-left font-semibold whitespace-nowrap"></th>
+                <tr className="bg-muted/30 border-b border-border/50">
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Status</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Task Name</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Description</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Update Status</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Responsible</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">CC</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">&quot;Got the Ball&quot;</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Priority</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Due</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Log</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Help</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Issues</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Original due vs now</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap"></th>
                 </tr>
               </thead>
               <tbody>
@@ -870,13 +896,13 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                   filteredTaskers.map((tasker) => (
                     <tr
                       key={tasker.id}
-                      className="border-b border-input hover:bg-muted/50 transition-colors"
+                      className="border-b border-border/50 hover:bg-muted/30 transition-colors group"
                     >
                       {/* Status dropdown */}
-                      <td className="px-3 py-3 whitespace-nowrap">
+                      <td className="px-4 py-4 whitespace-nowrap">
                         <select
                           disabled={!canEdit}
-                          className={`${selectClass} ${STATUS_COLORS[tasker.status] || ''} ${!canEdit ? 'opacity-75 cursor-default' : ''}`}
+                          className={`${selectClass} ${STATUS_COLORS[tasker.status] || ''} ${!canEdit ? 'opacity-75 cursor-default' : ''} border-none shadow-sm shadow-black/5`}
                           value={tasker.status}
                           onChange={async (e) => {
                             const newStatus = e.target.value as Tasker['status'];
@@ -911,37 +937,41 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                       </td>
 
                       {/* Task Name */}
-                      <td className="px-3 py-3 whitespace-nowrap font-medium">
-                        <EditableCell
-                          tasker={tasker}
-                          field="task_name"
-                          displayValue={tasker.task_name}
-                        />
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <div className="font-bold text-sm tracking-tight">
+                          <EditableCell
+                            tasker={tasker}
+                            field="task_name"
+                            displayValue={tasker.task_name}
+                          />
+                        </div>
                       </td>
 
                       {/* Description - clickable link to open modal */}
-                      <td className="px-3 py-3 whitespace-nowrap">
+                      <td className="px-4 py-4 whitespace-nowrap">
                         <button
                           onClick={() => setDescriptionModal(tasker)}
-                          className="text-accent hover:underline text-xs max-w-[150px] truncate block"
+                          className="text-primary hover:underline text-xs font-bold leading-none max-w-[150px] truncate block"
                           title={tasker.description || 'Add description'}
                         >
                           {tasker.description
                             ? tasker.description.length > 30
                               ? tasker.description.slice(0, 30) + '...'
                               : tasker.description
-                            : 'Add description'}
+                            : '+ Description'}
                         </button>
                       </td>
 
                       {/* Update Status (2nd status - user comments) */}
-                      <td className="px-3 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-1">
-                          <EditableCell
-                            tasker={tasker}
-                            field="update_status"
-                            displayValue={tasker.update_status ?? ''}
-                          />
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 italic text-xs font-medium text-muted-foreground min-w-[120px]">
+                            <EditableCell
+                              tasker={tasker}
+                              field="update_status"
+                              displayValue={tasker.update_status ?? ''}
+                            />
+                          </div>
                           {statusPrompt && canEdit && (
                             <button
                               onClick={async () => {
@@ -953,7 +983,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                               }}
                               disabled={generatingStatus}
                               title="Generate status with AI"
-                              className="p-0.5 hover:bg-muted rounded transition-colors disabled:opacity-50 flex-shrink-0"
+                              className="p-1.5 hover:bg-muted rounded-lg transition-colors disabled:opacity-50 shrink-0 border border-border/50"
                             >
                               <Sparkles className="h-3 w-3 text-accent" />
                             </button>
@@ -962,7 +992,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                       </td>
 
                       {/* Responsible */}
-                      <td className="px-3 py-3 whitespace-nowrap">
+                      <td className="px-4 py-4 whitespace-nowrap">
                         {canEdit ? (
                           <select
                             value={tasker.responsible_name ?? ''}
@@ -977,14 +1007,14 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                             ))}
                           </select>
                         ) : (
-                          <span className="px-1 py-0.5 block min-w-[2rem] min-h-[1.25rem]">
-                            {tasker.responsible_name || <span className="text-muted-foreground/40">-</span>}
+                          <span className="px-2 py-1 block text-xs font-bold text-muted-foreground bg-muted/30 rounded-lg min-w-8">
+                            {tasker.responsible_name || '-'}
                           </span>
                         )}
                       </td>
 
                       {/* CC */}
-                      <td className="px-3 py-3 whitespace-nowrap">
+                      <td className="px-4 py-4 whitespace-nowrap">
                         {canEdit ? (
                           <select
                             value={tasker.cc_name ?? ''}
@@ -999,14 +1029,14 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                             ))}
                           </select>
                         ) : (
-                          <span className="px-1 py-0.5 block min-w-[2rem] min-h-[1.25rem]">
-                            {tasker.cc_name || <span className="text-muted-foreground/40">-</span>}
+                          <span className="px-2 py-1 block text-xs font-bold text-muted-foreground bg-muted/30 rounded-lg min-w-8">
+                            {tasker.cc_name || '-'}
                           </span>
                         )}
                       </td>
 
                       {/* Got the Ball */}
-                      <td className="px-3 py-3 whitespace-nowrap">
+                      <td className="px-4 py-4 whitespace-nowrap">
                         {canEdit ? (
                           <select
                             value={tasker.got_the_ball_name ?? ''}
@@ -1021,16 +1051,17 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                             ))}
                           </select>
                         ) : (
-                          <span className="px-1 py-0.5 block min-w-[2rem] min-h-[1.25rem]">
-                            {tasker.got_the_ball_name || <span className="text-muted-foreground/40">-</span>}
+                          <span className="px-2 py-1 block text-xs font-bold text-muted-foreground bg-muted/30 rounded-lg min-w-8">
+                            {tasker.got_the_ball_name || '-'}
                           </span>
                         )}
                       </td>
 
+
                       {/* Priority */}
-                      <td className="px-3 py-3 whitespace-nowrap">
+                      <td className="px-4 py-4 whitespace-nowrap">
                         <select
-                          className={selectClass}
+                          className={`${selectClass} min-w-[100px] border-none shadow-sm shadow-black/5`}
                           value={tasker.priority}
                           onChange={async (e) => {
                             const newPriority = parseInt(e.target.value);
@@ -1067,7 +1098,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                       </td>
 
                       {/* Due Date */}
-                      <td className="px-3 py-3 whitespace-nowrap">
+                      <td className="px-4 py-4 whitespace-nowrap">
                         <input
                           type="date"
                           value={tasker.due_date ?? ''}
@@ -1082,15 +1113,15 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                               );
                             }
                           }}
-                          className="bg-background border border-input rounded px-1 py-0.5 text-xs"
+                          className={`${selectClass} border-none shadow-sm shadow-black/5`}
                         />
                       </td>
 
                       {/* Log */}
-                      <td className="px-3 py-3 whitespace-nowrap">
+                      <td className="px-4 py-4 whitespace-nowrap text-center">
                         <button
                           onClick={() => openLogModal(tasker)}
-                          className="p-1 hover:bg-muted rounded transition-colors"
+                          className="p-2 hover:bg-blue-500/10 rounded-xl transition-all active:scale-95 border border-transparent hover:border-blue-500/20"
                           title="View logs & chat"
                         >
                           <MessageCircle className="h-4 w-4 text-blue-500" />
@@ -1098,13 +1129,13 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                       </td>
 
                       {/* Help */}
-                      <td className="px-3 py-3 whitespace-nowrap">
+                      <td className="px-4 py-4 whitespace-nowrap text-center">
                         <button
                           onClick={() => {
                             setHelpModal(tasker);
                             setHelpUser(tasker.help_request_user_name ?? '');
                           }}
-                          className="p-1 hover:bg-muted rounded transition-colors"
+                          className="p-2 hover:bg-orange-500/10 rounded-xl transition-all active:scale-95 border border-transparent hover:border-orange-500/20"
                           title={
                             tasker.help_request_user_name
                               ? `Help from: ${tasker.help_request_user_name}`
@@ -1122,36 +1153,39 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                       </td>
 
                       {/* Issues */}
-                      <td className="px-3 py-3 whitespace-nowrap">
-                        <EditableCell
-                          tasker={tasker}
-                          field="issues"
-                          displayValue={tasker.issues ?? ''}
-                        />
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <div className="text-xs font-bold text-red-500/80 italic min-w-[100px]">
+                          <EditableCell
+                            tasker={tasker}
+                            field="issues"
+                            displayValue={tasker.issues ?? ''}
+                          />
+                        </div>
                       </td>
 
-                      {/* Original due date vs now */}
-                      <td className="px-3 py-3 whitespace-nowrap text-xs">
+                      {/* Progress/Due info */}
+                      <td className="px-4 py-4 whitespace-nowrap">
                         {(() => {
                           const dueDateStr = tasker.due_date;
-                          if (!dueDateStr) return <span className="text-muted-foreground">-</span>;
+                          if (!dueDateStr) return <span className="text-muted-foreground/40 font-bold text-[10px] uppercase tracking-wider">No Date</span>;
                           const today = new Date();
                           today.setHours(0, 0, 0, 0);
                           const due = new Date(dueDateStr + 'T00:00:00');
                           const diffDays = Math.round((due.getTime() - today.getTime()) / 86_400_000);
                           if (diffDays < 0) {
-                            return <span className="text-red-500 font-medium">{Math.abs(diffDays)} day{Math.abs(diffDays) !== 1 ? 's' : ''} late</span>;
+                            return <span className="px-2 py-1 bg-red-500/10 text-red-500 rounded-lg font-bold text-[10px] uppercase tracking-wider border border-red-500/20">{Math.abs(diffDays)}d Overdue</span>;
                           }
                           if (diffDays === 0) {
-                            return <span className="text-yellow-500 font-medium">Due today</span>;
+                            return <span className="px-2 py-1 bg-yellow-500/10 text-yellow-500 rounded-lg font-bold text-[10px] uppercase tracking-wider border border-yellow-500/20">Today</span>;
                           }
-                          return <span className="text-green-500 font-medium">In {diffDays} day{diffDays !== 1 ? 's' : ''}</span>;
+                          return <span className="px-2 py-1 bg-green-500/10 text-green-500 rounded-lg font-bold text-[10px] uppercase tracking-wider border border-green-500/20">{diffDays}d Left</span>;
                         })()}
                       </td>
 
                       {/* Actions */}
-                      <td className="px-3 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-1">
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+
                           {tasker.due_date && (
                             <a
                               href={(() => {
@@ -1192,16 +1226,16 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
 
       {/* ===== CREATE TASKER MODAL ===== */}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">Create New Tasker</h2>
-              <button onClick={() => setShowCreate(false)} className="p-1 hover:bg-muted rounded">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-md p-4">
+          <div className="glass-card bg-background/90 border border-border/50 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between p-6 border-b border-border/50">
+              <h2 className="text-xl font-bold tracking-tight">Create New Tasker</h2>
+              <button onClick={() => setShowCreate(false)} className="p-2 hover:bg-muted rounded-xl transition-all">
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="space-y-4">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
               <div>
                 <label className="block text-sm font-medium mb-1">Task Name *</label>
                 <div className="flex gap-2">
@@ -1231,7 +1265,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                 </div>
                 {taskNameTooLong && (
                   <div className="mt-1 flex items-start gap-1.5 text-xs text-amber-400">
-                    <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                     <span>Task name is too long. Keep it short and concise.</span>
                   </div>
                 )}
@@ -1240,7 +1274,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                 )}
                 {taskNameSuggestion && !suggestingName && (
                   <div className="mt-1 flex items-start gap-1.5 text-xs text-blue-400">
-                    <Sparkles className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                    <Sparkles className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                     <span>
                       Suggested:{' '}
                       <button
@@ -1384,20 +1418,20 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                 ))}
               </datalist>
 
-              <div className="flex items-center gap-3 pt-2">
+              <div className="flex items-center gap-3 pt-4 border-t border-border/50">
                 <button
                   onClick={handleCreate}
                   disabled={creating || !newTasker.task_name.trim() || taskNameTooLong}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50"
+                  className="inline-flex items-center gap-2 px-6 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-95 disabled:opacity-50"
                 >
                   {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                  Create Tasker
+                  CREATE TASKER
                 </button>
                 <button
                   onClick={() => setShowCreate(false)}
-                  className="px-4 py-2 border border-input rounded-lg text-sm font-semibold hover:bg-muted"
+                  className="px-6 py-2.5 border border-border/50 rounded-xl text-sm font-bold hover:bg-muted transition-all active:scale-95"
                 >
-                  Cancel
+                  CANCEL
                 </button>
               </div>
             </div>
@@ -1407,13 +1441,13 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
 
       {/* ===== DESCRIPTION MODAL ===== */}
       {descriptionModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-lg shadow-xl">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">Description: {descriptionModal.task_name}</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-md p-4">
+          <div className="glass-card bg-background/90 border border-border/50 rounded-2xl p-6 w-full max-w-lg shadow-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold tracking-tight">Description: {descriptionModal.task_name}</h2>
               <button
                 onClick={() => setDescriptionModal(null)}
-                className="p-1 hover:bg-muted rounded"
+                className="p-2 hover:bg-muted rounded-xl transition-all"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -1426,7 +1460,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
               className={inputClass + ' min-h-[150px]'}
               placeholder="Add a description..."
             />
-            <div className="flex items-center gap-3 mt-4">
+            <div className="flex items-center gap-3 mt-6 pt-6 border-t border-border/50">
               <button
                 onClick={async () => {
                   if (!user) return;
@@ -1454,15 +1488,15 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                   }
                   setDescriptionModal(null);
                 }}
-                className="px-4 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-semibold hover:opacity-90"
+                className="px-6 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-95"
               >
-                Save
+                SAVE
               </button>
               <button
                 onClick={() => setDescriptionModal(null)}
-                className="px-4 py-2 border border-input rounded-lg text-sm font-semibold hover:bg-muted"
+                className="px-6 py-2.5 border border-border/50 rounded-xl text-sm font-bold hover:bg-muted transition-all active:scale-95"
               >
-                Cancel
+                CANCEL
               </button>
             </div>
           </div>
@@ -1471,55 +1505,73 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
 
       {/* ===== LOG / CHAT MODAL ===== */}
       {logModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-card border border-border rounded-xl w-full max-w-lg shadow-xl flex flex-col max-h-[85vh]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-md p-4">
+          <div className="glass-card bg-background/90 border border-border/50 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-border">
-              <h2 className="text-lg font-bold">Log: {logModal.task_name}</h2>
+            <div className="flex items-center justify-between p-6 border-b border-border/50">
+              <h2 className="text-xl font-bold tracking-tight">Log: {logModal.task_name}</h2>
               <button
                 onClick={() => {
                   setLogModal(null);
                   setLogs([]);
                   setNewMessage('');
                 }}
-                className="p-1 hover:bg-muted rounded"
+                className="p-2 hover:bg-muted rounded-xl transition-all"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[200px]">
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 min-h-[300px] bg-muted/10">
               {loadingLogs ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Loading...
+                <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
+                  <Loader2 className="w-8 h-8 animate-spin text-accent" />
+                  <span className="text-sm font-bold uppercase tracking-widest">Loading Logs...</span>
                 </div>
               ) : logs.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">
-                  No logs yet. Start the conversation.
-                </p>
+                <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground opacity-50">
+                  <MessageCircle className="w-12 h-12 mb-2" />
+                  <p className="text-sm font-bold uppercase tracking-widest">No logs yet.</p>
+                  <p className="text-xs font-medium">Start the conversation below.</p>
+                </div>
               ) : (
                 logs.map((log) => (
                   <div
                     key={log.id}
-                    className={`text-sm ${
+                    className={`flex flex-col gap-1 ${
                       log.type === 'change'
-                        ? 'text-muted-foreground italic border-l-2 border-border pl-3'
-                        : ''
+                        ? 'items-center py-2'
+                        : log.user_name === displayName 
+                          ? 'items-end' 
+                          : 'items-start'
                     }`}
                   >
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="font-semibold text-xs">
-                        {log.user_name}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(log.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}
-                      </span>
-                      {log.type === 'change' && (
-                        <span className="text-xs bg-muted px-1.5 py-0.5 rounded">change</span>
-                      )}
-                    </div>
-                    <p>{log.message}</p>
+                    {log.type === 'change' ? (
+                      <div className="px-4 py-1.5 bg-muted/50 rounded-full border border-border/50 text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                        <span className="w-1 h-1 rounded-full bg-current opacity-50" />
+                        {log.message}
+                        <span className="opacity-50">— {new Date(log.created_at).toLocaleDateString()}</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2 px-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                            {log.user_name}
+                          </span>
+                          <span className="text-[9px] font-medium text-muted-foreground/50">
+                            {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm font-medium shadow-sm border ${
+                          log.user_name === displayName 
+                            ? 'bg-accent text-accent-foreground rounded-tr-none border-accent/20' 
+                            : 'bg-background border-border/50 rounded-tl-none'
+                        }`}>
+                          {log.message}
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))
               )}
@@ -1527,8 +1579,8 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
             </div>
 
             {/* Chat Input */}
-            <div className="p-4 border-t border-border">
-              <div className="flex items-center gap-2">
+            <div className="p-6 border-t border-border/50 bg-background/50 backdrop-blur-sm">
+              <div className="flex items-center gap-3">
                 <input
                   type="text"
                   value={newMessage}
@@ -1540,12 +1592,12 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                 <button
                   onClick={handleSendMessage}
                   disabled={sendingMessage || !newMessage.trim()}
-                  className="p-2 bg-accent text-accent-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
+                  className="p-3 bg-primary text-primary-foreground rounded-xl hover:opacity-90 disabled:opacity-50 transition-all active:scale-95 shadow-lg shadow-primary/20"
                 >
                   {sendingMessage ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
-                    <Send className="w-4 h-4" />
+                    <Send className="w-5 h-5" />
                   )}
                 </button>
               </div>
@@ -1556,22 +1608,22 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
 
       {/* ===== HELP REQUEST MODAL ===== */}
       {helpModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-sm shadow-xl">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">Request Help</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-md p-4">
+          <div className="glass-card bg-background/90 border border-border/50 rounded-2xl p-8 w-full max-w-sm shadow-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold tracking-tight">Request Help</h2>
               <button
                 onClick={() => {
                   setHelpModal(null);
                   setHelpUser('');
                 }}
-                className="p-1 hover:bg-muted rounded"
+                className="p-2 hover:bg-muted rounded-xl transition-all"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <p className="text-sm text-muted-foreground mb-3">
-              Request help from a user for: <strong>{helpModal.task_name}</strong>
+            <p className="text-sm text-muted-foreground mb-4 font-medium">
+              Request help from a user for: <strong className="text-foreground">{helpModal.task_name}</strong>
             </p>
             <input
               type="text"
@@ -1586,22 +1638,22 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                 <option key={u.user_name} value={u.user_name} />
               ))}
             </datalist>
-            <div className="flex items-center gap-3 mt-4">
+            <div className="flex items-center gap-3 mt-8">
               <button
                 onClick={handleHelpRequest}
                 disabled={!helpUser.trim()}
-                className="px-4 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50"
+                className="flex-1 px-6 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-95 disabled:opacity-50"
               >
-                Send Request
+                SEND REQUEST
               </button>
               <button
                 onClick={() => {
                   setHelpModal(null);
                   setHelpUser('');
                 }}
-                className="px-4 py-2 border border-input rounded-lg text-sm font-semibold hover:bg-muted"
+                className="flex-1 px-6 py-2.5 border border-border/50 rounded-xl text-sm font-bold hover:bg-muted transition-all active:scale-95"
               >
-                Cancel
+                CANCEL
               </button>
             </div>
           </div>
