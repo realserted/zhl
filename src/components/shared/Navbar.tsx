@@ -212,9 +212,13 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
 
   // Admins and project owners see all tabs; members are filtered by their permission row
   const HIDDEN_PERM_VALUES = new Set(["View / Don't view", 'None', '']);
+  const isAccountant = userPermission?.project_role?.includes('Accountant') ?? false;
+  const ACCOUNTANT_TABS = new Set(['overview', 'financial', 'settings']);
   const tabs = (isAdmin || !userPermission)
     ? allTabs
     : allTabs.filter((tab) => {
+        // Accountants can only see financial-related tabs
+        if (isAccountant) return ACCOUNTANT_TABS.has(tab.id);
         if (!tab.permKey) return true; // always show non-permission tabs
         const val = (userPermission as unknown as Record<string, string>)[tab.permKey];
         return val && !HIDDEN_PERM_VALUES.has(val);

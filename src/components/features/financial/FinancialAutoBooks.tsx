@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase/client';
 import { ProjectPermission } from '@/lib/types/project';
 import { FinancialBankType, FinancialTxCategory, FinancialTransaction, FinancialUploadSheet } from '@/lib/types/financial';
 import {
-  createBankType, approveBankType, rejectBankType,
+  createBankType,
   ensureDefaultBankTypes,
   ensureDistinctTxCategories, createTxCategory,
   getTransactions, updateTransaction, deleteTransaction, createTransaction, bulkCreateTransactions,
@@ -79,7 +79,6 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
 
   const permLevel = userPermission?.perm_reports ?? 'Admin';
   const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
-  const isAdmin = !userPermission; // no permission row = project owner/admin
 
   useEffect(() => {
     if (!user) return;
@@ -114,40 +113,17 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
   // ── Bank type handlers ─────────────────────────────────────
 
   const approvedBankTypes = bankTypes.filter((b) => !b.status || b.status === 'approved');
-  const pendingBankTypes = bankTypes.filter((b) => b.status === 'pending');
 
   const handleRequestBankType = async () => {
     if (!newTypeName.trim()) return;
-    const status = isAdmin ? 'approved' : 'pending';
-    const bt = await createBankType(selectedProjectId, newTypeName.trim(), status);
+    const bt = await createBankType(selectedProjectId, newTypeName.trim(), 'pending');
     if (bt) {
       setBankTypes((prev) => [...prev, bt]);
-      if (status === 'approved') {
-        setSelectedBankType(bt.id);
-        log(`Added bank type "${newTypeName.trim()}"`);
-      } else {
-        setNotice(`Request for "${newTypeName.trim()}" sent to admin.`);
-        log(`Requested bank type "${newTypeName.trim()}"`);
-      }
+      setNotice(`Request for "${newTypeName.trim()}" sent to admin for approval.`);
+      log(`Requested bank type "${newTypeName.trim()}"`);
     }
     setNewTypeName('');
     setShowAddType(false);
-  };
-
-  const handleApproveBankType = async (id: string) => {
-    if (await approveBankType(id)) {
-      setBankTypes((prev) => prev.map((b) => (b.id === id ? { ...b, status: 'approved' } : b)));
-      const bt = bankTypes.find((b) => b.id === id);
-      log(`Approved bank type "${bt?.name}"`);
-    }
-  };
-
-  const handleRejectBankType = async (id: string) => {
-    const bt = bankTypes.find((b) => b.id === id);
-    if (await rejectBankType(id)) {
-      setBankTypes((prev) => prev.filter((b) => b.id !== id));
-      log(`Rejected bank type "${bt?.name}"`);
-    }
   };
 
   const handleAddCategory = async () => {
@@ -631,7 +607,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                 className="px-2 py-1 bg-background border border-input rounded text-xs"
               />
               <button onClick={handleRequestBankType} className="text-xs text-accent font-semibold">
-                {isAdmin ? 'Add' : 'Request'}
+                Request
               </button>
             </div>
           ) : (
@@ -665,24 +641,6 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
               <Trash2 className="h-3.5 w-3.5" /> Delete all data
             </button>
           )}
-        </div>
-      )}
-
-      {/* Pending type requests (admin only) */}
-      {isAdmin && pendingBankTypes.length > 0 && (
-        <div className="mb-4 border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 rounded-lg p-3">
-          <p className="text-xs font-semibold text-amber-600 mb-2">Pending Type Requests</p>
-          {pendingBankTypes.map((bt) => (
-            <div key={bt.id} className="flex items-center gap-2 mb-1">
-              <span className="text-xs">{bt.name}</span>
-              <button onClick={() => handleApproveBankType(bt.id)} className="text-green-600 hover:text-green-700" title="Approve">
-                <Check className="h-3.5 w-3.5" />
-              </button>
-              <button onClick={() => handleRejectBankType(bt.id)} className="text-red-500 hover:text-red-600" title="Reject">
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ))}
         </div>
       )}
 
