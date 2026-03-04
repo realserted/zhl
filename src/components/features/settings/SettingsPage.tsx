@@ -23,6 +23,8 @@ import {
   type ProjectSettings,
 } from '@/lib/db/project-settings';
 import { submitAdminRequest } from '@/lib/db/admin-requests';
+import { getGoogleCalendarStatus } from '@/lib/db/google-calendar';
+import { useSearchParams } from 'next/navigation';
 
 type EditingField = 'displayName' | 'phone' | 'email' | 'password' | null;
 
@@ -57,6 +59,88 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
   const [confirmPassword, setConfirmPassword] = useState('');
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ field: string; message: string; type: 'success' | 'error' } | null>(null);
+
+  // Google Calendar sync
+  const searchParams = useSearchParams();
+  const [gcalConnected, setGcalConnected] = useState(false);
+  const [gcalLoading, setGcalLoading] = useState(false);
+  const [gcalFeedback, setGcalFeedback] = useState('');
+
+  // Check Google Calendar connection status on mount
+  useEffect(() => {
+    if (!user) return;
+    getGoogleCalendarStatus(user.id).then(setGcalConnected);
+
+    // Show feedback from OAuth callback redirect
+    const gcalParam = searchParams.get('gcal');
+    if (gcalParam === 'connected') setGcalFeedback('Google Calendar connected successfully!');
+    else if (gcalParam === 'error') setGcalFeedback('Failed to connect Google Calendar. Please try again.');
+  }, [user, searchParams]);
+
+  const handleConnectGoogleCalendar = async () => {
+    if (!user) return;
+    setGcalLoading(true);
+    try {
+      const session = await supabase.auth.getSession();
+      const accessToken = session.data.session?.access_token;
+      if (!accessToken) return;
+
+      const res = await fetch('/api/google-calendar/auth', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+    } catch {
+      setGcalFeedback('Failed to start Google Calendar connection.');
+    }
+    setGcalLoading(false);
+  };
+
+  const handleSyncGoogleCalendar = async () => {
+    if (!user || !selectedProjectId) return;
+    setGcalLoading(true);
+    setGcalFeedback('');
+    try {
+      const session = await supabase.auth.getSession();
+      const accessToken = session.data.session?.access_token;
+      if (!accessToken) return;
+
+      const res = await fetch('/api/google-calendar/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ projectId: selectedProjectId }),
+      });
+      const data = await res.json();
+      if (data.ok) setGcalFeedback(`Synced ${data.synced} tasker(s) to Google Calendar.`);
+      else setGcalFeedback('Sync failed. Please try again.');
+    } catch {
+      setGcalFeedback('Sync failed. Please try again.');
+    }
+    setGcalLoading(false);
+  };
+
+  const handleDisconnectGoogleCalendar = async () => {
+    if (!user) return;
+    setGcalLoading(true);
+    try {
+      const session = await supabase.auth.getSession();
+      const accessToken = session.data.session?.access_token;
+      if (!accessToken) return;
+
+      await fetch('/api/google-calendar/disconnect', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      setGcalConnected(false);
+      setGcalFeedback('Google Calendar disconnected.');
+    } catch {
+      setGcalFeedback('Failed to disconnect.');
+    }
+    setGcalLoading(false);
+  };
 
   // Load account data from Supabase on mount
   useEffect(() => {
@@ -499,9 +583,43 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
               <p className="text-xs sm:text-sm text-muted-foreground">(auto-links if presaling email is present)</p>
             </div>
 
-            <button className="w-full text-left py-2 px-3 sm:px-4 rounded hover:bg-muted transition-colors text-sm sm:text-base">
-              Sync taskers to google calendar
-            </button>
+            <div className="py-2 px-3 sm:px-4 rounded">
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-sm sm:text-base font-semibold">Sync taskers to Google Calendar</span>
+                {gcalConnected ? (
+                  <>
+                    <span className="text-xs text-green-400">Connected</span>
+                    <button
+                      onClick={handleSyncGoogleCalendar}
+                      disabled={gcalLoading || !selectedProjectId}
+                      className="px-3 py-1 text-xs font-semibold border border-input rounded hover:bg-muted transition-colors disabled:opacity-50"
+                    >
+                      {gcalLoading ? 'Syncing...' : 'Sync Now'}
+                    </button>
+                    <button
+                      onClick={handleDisconnectGoogleCalendar}
+                      disabled={gcalLoading}
+                      className="px-3 py-1 text-xs font-semibold text-red-400 border border-red-400/30 rounded hover:bg-red-400/10 transition-colors disabled:opacity-50"
+                    >
+                      Disconnect
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={handleConnectGoogleCalendar}
+                    disabled={gcalLoading}
+                    className="px-3 py-1 text-xs font-semibold border border-input rounded hover:bg-muted transition-colors disabled:opacity-50"
+                  >
+                    {gcalLoading ? 'Connecting...' : 'Connect Google Calendar'}
+                  </button>
+                )}
+              </div>
+              {gcalFeedback && (
+                <p className={`text-xs mt-1 ${gcalFeedback.includes('Failed') || gcalFeedback.includes('failed') ? 'text-red-400' : 'text-green-400'}`}>
+                  {gcalFeedback}
+                </p>
+              )}
+            </div>
 
             {/* Change Display Name */}
             <div className="py-2 px-3 sm:px-4 rounded border border-transparent">

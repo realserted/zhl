@@ -32,6 +32,16 @@ import { createNotification } from '@/lib/db/notifications';
 import { ProjectPermission } from '@/lib/types/project';
 import { getProjectSettings } from '@/lib/db/project-settings';
 
+/** Fire-and-forget: sync a single tasker to Google Calendar (no-ops if not connected). */
+async function syncTaskerToGcal(taskerId: string, accessToken: string | undefined) {
+  if (!accessToken) return;
+  fetch('/api/google-calendar/sync-one', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ taskerId }),
+  }).catch(() => {});
+}
+
 const STATUS_OPTIONS = ['Open', 'In Progress', 'Complete', 'Archived'] as const;
 
 const STATUS_COLORS: Record<string, string> = {
@@ -379,6 +389,8 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
         message: `Created tasker "${tasker.task_name}"`,
       });
       logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action: `Created tasker "${tasker.task_name}"` });
+      // Sync to Google Calendar (fire-and-forget)
+      supabase.auth.getSession().then(({ data }) => syncTaskerToGcal(tasker.id, data.session?.access_token));
       setNewTasker({
         task_name: '',
         description: '',
@@ -526,6 +538,10 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
       });
       if (selectedProjectId) {
         logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action: `Updated tasker "${tasker.task_name}" — changed ${fieldLabel}` });
+      }
+      // Sync to Google Calendar for relevant field changes
+      if (['task_name', 'description', 'due_date'].includes(field)) {
+        supabase.auth.getSession().then(({ data }) => syncTaskerToGcal(taskerId, data.session?.access_token));
       }
     }
     setEditingCell(null);
@@ -898,6 +914,8 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                                 if (selectedProjectId) {
                                   logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action: `Changed tasker "${tasker.task_name}" status to "${newStatus}"` });
                                 }
+                                // Sync status change to Google Calendar
+                                supabase.auth.getSession().then(({ data }) => syncTaskerToGcal(tasker.id, data.session?.access_token));
                               }
                             }
                           }}
