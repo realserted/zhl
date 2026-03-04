@@ -82,7 +82,7 @@ export default function AppSidebar({
 
   return (
     <aside
-      className={`sticky top-0 h-screen bg-background border-r border-border z-40 flex flex-col transition-all duration-300 ease-in-out flex-none shrink-0 ${
+      className={`sticky top-0 h-screen bg-background border-r border-border z-40 flex flex-col transition-[width,padding] duration-300 ease-in-out flex-none shrink-0 ${
         isCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED
       }`}
     >
