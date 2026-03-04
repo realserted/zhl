@@ -32,16 +32,6 @@ import { createNotification } from '@/lib/db/notifications';
 import { ProjectPermission } from '@/lib/types/project';
 import { getProjectSettings } from '@/lib/db/project-settings';
 
-/** Fire-and-forget: sync a single tasker to Google Calendar (no-ops if not connected). */
-async function syncTaskerToGcal(taskerId: string, accessToken: string | undefined) {
-  if (!accessToken) return;
-  fetch('/api/google-calendar/sync-one', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-    body: JSON.stringify({ taskerId }),
-  }).catch(() => {});
-}
-
 const STATUS_OPTIONS = ['Open', 'In Progress', 'Complete', 'Archived'] as const;
 
 const STATUS_COLORS: Record<string, string> = {
@@ -389,8 +379,6 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
         message: `Created tasker "${tasker.task_name}"`,
       });
       logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action: `Created tasker "${tasker.task_name}"` });
-      // Sync to Google Calendar (fire-and-forget)
-      supabase.auth.getSession().then(({ data }) => syncTaskerToGcal(tasker.id, data.session?.access_token));
       setNewTasker({
         task_name: '',
         description: '',
@@ -538,10 +526,6 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
       });
       if (selectedProjectId) {
         logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action: `Updated tasker "${tasker.task_name}" — changed ${fieldLabel}` });
-      }
-      // Sync to Google Calendar for relevant field changes
-      if (['task_name', 'description', 'due_date'].includes(field)) {
-        supabase.auth.getSession().then(({ data }) => syncTaskerToGcal(taskerId, data.session?.access_token));
       }
     }
     setEditingCell(null);
@@ -914,8 +898,6 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                                 if (selectedProjectId) {
                                   logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action: `Changed tasker "${tasker.task_name}" status to "${newStatus}"` });
                                 }
-                                // Sync status change to Google Calendar
-                                supabase.auth.getSession().then(({ data }) => syncTaskerToGcal(tasker.id, data.session?.access_token));
                               }
                             }
                           }}
@@ -1167,17 +1149,37 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                         })()}
                       </td>
 
-                      {/* Delete — hidden for View-only */}
+                      {/* Actions */}
                       <td className="px-3 py-3 whitespace-nowrap">
-                        {canEdit && (
-                          <button
-                            onClick={() => handleDelete(tasker.id)}
-                            className="p-1 text-muted-foreground hover:text-destructive transition-colors"
-                            title="Delete tasker"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        )}
+                        <div className="flex items-center gap-1">
+                          {tasker.due_date && (
+                            <a
+                              href={(() => {
+                                const d = tasker.due_date.replace(/-/g, '');
+                                const title = encodeURIComponent(tasker.task_name);
+                                const details = encodeURIComponent(
+                                  [tasker.description, tasker.responsible_name ? `Responsible: ${tasker.responsible_name}` : ''].filter(Boolean).join('\n')
+                                );
+                                return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${d}/${d}&details=${details}`;
+                              })()}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                              title="Add to Google Calendar"
+                            >
+                              <Calendar className="h-3.5 w-3.5" />
+                            </a>
+                          )}
+                          {canEdit && (
+                            <button
+                              onClick={() => handleDelete(tasker.id)}
+                              className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                              title="Delete tasker"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))
