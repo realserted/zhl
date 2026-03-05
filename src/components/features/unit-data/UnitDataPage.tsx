@@ -29,6 +29,7 @@ import {
   getCurrentFieldVisibility,
   permanentDeleteField,
   permanentDeleteCategory,
+  cleanupAndResortRows,
 } from '@/lib/db/unit-data';
 import { createRecoveryRequest } from '@/lib/db/unit-data-recovery';
 import { downloadFileUrl } from '@/lib/db/files';
@@ -148,6 +149,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
   // Add category modal
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryFields, setNewCategoryFields] = useState<string[]>(['']);
 
   // Add field modal
   const [showAddField, setShowAddField] = useState(false);
@@ -353,13 +355,33 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
   }, 40); // +40 for delete column
 
   // Filter out fully blank rows (no values across any visible field), but always show newly added rows
-  const nonEmptyRows = rows.filter((row) =>
-    newRowIds.has(row.id) ||
-    visibleFields.some((field) => {
-      const val = valueMap.get(`${row.id}-${field.id}`);
-      return val?.value != null && val.value.trim() !== '';
-    })
-  );
+  const nonEmptyRows = rows
+    .filter((row) =>
+      newRowIds.has(row.id) ||
+      visibleFields.some((field) => {
+        const val = valueMap.get(`${row.id}-${field.id}`);
+        return val?.value != null && val.value.trim() !== '';
+      })
+    )
+    // Sort: rows with more filled cells appear first so data aligns at the top
+    .sort((a, b) => {
+      // New rows always go to the bottom
+      if (newRowIds.has(a.id) && !newRowIds.has(b.id)) return 1;
+      if (!newRowIds.has(a.id) && newRowIds.has(b.id)) return -1;
+      // Count non-empty visible cells per row
+      let countA = 0;
+      let countB = 0;
+      for (const field of visibleFields) {
+        const valA = valueMap.get(`${a.id}-${field.id}`);
+        if (valA?.value != null && valA.value.trim() !== '') countA++;
+        const valB = valueMap.get(`${b.id}-${field.id}`);
+        if (valB?.value != null && valB.value.trim() !== '') countB++;
+      }
+      // More filled cells → appears first
+      if (countB !== countA) return countB - countA;
+      // Tiebreaker: preserve original sort_order
+      return a.sort_order - b.sort_order;
+    });
 
   // View mode handler — owner switches between views
   const handleViewChange = async (view: ViewMode) => {
@@ -653,9 +675,16 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
     if (!selectedProjectId || !user || !newCategoryName.trim()) return;
     const cat = await createCategory(selectedProjectId, newCategoryName.trim(), categories.length);
     if (cat) {
-      setCategories((prev) => [...prev, { ...cat, fields: [] }]);
-      log(`Added category "${newCategoryName.trim()}"`);
+      const fieldNames = newCategoryFields.map((f) => f.trim()).filter(Boolean);
+      const createdFields: UnitDataField[] = [];
+      for (let i = 0; i < fieldNames.length; i++) {
+        const field = await createField(cat.id, selectedProjectId, fieldNames[i], 'text', null, false, false, i);
+        if (field) createdFields.push(field);
+      }
+      setCategories((prev) => [...prev, { ...cat, fields: createdFields }]);
+      log(`Added category "${newCategoryName.trim()}" with ${createdFields.length} field(s)`);
       setNewCategoryName('');
+      setNewCategoryFields(['']);
       setShowAddCategory(false);
     }
   };
@@ -699,52 +728,75 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
 
     try {
       const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data, { type: 'array' });
+      const workbook = XLSX.read(data, { type: 'array', cellDates: true });
       const fileName = file.name.replace(/\.(xlsx?|csv)$/i, '');
+
+      // Clean up orphaned empty rows before processing
+      await cleanupAndResortRows(selectedProjectId);
 
       for (const sheetName of workbook.SheetNames) {
         const sheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
+        const jsonData = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
         if (jsonData.length === 0) continue;
 
         const catName = workbook.SheetNames.length === 1 ? fileName : `${fileName} - ${sheetName}`;
         const cat = await createCategory(selectedProjectId, catName, categories.length);
         if (!cat) continue;
 
-        const headers = (jsonData[0] as string[]).map((h) => String(h ?? '').trim()).filter(Boolean);
+        // Track original column indices for non-empty headers
+        const rawHeaders = (jsonData[0] as unknown[]).map((h) => {
+          if (h instanceof Date) return h.toISOString().split('T')[0];
+          return String(h ?? '').trim();
+        });
+        const headerEntries: { colIdx: number; name: string }[] = [];
+        for (let i = 0; i < rawHeaders.length; i++) {
+          if (rawHeaders[i]) headerEntries.push({ colIdx: i, name: rawHeaders[i] });
+        }
+
         const fields: UnitDataField[] = [];
-        for (let fi = 0; fi < headers.length; fi++) {
-          const field = await createField(cat.id, selectedProjectId, headers[fi], 'text', null, false, false, fi);
+        for (let fi = 0; fi < headerEntries.length; fi++) {
+          const field = await createField(cat.id, selectedProjectId, headerEntries[fi].name, 'text', null, false, false, fi);
           if (field) fields.push(field);
         }
 
-        // Reuse existing rows first, create new ones only if needed
+        // Get existing rows (sorted by sort_order — oldest rows first after cleanup)
         const existingRows = await getRows(selectedProjectId);
-        let dataRowIndex = 0;
-        let createdCount = 0;
+
+        let rowCount = 0;
         for (let ri = 1; ri < jsonData.length; ri++) {
-          const rowData = jsonData[ri] as string[];
+          const rowData = jsonData[ri] as unknown[];
           if (!rowData || rowData.every((cell) => cell === null || cell === undefined || String(cell).trim() === '')) continue;
 
+          // Reuse existing rows so old + new data share the same row
+          // Only create new rows for overflow (when uploaded data has more rows than existing)
           let targetRow: UnitDataRow;
-          if (dataRowIndex < existingRows.length) {
-            targetRow = existingRows[dataRowIndex];
+          if (rowCount < existingRows.length) {
+            targetRow = existingRows[rowCount];
           } else {
-            const newRow = await createRow(selectedProjectId, existingRows.length + createdCount);
-            if (!newRow) { dataRowIndex++; continue; }
+            const newRow = await createRow(selectedProjectId, rowCount);
+            if (!newRow) { rowCount++; continue; }
             targetRow = newRow;
-            createdCount++;
           }
-          dataRowIndex++;
+          rowCount++;
 
           for (let fi = 0; fi < fields.length; fi++) {
-            const cellVal = rowData[fi] !== null && rowData[fi] !== undefined ? String(rowData[fi]).trim() : '';
+            const colIdx = headerEntries[fi]?.colIdx;
+            if (colIdx === undefined) continue;
+            const rawVal = rowData[colIdx];
+            let cellVal = '';
+            if (rawVal instanceof Date) {
+              cellVal = isNaN(rawVal.getTime()) ? '' : rawVal.toISOString().split('T')[0];
+            } else {
+              cellVal = rawVal !== null && rawVal !== undefined ? String(rawVal).trim() : '';
+            }
             if (cellVal) await upsertValue(targetRow.id, fields[fi].id, cellVal);
           }
         }
 
-        log(`Imported Excel "${file.name}" as category "${catName}" (${fields.length} fields, ${dataRowIndex} rows)`);
+        log(`Imported Excel "${file.name}" as category "${catName}" (${fields.length} fields, ${rowCount} rows)`);
       }
+      // Re-sort so old rows (with data in more categories) appear first
+      await cleanupAndResortRows(selectedProjectId);
       // Reload all data from DB to ensure UI is fully up to date
       await loadData(selectedProjectId);
     } catch (err) {
@@ -842,33 +894,38 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
         if (field) fields.push(field);
       }
 
-      // Reuse existing rows first, create new ones only if needed
+      // Clean up orphaned empty rows, then get clean row list
+      await cleanupAndResortRows(selectedProjectId);
       const existingRows = await getRows(selectedProjectId);
-      let dataRowIndex = 0;
-      let createdCount = 0;
+
+      let rowCount = 0;
       for (let r = dataStartIdx; r < udPreviewRows.length; r++) {
         const rowData = udPreviewRows[r];
         if (!rowData || rowData.every((cell) => cell === '' || cell == null)) continue;
 
+        // Reuse existing rows so old + new data share the same row
         let targetRow: UnitDataRow;
-        if (dataRowIndex < existingRows.length) {
-          targetRow = existingRows[dataRowIndex];
+        if (rowCount < existingRows.length) {
+          targetRow = existingRows[rowCount];
         } else {
-          const newRow = await createRow(selectedProjectId, existingRows.length + createdCount);
-          if (!newRow) { dataRowIndex++; continue; }
+          const newRow = await createRow(selectedProjectId, rowCount);
+          if (!newRow) { rowCount++; continue; }
           targetRow = newRow;
-          createdCount++;
         }
-        dataRowIndex++;
+        rowCount++;
 
         for (let fi = 0; fi < fields.length; fi++) {
-          const colIdx = includedCols[fi].colIdx;
-          const cellVal = rowData[colIdx] !== null && rowData[colIdx] !== undefined ? String(rowData[colIdx]).trim() : '';
+          const colIdx = includedCols[fi]?.colIdx;
+          if (colIdx === undefined) continue;
+          const rawVal = rowData[colIdx];
+          const cellVal = rawVal !== null && rawVal !== undefined ? String(rawVal).trim() : '';
           if (cellVal) await upsertValue(targetRow.id, fields[fi].id, cellVal);
         }
       }
 
-      log(`Imported Excel "${udPreviewFile.name}" as category "${catName}" (${fields.length} fields, ${dataRowIndex} rows)`);
+      log(`Imported Excel "${udPreviewFile.name}" as category "${catName}" (${fields.length} fields, ${rowCount} rows)`);
+      // Re-sort so old rows (with data in more categories) appear first
+      await cleanupAndResortRows(selectedProjectId);
       // Reload all data from DB to ensure UI is fully up to date
       await loadData(selectedProjectId);
     } catch (err) {
@@ -1403,6 +1460,73 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                 </thead>
 
                 <tbody>
+                  {/* ===== SUMMARY ROW (sums for fields with show_sum enabled) ===== */}
+                  {nonEmptyRows.length > 0 && (
+                    <tr className="border-b-2 border-accent/40 bg-muted/70 font-semibold">
+                      {categories.map((cat) => {
+                        const catVisibleFields = getOrderedFields(cat).filter((f) => f.visible);
+                        if (catVisibleFields.length === 0) return null;
+                        const isCollapsed = collapsedCategories.has(cat.id);
+                        if (isCollapsed) {
+                          return <td key={cat.id} className="px-3 py-2 text-xs border-r border-input" />;
+                        }
+                        return catVisibleFields.map((field) => {
+                          if (!field.show_sum) {
+                            return (
+                              <td
+                                key={field.id}
+                                className="px-3 py-2 text-xs border-r border-input last:border-r-0 cursor-pointer hover:bg-muted"
+                                title="Click to enable sum"
+                                onClick={canEdit ? async () => {
+                                  const ok = await updateField(field.id, { show_sum: true });
+                                  if (ok) {
+                                    setCategories((prev) => prev.map((c) => c.id === cat.id
+                                      ? { ...c, fields: c.fields.map((f) => f.id === field.id ? { ...f, show_sum: true } : f) }
+                                      : c
+                                    ));
+                                  }
+                                } : undefined}
+                              />
+                            );
+                          }
+
+                          // Sum all numeric values in this column
+                          let sum = 0;
+                          let hasNumeric = false;
+                          for (const row of nonEmptyRows) {
+                            const val = valueMap.get(`${row.id}-${field.id}`);
+                            if (val?.value != null) {
+                              const num = parseFloat(val.value);
+                              if (!isNaN(num)) {
+                                sum += num;
+                                hasNumeric = true;
+                              }
+                            }
+                          }
+
+                          return (
+                            <td
+                              key={field.id}
+                              className="px-3 py-2 text-xs border-r border-input last:border-r-0 text-accent cursor-pointer hover:bg-muted"
+                              title="Click to disable sum"
+                              onClick={canEdit ? async () => {
+                                const ok = await updateField(field.id, { show_sum: false });
+                                if (ok) {
+                                  setCategories((prev) => prev.map((c) => c.id === cat.id
+                                    ? { ...c, fields: c.fields.map((f) => f.id === field.id ? { ...f, show_sum: false } : f) }
+                                    : c
+                                  ));
+                                }
+                              } : undefined}
+                            >
+                              {hasNumeric ? sum.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : ''}
+                            </td>
+                          );
+                        });
+                      })}
+                      <td className="w-8" />
+                    </tr>
+                  )}
                   {rows.length === 0 ? (
                     <tr>
                       <td colSpan={visibleFields.length + 1} className="px-3 py-8 text-center text-muted-foreground">
@@ -1524,10 +1648,10 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
       {/* ===== ADD CATEGORY MODAL ===== */}
       {showAddCategory && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-sm shadow-xl">
+          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md shadow-xl">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">Add Category</h2>
-              <button onClick={() => setShowAddCategory(false)} className="p-1 hover:bg-muted rounded">
+              <button onClick={() => { setShowAddCategory(false); setNewCategoryName(''); setNewCategoryFields(['']); }} className="p-1 hover:bg-muted rounded">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -1537,8 +1661,52 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
               onChange={(e) => setNewCategoryName(e.target.value)}
               className={inputClass}
               placeholder="Category name"
-              onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
             />
+
+            {/* Fields */}
+            <div className="mt-4">
+              <label className="text-sm font-semibold text-muted-foreground mb-2 block">Fields</label>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {newCategoryFields.map((fieldName, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={fieldName}
+                      onChange={(e) => {
+                        const updated = [...newCategoryFields];
+                        updated[idx] = e.target.value;
+                        setNewCategoryFields(updated);
+                      }}
+                      className={inputClass}
+                      placeholder={`Field ${idx + 1}`}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (idx === newCategoryFields.length - 1 && fieldName.trim()) {
+                            setNewCategoryFields((prev) => [...prev, '']);
+                          }
+                        }
+                      }}
+                    />
+                    {newCategoryFields.length > 1 && (
+                      <button
+                        onClick={() => setNewCategoryFields((prev) => prev.filter((_, i) => i !== idx))}
+                        className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-destructive shrink-0"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => setNewCategoryFields((prev) => [...prev, ''])}
+                className="mt-2 text-xs text-accent hover:underline flex items-center gap-1"
+              >
+                <Plus className="h-3 w-3" /> Add field
+              </button>
+            </div>
+
             <div className="flex items-center gap-3 mt-4">
               <button
                 onClick={handleAddCategory}
@@ -1548,7 +1716,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                 Add
               </button>
               <button
-                onClick={() => setShowAddCategory(false)}
+                onClick={() => { setShowAddCategory(false); setNewCategoryName(''); setNewCategoryFields(['']); }}
                 className="px-4 py-2 border border-input rounded-lg text-sm font-semibold hover:bg-muted"
               >
                 Cancel

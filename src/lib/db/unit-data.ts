@@ -87,7 +87,7 @@ export async function updateCategory(categoryId: string, name: string): Promise<
 
 export async function updateField(
   fieldId: string,
-  updates: { name?: string; tooltip?: string | null; is_file_link?: boolean; is_hyperlink?: boolean }
+  updates: { name?: string; tooltip?: string | null; is_file_link?: boolean; is_hyperlink?: boolean; show_sum?: boolean }
 ): Promise<boolean> {
   const { error } = await supabase
     .from('zhl_unit_data_fields')
@@ -232,6 +232,80 @@ export async function getRows(projectId: string): Promise<UnitDataRow[]> {
     .order('sort_order');
   if (error) { console.error('Error fetching rows:', error.message, error.code, error.details); return []; }
   return data ?? [];
+}
+
+/** Delete orphaned empty rows and re-sort remaining rows to 0, 1, 2, ...
+ *  Rows with more distinct field values (across more categories) are sorted first. */
+export async function cleanupAndResortRows(projectId: string): Promise<void> {
+  const { data: allRows } = await supabase
+    .from('zhl_unit_data_rows')
+    .select('id, sort_order, created_at')
+    .eq('project_id', projectId)
+    .order('sort_order');
+  if (!allRows || allRows.length === 0) return;
+
+  // Get all values with their field_id to identify which rows have data and from how many categories
+  const { data: vals } = await supabase
+    .from('zhl_unit_data_values')
+    .select('row_id, field_id, value')
+    .in('row_id', allRows.map((r) => r.id));
+
+  // Get field → category mapping
+  const { data: fields } = await supabase
+    .from('zhl_unit_data_fields')
+    .select('id, category_id')
+    .eq('project_id', projectId);
+  const fieldCategoryMap = new Map<string, string>();
+  for (const f of (fields ?? [])) fieldCategoryMap.set(f.id, f.category_id);
+
+  const rowHasValues = new Set<string>();
+  const rowCategoryCount = new Map<string, number>();
+  for (const v of (vals ?? [])) {
+    if (v.value != null && String(v.value).trim() !== '') {
+      rowHasValues.add(v.row_id);
+      // Track distinct categories per row
+      const catId = fieldCategoryMap.get(v.field_id);
+      if (catId) {
+        const key = `${v.row_id}::${catId}`;
+        if (!rowCategoryCount.has(key)) {
+          rowCategoryCount.set(key, 1);
+        }
+      }
+    }
+  }
+  // Count distinct categories per row
+  const rowDistinctCats = new Map<string, number>();
+  for (const key of rowCategoryCount.keys()) {
+    const rowId = key.split('::')[0];
+    rowDistinctCats.set(rowId, (rowDistinctCats.get(rowId) ?? 0) + 1);
+  }
+
+  // Delete empty rows (no values at all)
+  const emptyRows = allRows.filter((r) => !rowHasValues.has(r.id));
+  if (emptyRows.length > 0) {
+    await supabase.from('zhl_unit_data_rows').delete().in('id', emptyRows.map((r) => r.id));
+  }
+
+  // Sort remaining rows: rows with data in MORE categories come first (old data rows)
+  // Tiebreaker: older created_at first, then original sort_order
+  const keepRows = allRows
+    .filter((r) => rowHasValues.has(r.id))
+    .sort((a, b) => {
+      const catDiff = (rowDistinctCats.get(b.id) ?? 0) - (rowDistinctCats.get(a.id) ?? 0);
+      if (catDiff !== 0) return catDiff;
+      const timeDiff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return a.sort_order - b.sort_order;
+    });
+
+  // First pass: offset all sort_orders to temp values to avoid unique constraint conflicts
+  for (let i = 0; i < keepRows.length; i++) {
+    await supabase.from('zhl_unit_data_rows').update({ sort_order: 100000 + i }).eq('id', keepRows[i].id);
+  }
+  // Second pass: assign final sequential sort_orders
+  for (let i = 0; i < keepRows.length; i++) {
+    await supabase.from('zhl_unit_data_rows').update({ sort_order: i }).eq('id', keepRows[i].id);
+  }
 }
 
 export async function createRow(projectId: string, sortOrder: number): Promise<UnitDataRow | null> {
