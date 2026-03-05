@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Loader2, Trash2, X, Link, Upload, FileSpreadsheet, Pencil, FileText, ExternalLink, GripVertical } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Loader2, Trash2, X, Link, Upload, Download, FileSpreadsheet, Pencil, FileText, ExternalLink, GripVertical } from 'lucide-react';
 import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -173,9 +173,33 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
   const [udPreviewWorkbook, setUdPreviewWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [udHeaderRow, setUdHeaderRow] = useState(1); // 1-indexed: which row contains column names
   const [udDataStartRow, setUdDataStartRow] = useState(2); // 1-indexed: where data begins
+  const [udDataEndRow, setUdDataEndRow] = useState(0); // 1-indexed: where data ends (0 = last row)
+  const [udStartCol, setUdStartCol] = useState(0); // 0-indexed: first column to include
+  const [udEndCol, setUdEndCol] = useState(0); // 0-indexed: last column to include (0 = auto from data)
   const [udColumnSkip, setUdColumnSkip] = useState<Record<number, boolean>>({}); // colIdx → skip
   const [udPreviewPage, setUdPreviewPage] = useState(0);
   const UD_PREVIEW_PAGE_SIZE = 20;
+  // Cell range selection via click-drag on preview
+  const [udSelecting, setUdSelecting] = useState(false);
+  const [udSelStart, setUdSelStart] = useState<{ r: number; c: number } | null>(null);
+  const [udSelEnd, setUdSelEnd] = useState<{ r: number; c: number } | null>(null);
+
+  // Import to Category modal state
+  const importFileInputRef = useRef<HTMLInputElement>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importRows, setImportRows] = useState<unknown[][]>([]);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importPage, setImportPage] = useState(0);
+  const [importTargetCat, setImportTargetCat] = useState<string>(''); // category id
+  const [importDataStartRow, setImportDataStartRow] = useState(1); // 1-indexed
+  const [importDataEndRow, setImportDataEndRow] = useState(0); // 1-indexed (0 = last)
+  const [importStartCol, setImportStartCol] = useState(0); // 0-indexed
+  const [importEndCol, setImportEndCol] = useState(0); // 0-indexed
+  const [importColMapping, setImportColMapping] = useState<Record<number, string>>({}); // colIdx → fieldId or '__new__'
+  const [importNewFieldNames, setImportNewFieldNames] = useState<Record<number, string>>({}); // colIdx → new field name
+  const [importSelecting, setImportSelecting] = useState(false);
+  const [importSelStart, setImportSelStart] = useState<{ r: number; c: number } | null>(null);
+  const [importSelEnd, setImportSelEnd] = useState<{ r: number; c: number } | null>(null);
 
   // Load user info
   useEffect(() => {
@@ -851,11 +875,17 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
     }
     setUdDataStartRow(detectedDataStart);
 
-    // Reset column skip state
+    // Reset column skip state and range
     const maxCols = Math.max(...cleaned.map((r) => r.length), 0);
     const skipMap: Record<number, boolean> = {};
     for (let c = 0; c < maxCols; c++) skipMap[c] = false;
     setUdColumnSkip(skipMap);
+    setUdStartCol(0);
+    setUdEndCol(maxCols - 1);
+    setUdDataEndRow(cleaned.length);
+    setUdSelecting(false);
+    setUdSelStart(null);
+    setUdSelEnd(null);
 
     setUdPreviewOpen(true);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -878,10 +908,11 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
       const headerRowIdx = udHeaderRow - 1; // 0-indexed
       const headerRowData = udPreviewRows[headerRowIdx] ?? [];
       const dataStartIdx = udDataStartRow - 1; // 0-indexed
+      const dataEndIdx = (udDataEndRow || udPreviewRows.length) - 1; // 0-indexed
 
-      // Build included columns (not skipped)
+      // Build included columns (within column range and not skipped)
       const includedCols: { colIdx: number; name: string }[] = [];
-      for (let c = 0; c < headerRowData.length; c++) {
+      for (let c = udStartCol; c <= udEndCol && c < headerRowData.length; c++) {
         if (udColumnSkip[c]) continue;
         const name = String(headerRowData[c] ?? '').trim() || `Column ${c + 1}`;
         includedCols.push({ colIdx: c, name });
@@ -899,7 +930,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
       const existingRows = await getRows(selectedProjectId);
 
       let rowCount = 0;
-      for (let r = dataStartIdx; r < udPreviewRows.length; r++) {
+      for (let r = dataStartIdx; r <= dataEndIdx && r < udPreviewRows.length; r++) {
         const rowData = udPreviewRows[r];
         if (!rowData || rowData.every((cell) => cell === '' || cell == null)) continue;
 
@@ -939,6 +970,121 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
     }
   };
 
+  // Import to Category — open file and show range/mapping modal
+  const handleImportToCategory = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedProjectId || !user) return;
+
+    const data = await file.arrayBuffer();
+    const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+    const xlSheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rawRows = XLSX.utils.sheet_to_json<unknown[]>(xlSheet, { defval: '', header: 1 });
+
+    const cleaned = rawRows.map((row) =>
+      (row as unknown[]).map((cell) => {
+        if (cell instanceof Date) return isNaN(cell.getTime()) ? '' : cell.toISOString().split('T')[0];
+        return cell;
+      })
+    );
+
+    const maxCols = Math.max(...cleaned.map((r) => r.length), 0);
+    setImportRows(cleaned);
+    setImportFile(file);
+    setImportPage(0);
+    setImportDataStartRow(1);
+    setImportDataEndRow(cleaned.length);
+    setImportStartCol(0);
+    setImportEndCol(maxCols - 1);
+    setImportColMapping({}); setImportNewFieldNames({});
+    setImportTargetCat('');
+    setImportSelecting(false);
+    setImportSelStart(null);
+    setImportSelEnd(null);
+    setImportOpen(true);
+    if (importFileInputRef.current) importFileInputRef.current.value = '';
+  };
+
+  // Process the import: insert data from selected range into existing category fields
+  const processImportToCategory = async () => {
+    if (!selectedProjectId || !user || !importTargetCat || importRows.length === 0) return;
+    const cat = categories.find((c) => c.id === importTargetCat);
+    if (!cat) return;
+
+    // Check at least one column is mapped (existing field or new field)
+    const mappedEntries = Object.entries(importColMapping).filter(([, fieldId]) => fieldId !== '');
+    const hasNewFields = mappedEntries.some(([, v]) => v === '__new__');
+    const newFieldsValid = !hasNewFields || mappedEntries
+      .filter(([, v]) => v === '__new__')
+      .every(([colIdx]) => (importNewFieldNames[parseInt(colIdx)] ?? '').trim() !== '');
+    if (mappedEntries.length === 0) { alert('Please map at least one column to a field.'); return; }
+    if (!newFieldsValid) { alert('Please enter a name for all new fields.'); return; }
+
+    setImportOpen(false);
+    setUploading(true);
+
+    try {
+      // Create any new fields first
+      const resolvedMappings: [number, string][] = []; // [colIdx, fieldId]
+      const existingFieldCount = cat.fields.length;
+      let newFieldIdx = 0;
+      for (const [colIdxStr, fieldId] of mappedEntries) {
+        const colIdx = parseInt(colIdxStr);
+        if (fieldId === '__new__') {
+          const newName = (importNewFieldNames[colIdx] ?? '').trim() || `Column ${colIdx + 1}`;
+          const newField = await createField(cat.id, selectedProjectId, newName, 'text', null, false, false, existingFieldCount + newFieldIdx);
+          newFieldIdx++;
+          if (newField) resolvedMappings.push([colIdx, newField.id]);
+        } else {
+          resolvedMappings.push([colIdx, fieldId]);
+        }
+      }
+
+      await cleanupAndResortRows(selectedProjectId);
+      const existingRows = await getRows(selectedProjectId);
+
+      const dataStartIdx = importDataStartRow - 1;
+      const dataEndIdx = (importDataEndRow || importRows.length) - 1;
+
+      let rowCount = 0;
+      for (let r = dataStartIdx; r <= dataEndIdx && r < importRows.length; r++) {
+        const rowData = importRows[r];
+        if (!rowData || rowData.every((cell) => cell === '' || cell == null)) continue;
+
+        let targetRow: UnitDataRow;
+        if (rowCount < existingRows.length) {
+          targetRow = existingRows[rowCount];
+        } else {
+          const newRow = await createRow(selectedProjectId, rowCount);
+          if (!newRow) { rowCount++; continue; }
+          targetRow = newRow;
+        }
+        rowCount++;
+
+        for (const [colIdx, fieldId] of resolvedMappings) {
+          const rawVal = rowData[colIdx];
+          let cellVal = '';
+          if (rawVal instanceof Date) {
+            cellVal = isNaN(rawVal.getTime()) ? '' : rawVal.toISOString().split('T')[0];
+          } else {
+            cellVal = rawVal !== null && rawVal !== undefined ? String(rawVal).trim() : '';
+          }
+          if (cellVal) await upsertValue(targetRow.id, fieldId, cellVal);
+        }
+      }
+
+      log(`Imported ${rowCount} rows into category "${cat.name}" (${resolvedMappings.length} fields mapped)`);
+      await cleanupAndResortRows(selectedProjectId);
+      await loadData(selectedProjectId);
+    } catch (err) {
+      console.error('Error importing to category:', err);
+      alert('Failed to import data. Please check the format and try again.');
+    } finally {
+      setUploading(false);
+      setImportFile(null);
+      setImportRows([]);
+    }
+  };
+
   const inputClass = 'w-full px-3 py-2 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring';
 
   // Category colors for sidebar decoration
@@ -967,6 +1113,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
       {/* Hidden file inputs for Excel upload */}
       <input ref={quickFileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleQuickExcelUpload} />
       <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleExcelUploadPreview} />
+      <input ref={importFileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleImportToCategory} />
 
       <div className="flex min-h-[calc(100vh-180px)]">
         {/* ===== SIDEBAR ===== */}
@@ -1078,6 +1225,12 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                       className="flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent/80"
                     >
                       <Upload className="h-3 w-3" /> Upload with Preview
+                    </button>
+                    <button
+                      onClick={() => importFileInputRef.current?.click()}
+                      className="flex items-center gap-1 text-xs font-semibold text-green-500 hover:text-green-400"
+                    >
+                      <Download className="h-3 w-3" /> Import to Category
                     </button>
                   </>
                 )}
@@ -1395,10 +1548,26 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                       if (catVisibleFields.length === 0) return null;
                       const isCollapsed = collapsedCategories.has(cat.id);
 
+                      if (isCollapsed) {
+                        return (
+                          <th
+                            key={cat.id}
+                            className="px-1 py-2 bg-muted/50 border-r border-input cursor-pointer hover:bg-muted/80 transition-colors"
+                            onClick={() => toggleCategoryCollapse(cat.id)}
+                            title={`Expand "${cat.name}"`}
+                          >
+                            <div className="flex flex-col items-center gap-0.5">
+                              <ChevronRight className="h-3 w-3 text-accent" />
+                              <span className="text-amber-500 text-xs">&#128193;</span>
+                            </div>
+                          </th>
+                        );
+                      }
+
                       return (
                         <th
                           key={cat.id}
-                          colSpan={isCollapsed ? 1 : catVisibleFields.length}
+                          colSpan={catVisibleFields.length}
                           className="px-3 py-2 text-left bg-muted/50 border-r border-input last:border-r-0"
                         >
                           <div className="flex items-center gap-2">
@@ -1407,9 +1576,9 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                             <button
                               onClick={() => toggleCategoryCollapse(cat.id)}
                               className="ml-1 text-muted-foreground hover:text-accent transition-colors"
-                              title={isCollapsed ? 'Expand' : 'Collapse'}
+                              title="Collapse"
                             >
-                              {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                              <ChevronDown className="h-3 w-3" />
                             </button>
                           </div>
                         </th>
@@ -1462,21 +1631,21 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                 <tbody>
                   {/* ===== SUMMARY ROW (sums for fields with show_sum enabled) ===== */}
                   {nonEmptyRows.length > 0 && (
-                    <tr className="border-b-2 border-accent/40 bg-muted/70 font-semibold">
+                    <tr className="border-b-2 border-accent/40 bg-muted/50">
                       {categories.map((cat) => {
                         const catVisibleFields = getOrderedFields(cat).filter((f) => f.visible);
                         if (catVisibleFields.length === 0) return null;
                         const isCollapsed = collapsedCategories.has(cat.id);
                         if (isCollapsed) {
-                          return <td key={cat.id} className="px-3 py-2 text-xs border-r border-input" />;
+                          return <td key={cat.id} className="px-3 py-4 text-xs border-r border-input" />;
                         }
                         return catVisibleFields.map((field) => {
                           if (!field.show_sum) {
                             return (
                               <td
                                 key={field.id}
-                                className="px-3 py-2 text-xs border-r border-input last:border-r-0 cursor-pointer hover:bg-muted"
-                                title="Click to enable sum"
+                                className="px-3 py-4 border-r border-input last:border-r-0 cursor-pointer hover:bg-accent/10 transition-colors group"
+                                title="Click to enable sum for this column"
                                 onClick={canEdit ? async () => {
                                   const ok = await updateField(field.id, { show_sum: true });
                                   if (ok) {
@@ -1486,7 +1655,9 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                     ));
                                   }
                                 } : undefined}
-                              />
+                              >
+                                <span className="text-[10px] text-muted-foreground/50 group-hover:text-accent/70 italic">+ sum</span>
+                              </td>
                             );
                           }
 
@@ -1507,7 +1678,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                           return (
                             <td
                               key={field.id}
-                              className="px-3 py-2 text-xs border-r border-input last:border-r-0 text-accent cursor-pointer hover:bg-muted"
+                              className="px-3 py-4 border-r border-input last:border-r-0 cursor-pointer hover:bg-accent/10 transition-colors"
                               title="Click to disable sum"
                               onClick={canEdit ? async () => {
                                 const ok = await updateField(field.id, { show_sum: false });
@@ -1519,7 +1690,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                 }
                               } : undefined}
                             >
-                              {hasNumeric ? sum.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : ''}
+                              <span className="text-xs font-bold text-accent">{hasNumeric ? sum.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : ''}</span>
                             </td>
                           );
                         });
@@ -1824,7 +1995,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                 />
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-xs font-semibold whitespace-nowrap">Data starts at row:</label>
+                <label className="text-xs font-semibold whitespace-nowrap">Data rows:</label>
                 <input
                   type="number"
                   min={udHeaderRow + 1}
@@ -1833,16 +2004,67 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                   onChange={(e) => {
                     const v = Math.max(2, Math.min(udPreviewRows.length, parseInt(e.target.value) || 2));
                     setUdDataStartRow(v);
-                    // Auto-set header row to the row just before data
                     setUdHeaderRow(v - 1);
                     setUdPreviewPage(0);
                   }}
                   className="w-16 px-2 py-1 bg-background border border-input rounded text-xs text-center"
+                  title="Start row"
+                />
+                <span className="text-xs text-muted-foreground">to</span>
+                <input
+                  type="number"
+                  min={udDataStartRow}
+                  max={udPreviewRows.length}
+                  value={udDataEndRow}
+                  onChange={(e) => {
+                    const v = Math.max(udDataStartRow, Math.min(udPreviewRows.length, parseInt(e.target.value) || udPreviewRows.length));
+                    setUdDataEndRow(v);
+                  }}
+                  className="w-16 px-2 py-1 bg-background border border-input rounded text-xs text-center"
+                  title="End row"
                 />
                 <span className="text-xs text-muted-foreground">
-                  ({Math.max(0, udPreviewRows.length - udDataStartRow + 1)} data rows)
+                  ({Math.max(0, (udDataEndRow || udPreviewRows.length) - udDataStartRow + 1)} rows)
                 </span>
               </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold whitespace-nowrap">Columns:</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={Math.max(...udPreviewRows.map((r) => r.length), 1)}
+                  value={udStartCol + 1}
+                  onChange={(e) => {
+                    const v = Math.max(1, parseInt(e.target.value) || 1) - 1;
+                    setUdStartCol(v);
+                    if (udEndCol < v) setUdEndCol(v);
+                  }}
+                  className="w-16 px-2 py-1 bg-background border border-input rounded text-xs text-center"
+                  title="Start column"
+                />
+                <span className="text-xs text-muted-foreground">to</span>
+                <input
+                  type="number"
+                  min={udStartCol + 1}
+                  max={Math.max(...udPreviewRows.map((r) => r.length), 1)}
+                  value={udEndCol + 1}
+                  onChange={(e) => {
+                    const maxC = Math.max(...udPreviewRows.map((r) => r.length), 1);
+                    const v = Math.max(udStartCol + 1, Math.min(maxC, parseInt(e.target.value) || maxC)) - 1;
+                    setUdEndCol(v);
+                  }}
+                  className="w-16 px-2 py-1 bg-background border border-input rounded text-xs text-center"
+                  title="End column"
+                />
+              </div>
+              {udSelStart && udSelEnd && (
+                <button
+                  onClick={() => { setUdSelStart(null); setUdSelEnd(null); }}
+                  className="text-xs text-muted-foreground hover:text-destructive underline"
+                >
+                  Clear selection
+                </button>
+              )}
             </div>
 
             {/* Column toggle row */}
@@ -1872,8 +2094,32 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
               <p className="text-xs text-muted-foreground mt-1">Click a column header to include/skip it.</p>
             </div>
 
-            {/* Data preview table */}
-            <div className="flex-1 overflow-auto px-5 py-2">
+            {/* Data preview table — click and drag to select cell range */}
+            <div
+              className="flex-1 overflow-auto px-5 py-2 select-none"
+              onMouseUp={() => {
+                if (udSelecting && udSelStart && udSelEnd) {
+                  const minR = Math.min(udSelStart.r, udSelEnd.r);
+                  const maxR = Math.max(udSelStart.r, udSelEnd.r);
+                  const minC = Math.min(udSelStart.c, udSelEnd.c);
+                  const maxC = Math.max(udSelStart.c, udSelEnd.c);
+                  // Set header to the row above the selection (or the first row of selection)
+                  if (minR > 0) setUdHeaderRow(minR);
+                  else setUdHeaderRow(1);
+                  setUdDataStartRow(minR + 1);
+                  setUdDataEndRow(maxR + 1);
+                  setUdStartCol(minC);
+                  setUdEndCol(maxC);
+                  // Update column skip: skip columns outside range
+                  const maxAllCols = Math.max(...udPreviewRows.map((r) => r.length), 0);
+                  const newSkip: Record<number, boolean> = {};
+                  for (let c = 0; c < maxAllCols; c++) newSkip[c] = c < minC || c > maxC;
+                  setUdColumnSkip(newSkip);
+                }
+                setUdSelecting(false);
+              }}
+              onMouseLeave={() => { if (udSelecting) setUdSelecting(false); }}
+            >
               <div className="min-w-max">
                 {(() => {
                   const pageStart = udPreviewPage * UD_PREVIEW_PAGE_SIZE;
@@ -1881,11 +2127,24 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                   const visibleRows = udPreviewRows.slice(pageStart, pageEnd);
                   const maxCols = Math.max(...udPreviewRows.map((r) => r.length), 0);
 
+                  // Compute selection bounds
+                  let selMinR = -1, selMaxR = -1, selMinC = -1, selMaxC = -1;
+                  if (udSelStart && udSelEnd) {
+                    selMinR = Math.min(udSelStart.r, udSelEnd.r);
+                    selMaxR = Math.max(udSelStart.r, udSelEnd.r);
+                    selMinC = Math.min(udSelStart.c, udSelEnd.c);
+                    selMaxC = Math.max(udSelStart.c, udSelEnd.c);
+                  }
+
+                  // Compute active data range for highlighting
+                  const activeStartRow = udDataStartRow - 1;
+                  const activeEndRow = (udDataEndRow || udPreviewRows.length) - 1;
+
                   return visibleRows.map((row, rIdx) => {
                     const actualRowIdx = pageStart + rIdx;
                     const isHeaderRow = actualRowIdx === udHeaderRow - 1;
-                    const isBeforeData = actualRowIdx < udDataStartRow - 1;
-                    const isDataStartRow = actualRowIdx === udDataStartRow - 1;
+                    const isInDataRange = actualRowIdx >= activeStartRow && actualRowIdx <= activeEndRow;
+                    const isBeforeData = actualRowIdx < activeStartRow && !isHeaderRow;
 
                     return (
                       <div
@@ -1895,18 +2154,17 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                             ? 'bg-blue-500/10 font-semibold'
                             : isBeforeData
                             ? 'opacity-40 bg-amber-500/5'
-                            : isDataStartRow
+                            : actualRowIdx === activeStartRow
                             ? 'bg-accent/10 border-l-2 border-accent'
                             : 'hover:bg-muted/30'
                         }`}
                       >
                         <div
                           className={`w-12 flex-shrink-0 text-xs text-center py-1 cursor-pointer hover:text-accent font-mono ${
-                            isHeaderRow ? 'text-blue-500 font-bold' : isDataStartRow ? 'text-accent font-bold' : 'text-muted-foreground'
+                            isHeaderRow ? 'text-blue-500 font-bold' : actualRowIdx === activeStartRow ? 'text-accent font-bold' : 'text-muted-foreground'
                           }`}
                           onClick={() => {
                             setUdDataStartRow(actualRowIdx + 1);
-                            // Auto-set header row to the row just before data
                             if (actualRowIdx >= 1) setUdHeaderRow(actualRowIdx);
                             setUdPreviewPage(0);
                           }}
@@ -1917,13 +2175,30 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                         {Array.from({ length: maxCols }, (_, cIdx) => {
                           const val = row[cIdx];
                           const isSkipped = udColumnSkip[cIdx];
+                          const isInSelection = selMinR >= 0 && actualRowIdx >= selMinR && actualRowIdx <= selMaxR && cIdx >= selMinC && cIdx <= selMaxC;
+                          const isInActiveRange = isInDataRange && cIdx >= udStartCol && cIdx <= udEndCol && !isSkipped;
                           return (
                             <div
                               key={cIdx}
-                              className={`w-32 flex-shrink-0 px-1.5 py-1 text-xs truncate border-r border-border/30 ${
-                                isSkipped ? 'opacity-30 line-through' : ''
+                              className={`w-32 flex-shrink-0 px-1.5 py-1 text-xs truncate border-r border-border/30 cursor-crosshair ${
+                                isInSelection
+                                  ? 'bg-accent/30 ring-1 ring-accent/50'
+                                  : isInActiveRange
+                                  ? 'bg-accent/5'
+                                  : isSkipped
+                                  ? 'opacity-30 line-through'
+                                  : ''
                               }`}
                               title={String(val ?? '')}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setUdSelecting(true);
+                                setUdSelStart({ r: actualRowIdx, c: cIdx });
+                                setUdSelEnd({ r: actualRowIdx, c: cIdx });
+                              }}
+                              onMouseEnter={() => {
+                                if (udSelecting) setUdSelEnd({ r: actualRowIdx, c: cIdx });
+                              }}
                             >
                               {val != null && val !== '' ? String(val) : <span className="text-muted-foreground/30">-</span>}
                             </div>
@@ -1934,6 +2209,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                   });
                 })()}
               </div>
+              <p className="text-xs text-muted-foreground mt-2">Click and drag on cells to select a range. Click row numbers to set data start.</p>
             </div>
 
             {/* Pagination + Actions */}
@@ -1972,7 +2248,263 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                   disabled={Object.values(udColumnSkip).every((v) => v)}
                   className="px-4 py-1.5 text-xs bg-accent text-white rounded font-semibold hover:bg-accent/90 disabled:opacity-50"
                 >
-                  Upload {Math.max(0, udPreviewRows.length - udDataStartRow + 1)} rows
+                  Upload {Math.max(0, (udDataEndRow || udPreviewRows.length) - udDataStartRow + 1)} rows
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== IMPORT TO CATEGORY MODAL ===== */}
+      {importOpen && importRows.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-background border border-border rounded-xl shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+              <div>
+                <h3 className="text-sm font-bold">Import to Existing Category</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {importFile?.name} — Select a cell range, choose a category, and map columns to fields
+                </p>
+              </div>
+              <button onClick={() => { setImportOpen(false); setImportFile(null); setImportRows([]); }} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Controls: category picker + range */}
+            <div className="px-5 py-3 border-b border-border flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold whitespace-nowrap">Category:</label>
+                <select
+                  value={importTargetCat}
+                  onChange={(e) => { setImportTargetCat(e.target.value); setImportColMapping({}); setImportNewFieldNames({}); }}
+                  className="px-2 py-1 bg-background border border-input rounded text-xs min-w-[140px]"
+                >
+                  <option value="">Select category...</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold whitespace-nowrap">Rows:</label>
+                <input
+                  type="number" min={1} max={importRows.length}
+                  value={importDataStartRow}
+                  onChange={(e) => setImportDataStartRow(Math.max(1, Math.min(importRows.length, parseInt(e.target.value) || 1)))}
+                  className="w-16 px-2 py-1 bg-background border border-input rounded text-xs text-center"
+                />
+                <span className="text-xs text-muted-foreground">to</span>
+                <input
+                  type="number" min={importDataStartRow} max={importRows.length}
+                  value={importDataEndRow}
+                  onChange={(e) => setImportDataEndRow(Math.max(importDataStartRow, Math.min(importRows.length, parseInt(e.target.value) || importRows.length)))}
+                  className="w-16 px-2 py-1 bg-background border border-input rounded text-xs text-center"
+                />
+                <span className="text-xs text-muted-foreground">
+                  ({Math.max(0, (importDataEndRow || importRows.length) - importDataStartRow + 1)} rows)
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold whitespace-nowrap">Cols:</label>
+                <input
+                  type="number" min={1} max={Math.max(...importRows.map((r) => r.length), 1)}
+                  value={importStartCol + 1}
+                  onChange={(e) => { const v = Math.max(1, parseInt(e.target.value) || 1) - 1; setImportStartCol(v); if (importEndCol < v) setImportEndCol(v); }}
+                  className="w-16 px-2 py-1 bg-background border border-input rounded text-xs text-center"
+                />
+                <span className="text-xs text-muted-foreground">to</span>
+                <input
+                  type="number" min={importStartCol + 1} max={Math.max(...importRows.map((r) => r.length), 1)}
+                  value={importEndCol + 1}
+                  onChange={(e) => { const maxC = Math.max(...importRows.map((r) => r.length), 1); setImportEndCol(Math.max(importStartCol, Math.min(maxC - 1, (parseInt(e.target.value) || maxC) - 1))); }}
+                  className="w-16 px-2 py-1 bg-background border border-input rounded text-xs text-center"
+                />
+              </div>
+              {importSelStart && importSelEnd && (
+                <button onClick={() => { setImportSelStart(null); setImportSelEnd(null); }} className="text-xs text-muted-foreground hover:text-destructive underline">
+                  Clear selection
+                </button>
+              )}
+            </div>
+
+            {/* Column → Field mapping bar */}
+            {importTargetCat && (
+              <div className="px-5 py-2 border-b border-border overflow-x-auto">
+                <p className="text-xs font-semibold text-muted-foreground mb-1.5">Map each column to a field:</p>
+                <div className="flex items-start gap-1 min-w-max">
+                  <div className="w-12 flex-shrink-0" />
+                  {Array.from({ length: importEndCol - importStartCol + 1 }, (_, i) => {
+                    const colIdx = importStartCol + i;
+                    const previewVal = importRows[importDataStartRow - 1]?.[colIdx];
+                    const targetCat = categories.find((c) => c.id === importTargetCat);
+                    const catFields = targetCat ? targetCat.fields.filter((f) => !f.linked_file_name) : [];
+                    const mappingVal = importColMapping[colIdx] ?? '';
+                    return (
+                      <div key={colIdx} className="w-32 flex-shrink-0">
+                        <div className="text-xs text-muted-foreground truncate px-1 mb-0.5" title={String(previewVal ?? '')}>
+                          Col {colIdx + 1}: {previewVal != null && String(previewVal).trim() ? String(previewVal) : '-'}
+                        </div>
+                        <select
+                          value={mappingVal}
+                          onChange={(e) => {
+                            setImportColMapping((prev) => ({ ...prev, [colIdx]: e.target.value }));
+                            if (e.target.value !== '__new__') {
+                              setImportNewFieldNames((prev) => { const n = { ...prev }; delete n[colIdx]; return n; });
+                            }
+                          }}
+                          className={`w-full px-1 py-1 bg-background border rounded text-xs ${
+                            mappingVal === '__new__' ? 'border-green-500' : mappingVal ? 'border-accent' : 'border-input'
+                          }`}
+                        >
+                          <option value="">Skip</option>
+                          {catFields.map((f) => (
+                            <option key={f.id} value={f.id}>{f.name}</option>
+                          ))}
+                          <option value="__new__">+ New field...</option>
+                        </select>
+                        {mappingVal === '__new__' && (
+                          <input
+                            type="text"
+                            autoFocus
+                            placeholder="Field name"
+                            value={importNewFieldNames[colIdx] ?? ''}
+                            onChange={(e) => setImportNewFieldNames((prev) => ({ ...prev, [colIdx]: e.target.value }))}
+                            className="w-full mt-1 px-1 py-1 bg-background border border-green-500 rounded text-xs focus:outline-none focus:ring-1 focus:ring-green-500"
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Data preview with range selection */}
+            <div
+              className="flex-1 overflow-auto px-5 py-2 select-none"
+              onMouseUp={() => {
+                if (importSelecting && importSelStart && importSelEnd) {
+                  const minR = Math.min(importSelStart.r, importSelEnd.r);
+                  const maxR = Math.max(importSelStart.r, importSelEnd.r);
+                  const minC = Math.min(importSelStart.c, importSelEnd.c);
+                  const maxC = Math.max(importSelStart.c, importSelEnd.c);
+                  setImportDataStartRow(minR + 1);
+                  setImportDataEndRow(maxR + 1);
+                  setImportStartCol(minC);
+                  setImportEndCol(maxC);
+                  // Reset column mappings when range changes
+                  setImportColMapping({}); setImportNewFieldNames({});
+                }
+                setImportSelecting(false);
+              }}
+              onMouseLeave={() => { if (importSelecting) setImportSelecting(false); }}
+            >
+              <div className="min-w-max">
+                {(() => {
+                  const pageStart = importPage * UD_PREVIEW_PAGE_SIZE;
+                  const pageEnd = Math.min(pageStart + UD_PREVIEW_PAGE_SIZE, importRows.length);
+                  const visibleRows = importRows.slice(pageStart, pageEnd);
+                  const maxCols = Math.max(...importRows.map((r) => r.length), 0);
+                  const activeStartRow = importDataStartRow - 1;
+                  const activeEndRow = (importDataEndRow || importRows.length) - 1;
+
+                  let selMinR = -1, selMaxR = -1, selMinC = -1, selMaxC = -1;
+                  if (importSelStart && importSelEnd) {
+                    selMinR = Math.min(importSelStart.r, importSelEnd.r);
+                    selMaxR = Math.max(importSelStart.r, importSelEnd.r);
+                    selMinC = Math.min(importSelStart.c, importSelEnd.c);
+                    selMaxC = Math.max(importSelStart.c, importSelEnd.c);
+                  }
+
+                  return visibleRows.map((row, rIdx) => {
+                    const actualRowIdx = pageStart + rIdx;
+                    const isInRange = actualRowIdx >= activeStartRow && actualRowIdx <= activeEndRow;
+
+                    return (
+                      <div key={actualRowIdx} className={`flex items-center gap-1 ${isInRange ? 'bg-accent/5' : 'opacity-40'}`}>
+                        <div className="w-12 flex-shrink-0 text-xs text-center py-1 font-mono text-muted-foreground">
+                          {actualRowIdx + 1}
+                        </div>
+                        {Array.from({ length: maxCols }, (_, cIdx) => {
+                          const val = row[cIdx];
+                          const isInSelection = selMinR >= 0 && actualRowIdx >= selMinR && actualRowIdx <= selMaxR && cIdx >= selMinC && cIdx <= selMaxC;
+                          const isInActiveRange = isInRange && cIdx >= importStartCol && cIdx <= importEndCol;
+                          const isMapped = !!(importColMapping[cIdx]);
+                          return (
+                            <div
+                              key={cIdx}
+                              className={`w-32 flex-shrink-0 px-1.5 py-1 text-xs truncate border-r border-border/30 cursor-crosshair ${
+                                isInSelection
+                                  ? 'bg-green-500/30 ring-1 ring-green-500/50'
+                                  : isInActiveRange && isMapped
+                                  ? 'bg-accent/15'
+                                  : isInActiveRange
+                                  ? 'bg-accent/5'
+                                  : ''
+                              }`}
+                              title={String(val ?? '')}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setImportSelecting(true);
+                                setImportSelStart({ r: actualRowIdx, c: cIdx });
+                                setImportSelEnd({ r: actualRowIdx, c: cIdx });
+                              }}
+                              onMouseEnter={() => {
+                                if (importSelecting) setImportSelEnd({ r: actualRowIdx, c: cIdx });
+                              }}
+                            >
+                              {val != null && val !== '' ? String(val) : <span className="text-muted-foreground/30">-</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">Click and drag to select the cell range you want to import.</p>
+            </div>
+
+            {/* Pagination + Actions */}
+            <div className="px-5 py-3 border-t border-border flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={importPage === 0}
+                  onClick={() => setImportPage((p) => Math.max(0, p - 1))}
+                  className="p-1 rounded border border-input text-xs disabled:opacity-30 hover:bg-muted"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <span className="text-xs text-muted-foreground">
+                  Rows {importPage * UD_PREVIEW_PAGE_SIZE + 1}–{Math.min((importPage + 1) * UD_PREVIEW_PAGE_SIZE, importRows.length)} of {importRows.length}
+                </span>
+                <button
+                  disabled={(importPage + 1) * UD_PREVIEW_PAGE_SIZE >= importRows.length}
+                  onClick={() => setImportPage((p) => p + 1)}
+                  className="p-1 rounded border border-input text-xs disabled:opacity-30 hover:bg-muted"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {Object.values(importColMapping).filter((v) => v !== '').length} columns mapped
+                </span>
+                <button
+                  onClick={() => { setImportOpen(false); setImportFile(null); setImportRows([]); }}
+                  className="px-3 py-1.5 text-xs border border-input rounded hover:bg-muted"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={processImportToCategory}
+                  disabled={!importTargetCat || Object.values(importColMapping).every((v) => v === '')}
+                  className="px-4 py-1.5 text-xs bg-green-600 text-white rounded font-semibold hover:bg-green-500 disabled:opacity-50"
+                >
+                  Import {Math.max(0, (importDataEndRow || importRows.length) - importDataStartRow + 1)} rows
                 </button>
               </div>
             </div>
