@@ -87,7 +87,7 @@ export default function AppSidebar({
       }`}
     >
       {/* Header — Logo + Collapse toggle */}
-      <div className={`flex items-center border-b border-border px-3 py-4 ${isCollapsed ? 'justify-center py-8' : 'justify-between'}`}>
+      <div className={`flex items-center border-b-2 border-border px-3 py-4 ${isCollapsed ? 'justify-center py-10' : 'justify-between'}`}>
         {!isCollapsed && (
           <Image
             src={logoSrc}
@@ -95,7 +95,7 @@ export default function AppSidebar({
             width={120}
             height={36}
             priority
-            className="h-16 w-auto"
+            className="h-20 w-auto"
           />
         )}
         <button
@@ -152,7 +152,7 @@ export default function AppSidebar({
       <div className="border-t border-border px-3 py-4 flex flex-col gap-4">
         <div className={`flex items-center gap-3 ${isCollapsed ? 'justify-center' : ''}`}>
           {/* Avatar */}
-          <div className="w-8 h-8 rounded-full bg-accent text-accent-foreground flex items-center justify-center text-sm font-semibold shrink-0">
+          <div className="w-8 h-8 rounded-full bg-primary text-accent-foreground flex items-center justify-center text-sm font-semibold shrink-0">
             {initial}
           </div>
           {!isCollapsed && (
@@ -166,7 +166,7 @@ export default function AppSidebar({
         <button
           onClick={signOut}
           title={isCollapsed ? 'Sign Out' : undefined}
-          className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-red-500/10 hover:text-red-500 transition-colors ${
+          className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-primary hover:text-white transition-colors ${
             isCollapsed ? 'justify-center' : ''
           }`}
         >
