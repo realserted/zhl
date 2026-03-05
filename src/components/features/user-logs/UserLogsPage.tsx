@@ -125,36 +125,43 @@ export default function UserLogsPage() {
         </div>
 
         {/* Sort and Filter Section */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 mb-6 sm:mb-8">
-          <button
-            onClick={() => {
-              setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc');
-            }}
-            className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 border border-input rounded hover:bg-muted transition-colors font-medium text-xs sm:text-sm"
-          >
-            <ArrowUpDown className="h-3 w-3 sm:h-4 sm:w-4" />
-            SORT {sortOrder === 'desc' ? '(Newest)' : '(Oldest)'}
-          </button>
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 border border-input rounded hover:bg-muted transition-colors font-medium text-xs sm:text-sm"
-          >
-            <Filter className="h-3 w-3 sm:h-4 sm:w-4" />
-            FILTER
-          </button>
+        <div className="glass-card rounded-2xl p-4 mb-6 sm:mb-8 flex flex-col sm:flex-row items-start sm:items-center gap-4 shadow-sm border border-border/50">
+          <div className="flex items-center gap-4 w-full sm:w-auto">
+            <span className="text-sm font-bold text-muted-foreground uppercase tracking-wider hidden sm:block">Actions:</span>
+            <div className="flex w-full sm:w-auto bg-muted/50 p-1 rounded-xl border border-input">
+              <button
+                onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
+                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-muted-foreground hover:text-primary hover:bg-primary/10"
+              >
+                <ArrowUpDown className="h-4 w-4" />
+                <span>SORT {sortOrder === 'desc' ? '(NEWEST)' : '(OLDEST)'}</span>
+              </button>
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  showFilters
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-primary hover:bg-primary/10'
+                }`}
+              >
+                <Filter className="h-4 w-4" />
+                <span>FILTER</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Filters Panel */}
         {showFilters && (
-          <div className="mb-6 p-4 border border-input rounded-lg bg-muted/30 space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="glass-card mb-6 p-6 border border-border/50 rounded-2xl bg-muted/30 shadow-sm space-y-6 animate-in slide-in-from-top-2 fade-in duration-300">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
               {/* Project Filter */}
-              <div>
-                <label className="block text-xs sm:text-sm font-semibold mb-2">Project</label>
+              <div className="space-y-2">
+                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground">Project</label>
                 <select
                   value={filterProject}
                   onChange={(e) => setFilterProject(e.target.value)}
-                  className="w-full px-3 py-2 border border-input rounded bg-background text-foreground text-xs"
+                  className="w-full px-3 py-2 bg-background/50 border border-border/50 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                 >
                   <option value="">All Projects</option>
                   {uniqueProjects.map((project) => (
@@ -166,25 +173,25 @@ export default function UserLogsPage() {
               </div>
 
               {/* Action Filter */}
-              <div>
-                <label className="block text-xs sm:text-sm font-semibold mb-2">Action</label>
+              <div className="space-y-2">
+                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground">Action</label>
                 <input
                   type="text"
                   value={filterAction}
                   onChange={(e) => setFilterAction(e.target.value)}
                   placeholder="Search actions..."
-                  className="w-full px-3 py-2 border border-input rounded bg-background text-foreground text-xs"
+                  className="w-full px-3 py-2 bg-background/50 border border-border/50 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/50"
                 />
               </div>
 
               {/* User Filter (Admin only) */}
               {isAdmin && (
-                <div>
-                  <label className="block text-xs sm:text-sm font-semibold mb-2">User</label>
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground">User</label>
                   <select
                     value={filterUser}
                     onChange={(e) => setFilterUser(e.target.value)}
-                    className="w-full px-3 py-2 border border-input rounded bg-background text-foreground text-xs"
+                    className="w-full px-3 py-2 bg-background/50 border border-border/50 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                   >
                     <option value="">All Users</option>
                     {uniqueUsers.map((userEmail) => (
@@ -199,24 +206,56 @@ export default function UserLogsPage() {
 
             {/* Reset Filters Button */}
             {(filterProject || filterAction || filterUser) && (
-              <button
-                onClick={() => {
-                  setFilterProject('');
-                  setFilterAction('');
-                  setFilterUser('');
-                }}
-                className="text-xs sm:text-sm text-accent hover:underline font-medium"
-              >
-                Reset Filters
-              </button>
+              <div className="flex justify-end pt-2">
+                <button
+                  onClick={() => {
+                    setFilterProject('');
+                    setFilterAction('');
+                    setFilterUser('');
+                  }}
+                  className="text-[11px] uppercase tracking-wider font-bold text-muted-foreground hover:text-primary transition-colors px-3 py-1.5 rounded-lg hover:bg-primary/10"
+                >
+                  Reset Filters
+                </button>
+              </div>
             )}
           </div>
         )}
 
         {/* User Logs Table */}
         {loading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
-            <Loader2 className="w-4 h-4 animate-spin" /> Loading logs...
+          <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
+            <table className="w-full text-xs sm:text-sm">
+              <thead>
+                <tr className="bg-muted/30 border-b border-border/50">
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Timestamp</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">User</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Project</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...Array(5)].map((_, i) => (
+                  <tr key={i} className="border-b border-border/50">
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <div className="h-4 w-24 bg-muted/50 rounded animate-pulse" />
+                    </td>
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <div className="space-y-2">
+                        <div className="h-4 w-32 bg-muted/50 rounded animate-pulse" />
+                        <div className="h-3 w-40 bg-muted/30 rounded animate-pulse" />
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <div className="h-4 w-28 bg-muted/50 rounded animate-pulse" />
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="h-4 w-48 bg-muted/50 rounded animate-pulse" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         ) : logs.length === 0 ? (
           <div className="text-center py-12 text-sm border border-input rounded-lg bg-muted/30">
@@ -233,31 +272,31 @@ export default function UserLogsPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto border border-input rounded-lg">
+          <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
             <table className="w-full text-xs sm:text-sm">
               <thead>
-                <tr className="bg-muted border-b border-input">
-                  <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">Timestamp</th>
-                  <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">User</th>
-                  <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">Project</th>
-                  <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">Action</th>
+                <tr className="bg-muted/30 border-b border-border/50">
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Timestamp</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">User</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Project</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredLogs.map((log) => (
                   <tr
                     key={log.id}
-                    className="border-b border-input hover:bg-muted/50 transition-colors"
+                    className="border-b border-border/50 hover:bg-muted/30 transition-colors group"
                   >
-                    <td className="px-4 py-3 whitespace-nowrap text-xs">{formatDate(log.created_at)}</td>
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-4 py-4 whitespace-nowrap text-xs">{formatDate(log.created_at)}</td>
+                    <td className="px-4 py-4 whitespace-nowrap">
                       <div>
                         <p className="font-medium">{log.user_name}</p>
                         <p className="text-xs text-muted-foreground">{log.user_email}</p>
                       </div>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">{log.project_name}</td>
-                    <td className="px-4 py-3">{log.action}</td>
+                    <td className="px-4 py-4 whitespace-nowrap">{log.project_name}</td>
+                    <td className="px-4 py-4">{log.action}</td>
                   </tr>
                 ))}
               </tbody>

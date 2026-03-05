@@ -1147,7 +1147,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
               <p className="text-xs text-muted-foreground/60">Use the sidebar to enable fields for this view.</p>
             </div>
           ) : (
-            <div className="glass-card backdrop-blur-md bg-background/50 border border-white/10 dark:border-white/5 rounded-2xl overflow-hidden shadow-2xl relative">
+            <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm relative">
               <div className="overflow-x-auto">
                 <table className="text-xs sm:text-sm" style={{ tableLayout: 'fixed', width: totalTableWidth, minWidth: '100%' }}>
                 {/* Colgroup drives column widths for table-layout:fixed */}
@@ -1167,7 +1167,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                 {/* Category header row */}
                 <thead>
                   {categories.some((cat) => getOrderedFields(cat).filter((f) => f.visible).length > 0) && (
-                  <tr className="border-b border-input">
+                  <tr className="bg-muted/30 border-b border-border/50">
                     {categories.map((cat) => {
                       const catVisibleFields = getOrderedFields(cat).filter((f) => f.visible);
                       if (catVisibleFields.length === 0) return null;
@@ -1177,7 +1177,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                         <th
                           key={cat.id}
                           colSpan={isCollapsed ? 1 : catVisibleFields.length}
-                          className={`${isCollapsed ? 'px-1' : 'px-4'} py-3 text-left bg-muted/30 border-r border-border/50 last:border-r-0 transition-all`}
+                          className={`${isCollapsed ? 'px-1' : 'px-4'} py-4 text-left bg-muted/30 border-r border-border/50 last:border-r-0 transition-all`}
                         >
                           <div className={`flex items-center ${isCollapsed ? 'justify-center gap-1' : 'gap-2'}`}>
                             <span className="text-amber-500 drop-shadow-sm shrink-0">&#128193;</span>
@@ -1200,7 +1200,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                   )}
 
                   {/* Field header row */}
-                  <tr className="bg-muted border-b border-input">
+                  <tr className="bg-muted/30 border-b border-border/50">
                     {categories.map((cat) => {
                       const catVisibleFields = getOrderedFields(cat).filter((f) => f.visible);
                       if (catVisibleFields.length === 0) return null;
@@ -1217,7 +1217,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                       return catVisibleFields.map((field) => (
                         <th
                           key={field.id}
-                          className="relative px-4 py-4 text-left font-bold text-[11px] tracking-wider uppercase text-muted-foreground whitespace-nowrap border-r border-border/50 last:border-r-0 select-none overflow-hidden group/th bg-muted/20"
+                          className="relative px-4 py-4 text-left font-bold text-[10px] tracking-widest uppercase text-muted-foreground whitespace-nowrap border-r border-border/50 last:border-r-0 select-none overflow-hidden group/th"
                           title={field.tooltip ?? undefined}
                         >
                           <div className="flex items-center gap-2 group-hover/th:text-primary transition-colors">
@@ -1248,7 +1248,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                     </tr>
                   ) : (
                     nonEmptyRows.map((row) => (
-                      <tr key={row.id} className="border-b border-input hover:bg-muted/30 transition-colors">
+                      <tr key={row.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
                         {categories.map((cat) => {
                           const catVisibleFields = getOrderedFields(cat).filter((f) => f.visible);
                           if (catVisibleFields.length === 0) return null;
@@ -1271,7 +1271,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                             return (
                               <td
                                 key={field.id}
-                                className="px-4 py-3 border-r border-border/50 last:border-r-0 overflow-hidden group/td"
+                                className="px-4 py-4 whitespace-nowrap border-r border-border/50 last:border-r-0 overflow-hidden group/td"
                               >
                                 {isEditing ? (
                                   <input
@@ -1329,7 +1329,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                             );
                           });
                         })}
-                        <td className="px-2 py-2">
+                        <td className="px-2 py-4 whitespace-nowrap">
                           {canEdit && (
                             <button
                               onClick={() => handleDeleteRow(row.id)}
