@@ -9,6 +9,7 @@ import { getCategories, getRows, getValues, upsertValue } from '@/lib/db/unit-da
 import { ProjectFileFolder } from '@/lib/types/files';
 import { CategoryWithFields, UnitDataRow, UnitDataValue } from '@/lib/types/unit-data';
 import { Modal } from '@/components/shared/Modal';
+import { Button } from '@/components/shared/Button';
 
 interface AddFilesModalProps {
   open: boolean;
@@ -226,13 +227,14 @@ export default function AddFilesModal({ open, onClose }: AddFilesModalProps) {
             onChange={handleFileChange}
             className="hidden"
           />
-          <button
+          <Button
+            variant="outline"
             onClick={() => fileInputRef.current?.click()}
-            className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-input rounded-2xl px-4 py-6 text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors bg-background/50"
+            className="w-full flex flex-col items-center justify-center gap-2 border-2 border-dashed border-input rounded-2xl px-4 py-8 h-auto text-muted-foreground hover:border-primary hover:text-primary transition-colors bg-background/50 normal-case font-medium"
           >
-            <FileUp className="h-5 w-5" />
+            <FileUp className="h-6 w-6" />
             {file ? file.name : 'Click to select a file'}
-          </button>
+          </Button>
         </div>
 
         {/* Rename File To */}
@@ -322,20 +324,22 @@ export default function AddFilesModal({ open, onClose }: AddFilesModalProps) {
 
       {/* Footer */}
       <div className="flex flex-col gap-3 mt-6 pt-6 border-t border-border/50">
-        <button
+        <Button
           onClick={handleSubmit}
           disabled={submitting || !file}
-          className="w-full flex justify-center items-center gap-2 px-4 py-3 bg-primary text-primary-foreground rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all disabled:opacity-50 active:scale-[0.98]"
+          isLoading={submitting}
+          leftIcon={<Upload className="h-4 w-4" />}
+          className="w-full py-4 text-xs font-black tracking-widest shadow-xl shadow-primary/20"
         >
-          <Upload className="h-4 w-4" />
           {submitting ? 'Uploading...' : 'Upload'}
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="outline"
           onClick={onClose}
-          className="w-full flex justify-center px-4 py-3 border border-border rounded-2xl text-sm font-bold hover:bg-muted transition-all"
+          className="w-full py-4 text-xs font-black tracking-widest"
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </Modal>
   );

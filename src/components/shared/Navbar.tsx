@@ -6,6 +6,8 @@ import NavLogo from './NavLogo';
 import NavActions from './NavActions';
 import { ThemeToggle } from './ThemeToggle';
 import { ArrowLeft, ChevronDown, Bell, Loader2 } from 'lucide-react';
+import { Modal } from '@/components/shared/Modal';
+import { Button } from '@/components/shared/Button';
 import { Project } from '@/lib/types/project';
 import { ProjectPermission } from '@/lib/types/project';
 import { Notification } from '@/lib/types/notification';
@@ -268,11 +270,12 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
 
             {/* Projects Dropdown */}
             <div className="relative" ref={projectDropdownRef}>
-              <button
+              <Button
+                variant="ghost"
                 onClick={() =>
                   setOpenDropdown(openDropdown === 'project' ? null : 'project')
                 }
-                className="text-xs sm:text-sm font-semibold text-foreground hover:text-accent transition-colors flex items-center gap-2"
+                className="text-xs sm:text-sm font-semibold text-foreground hover:text-accent transition-colors flex items-center gap-2 h-auto py-1 px-2 shadow-none"
               >
                 {selectedProject?.name ?? 'Select Project'}
                 <ChevronDown
@@ -280,7 +283,7 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
                     openDropdown === 'project' ? 'rotate-180' : ''
                   }`}
                 />
-              </button>
+              </Button>
               {openDropdown === 'project' && (
                 <div className="absolute top-full left-0 mt-2 w-32 sm:w-48 bg-background border border-input rounded-lg shadow-lg z-50">
                   {projects.length === 0 ? (
@@ -289,20 +292,21 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
                     </div>
                   ) : (
                     projects.map((project) => (
-                      <button
+                      <Button
                         key={project.id}
+                        variant="ghost"
                         onClick={() => {
                           onProjectChange(project);
                           setOpenDropdown(null);
                         }}
-                        className={`w-full text-left px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm hover:bg-muted transition-colors ${
+                        className={`w-full justify-start rounded-none px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm hover:bg-muted transition-colors h-auto shadow-none ${
                           selectedProject?.id === project.id
                             ? 'bg-muted font-semibold text-accent'
                             : ''
                         }`}
                       >
                         {project.name}
-                      </button>
+                      </Button>
                     ))
                   )}
                 </div>
@@ -320,9 +324,11 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
         <div className="flex items-center gap-2 sm:gap-4 ml-auto sm:ml-0">
           {/* Notification Bell */}
           <div className="relative" ref={notifDropdownRef}>
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => setShowNotifications(!showNotifications)}
-              className="relative p-2 hover:bg-muted rounded-lg transition-colors"
+              className="relative p-2 hover:bg-muted rounded-lg transition-colors h-9 w-9 shadow-none"
               title="Notifications"
             >
               <Bell className="h-5 w-5 text-foreground" />
@@ -331,7 +337,7 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
                   {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
               )}
-            </button>
+            </Button>
 
             {showNotifications && (
               <div className="absolute top-full right-0 mt-2 w-80 max-h-96 bg-background border border-input rounded-lg shadow-lg z-50 overflow-hidden flex flex-col">
@@ -340,14 +346,14 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
                   <h3 className="font-semibold text-sm">Notifications</h3>
                   <div className="flex items-center gap-3">
                     {unreadCount > 0 && (
-                      <button onClick={handleMarkAllRead} className="text-xs text-accent hover:underline">
+                      <Button onClick={handleMarkAllRead} variant="ghost" className="text-xs text-accent hover:underline p-0 h-auto font-normal shadow-none">
                         Mark all as read
-                      </button>
+                      </Button>
                     )}
                     {notifications.length > 0 && (
-                      <button onClick={handleClearAll} className="text-xs text-muted-foreground hover:text-destructive transition-colors">
+                      <Button onClick={handleClearAll} variant="ghost" className="text-xs text-muted-foreground hover:text-destructive transition-colors p-0 h-auto font-normal shadow-none">
                         Clear all
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </div>
@@ -365,26 +371,27 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
                     </div>
                   ) : (
                     notifications.map((n) => (
-                      <button
+                      <Button
                         key={n.id}
+                        variant="ghost"
                         onClick={() => handleNotifClick(n)}
-                        className={`w-full text-left px-4 py-3 border-b border-border hover:bg-muted transition-colors ${
+                        className={`w-full justify-start rounded-none px-4 py-3 border-b border-border hover:bg-muted transition-colors h-auto shadow-none font-normal ${
                           !n.is_read ? 'bg-blue-50 dark:bg-blue-950/20' : ''
                         }`}
                       >
-                        <div className="flex items-start gap-2">
+                        <div className="flex items-start gap-2 w-full">
                           {!n.is_read && (
                             <div className="w-2 h-2 bg-blue-500 rounded-full mt-1.5 flex-shrink-0" />
                           )}
                           <div className={`flex-1 min-w-0 ${n.is_read ? 'ml-4' : ''}`}>
-                            <p className="font-semibold text-xs text-foreground">{n.title}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.message}</p>
-                            <p className="text-[10px] text-muted-foreground mt-1">
+                            <p className="font-semibold text-xs text-foreground text-left">{n.title}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 text-left">{n.message}</p>
+                            <p className="text-[10px] text-muted-foreground mt-1 text-left">
                               {new Date(n.created_at).toLocaleString()}
                             </p>
                           </div>
                         </div>
-                      </button>
+                      </Button>
                     ))
                   )}
                 </div>

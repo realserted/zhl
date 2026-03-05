@@ -274,9 +274,9 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Admin Header */}
         <div className="flex items-center gap-3 mb-6">
-          <ShieldAlert className="h-6 w-6 text-accent" />
+          <ShieldAlert className="h-6 w-6 text-primary" />
           <h1 className="text-2xl font-bold">Admin Panel</h1>
-          <span className="text-xs bg-accent text-accent-foreground px-2 py-1 rounded-full font-semibold">AdminJon</span>
+          <span className="text-xs bg-primary text-accent-foreground px-2 py-1 rounded-full font-semibold">AdminJon</span>
         </div>
 
         {/* BROWSE ALL USER'S PROJECTS SECTION */}
@@ -292,20 +292,20 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
           ) : projects.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4">No projects found.</p>
           ) : (
-            <div className="overflow-x-auto border border-input rounded-lg">
+            <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
               <table className="w-full text-xs sm:text-sm">
                 <thead>
-                  <tr className="bg-muted border-b border-input">
-                    <th className="px-4 py-3 text-left font-semibold">Project Name</th>
-                    <th className="px-4 py-3 text-left font-semibold">Project Owner</th>
-                    <th className="px-4 py-3 text-left font-semibold">Status</th>
-                    <th className="px-4 py-3 text-left font-semibold">Units</th>
-                    <th className="px-4 py-3 text-left font-semibold">State</th>
+                  <tr className="bg-muted/30 border-b border-border/50">
+                    <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Project Name</th>
+                    <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Project Owner</th>
+                    <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Status</th>
+                    <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Units</th>
+                    <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">State</th>
                   </tr>
                 </thead>
                 <tbody>
                   {projects.map((project) => (
-                    <tr key={project.id} className="border-b border-input hover:bg-muted/50">
+                    <tr key={project.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
                       {/* Project Name */}
                       <td className="px-4 py-3 font-medium">{project.name}</td>
 
@@ -434,13 +434,13 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
               <button
                 onClick={handleSavePrompts}
                 disabled={!selectedProjectId || savingPrompts}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground rounded-md text-sm font-semibold hover:bg-accent/90 transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
               >
                 {savingPrompts ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 Save Prompts
               </button>
               {promptSaveMsg && (
-                <span className={`text-xs font-semibold ${promptSaveMsg === 'Saved!' ? 'text-green-600' : 'text-red-600'}`}>
+                <span className={`text-xs font-semibold ${promptSaveMsg === 'Saved!' ? 'text-primary' : 'text-red-600'}`}>
                   {promptSaveMsg}
                 </span>
               )}
@@ -458,18 +458,18 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
             ) : bankTypes.length === 0 ? (
               <p className="text-sm text-muted-foreground py-4">No bank types found for this project.</p>
             ) : (
-              <div className="overflow-x-auto border border-input rounded-lg">
+              <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-muted border-b border-input">
-                      <th className="px-4 py-3 text-left font-semibold">Type</th>
-                      <th className="px-4 py-3 text-left font-semibold">AI Prompt</th>
-                      <th className="px-4 py-3 w-16"></th>
+                    <tr className="bg-muted/30 border-b border-border/50">
+                      <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Type</th>
+                      <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">AI Prompt</th>
+                      <th className="px-4 py-4 w-16"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {bankTypes.map((bt) => (
-                      <tr key={bt.id} className="border-b border-input hover:bg-muted/50">
+                      <tr key={bt.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
                         <td className="px-4 py-3">
                           <span className="text-xs font-medium">{bt.name}</span>
                         </td>
@@ -546,7 +546,7 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
                       </p>
                       <p className="text-sm text-foreground">{request.message}</p>
                     </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
+                    <div className="flex items-center gap-1 shrink-0">
                       {request.status === 'pending' && (
                         <button
                           onClick={() => handleResolveRequest(request.id)}
@@ -611,7 +611,7 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
                           <p className="text-sm text-foreground">{req.reason ?? '(no reason provided)'}</p>
                         </div>
                         {req.status === 'pending' && (
-                          <div className="flex items-center gap-1 flex-shrink-0">
+                          <div className="flex items-center gap-1 shrink-0">
                             <button
                               onClick={() => handleBackupRequestStatus(req.id, 'fulfilled')}
                               title="Mark as fulfilled"
@@ -676,7 +676,7 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
                           </p>
                         </div>
                         {req.status === 'pending' && (
-                          <div className="flex items-center gap-1 flex-shrink-0">
+                          <div className="flex items-center gap-1 shrink-0">
                             <button
                               onClick={() => handleRecoveryRequest(req, 'approved')}
                               title="Approve & restore"

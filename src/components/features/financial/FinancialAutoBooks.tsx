@@ -591,7 +591,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
             if (!selectedBankType) { setNotice('Select a bank type first.'); return; }
             fileInputRef.current?.click();
           }}
-          className="border-2 border-dashed border-border rounded-lg p-8 mb-6 cursor-pointer hover:border-accent/50 transition-colors text-center max-w-xs"
+          className="border-2 border-dashed border-primary/30 bg-primary/5 rounded-xl p-8 mb-6 cursor-pointer hover:border-primary hover:bg-primary/10 transition-all text-center max-w-xs shadow-sm"
         >
           <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
           <p className="font-semibold text-sm">Upload Financials</p>
@@ -630,13 +630,13 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                 placeholder="Bank name..."
                 className="px-2 py-1 bg-background border border-input rounded text-xs"
               />
-              <button onClick={handleRequestBankType} className="text-xs text-accent font-semibold">
+              <button onClick={handleRequestBankType} className="text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all">
                 {isAdmin ? 'Add' : 'Request'}
               </button>
             </div>
           ) : (
-            <button onClick={() => setShowAddType(true)} className="flex items-center gap-1 text-xs text-accent font-semibold">
-              <Plus className="h-3 w-3" /> Request new type
+            <button onClick={() => setShowAddType(true)} className="flex items-center gap-1.5 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all">
+              <Plus className="h-3.5 w-3.5" /> Request new type
             </button>
           )
         )}
@@ -688,13 +688,13 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
 
       {/* Sheet tabs */}
       {sheetsForType.length > 0 && (
-        <div className="flex items-center gap-1 mb-4 overflow-x-auto border-b border-border">
+        <div className="flex items-center gap-1 mb-6 overflow-x-auto border-b border-border/50 pb-1">
           {sheetsForType.map((sheet) => (
             <div key={sheet.id} className="flex items-center group">
                 <button
                   onClick={() => setSelectedSheetId(sheet.id)}
-                  className={`px-3 py-1.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
-                  effectiveSheetId === sheet.id ? 'border-accent text-accent' : 'border-transparent text-muted-foreground hover:text-foreground'
+                  className={`px-4 py-2 text-[11px] font-bold tracking-wider uppercase rounded-t-lg transition-all ${
+                  effectiveSheetId === sheet.id ? 'bg-primary/10 text-primary border-b-2 border-primary' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
                 }`}
                 >
                 {sheet.name}
@@ -725,21 +725,21 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
       )}
 
       {/* Bank Data header + Add Row + Add Category */}
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <h3 className="text-sm font-bold">Bank Data</h3>
+          <h3 className="text-lg font-bold tracking-tight">Bank Data</h3>
           {canEdit && selectedBankType && (
             <button
               onClick={handleAddRow}
-              className="flex items-center gap-1 text-xs text-accent font-semibold hover:underline"
+              className="flex items-center gap-1.5 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all"
             >
-              <Plus className="h-3.5 w-3.5" /> Add Row
+              <Plus className="h-4 w-4" /> Add Row
             </button>
           )}
         </div>
         {canEdit && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-bold">AutoBooks</span>
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-bold tracking-tight">AutoBooks</span>
             {showAddCategory ? (
               <div className="flex items-center gap-2">
                 <input
@@ -748,37 +748,39 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                   onChange={(e) => setNewCatName(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleAddCategory(); if (e.key === 'Escape') setShowAddCategory(false); }}
                   placeholder="Category name..."
-                  className="px-2 py-1 bg-background border border-input rounded text-xs"
+                  className="px-2 py-1 bg-background/50 border border-input rounded text-xs transition-colors focus:ring-1 focus:ring-primary/50"
                 />
                 <select
                   value={newCatType}
                   onChange={(e) => setNewCatType(e.target.value as 'expense' | 'income')}
-                  className="px-2 py-1 bg-background border border-input rounded text-xs"
+                  className="px-2 py-1 bg-background/50 border border-input rounded text-xs transition-colors focus:ring-1 focus:ring-primary/50"
                 >
                   <option value="expense">Expense</option>
                   <option value="income">Gross Income</option>
                 </select>
-                <button onClick={handleAddCategory} className="text-xs text-accent font-semibold">Add</button>
+                <button onClick={handleAddCategory} className="text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all">Add</button>
               </div>
             ) : (
-              <button onClick={() => setShowAddCategory(true)} className="text-xs text-accent font-semibold">Add Category</button>
+              <button onClick={() => setShowAddCategory(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold tracking-wider uppercase bg-primary/10 text-primary hover:bg-primary/20 transition-all">
+                Add Category
+              </button>
             )}
           </div>
         )}
       </div>
 
       {/* Transactions table — dynamic columns */}
-      <div className="border border-border rounded-lg overflow-x-auto">
-        <table className="w-full text-sm">
+      <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
+        <table className="w-full text-xs sm:text-sm">
           <thead>
-            <tr className="bg-muted/50 border-b border-border">
+            <tr className="bg-muted/30 border-b border-border/50">
               {hasRawData ? (
                 <>
                   {dynamicColumns.map((col, colIndex) => {
                     const isEditing = editingHeader?.sheetId === activeSheet?.id && editingHeader?.index === colIndex;
 
                     return (
-                      <th key={`${col}-${colIndex}`} className="px-3 py-2 text-left text-xs font-semibold whitespace-nowrap">
+                      <th key={`${col}-${colIndex}`} className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">
                         {isEditing ? (
                           <input
                             autoFocus
@@ -793,7 +795,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                           />
                         ) : (
                           <span
-                            className={activeSheet && canEdit ? 'cursor-pointer hover:text-accent group inline-flex items-center gap-1' : ''}
+                            className={activeSheet && canEdit ? 'cursor-pointer hover:text-primary group inline-flex items-center gap-1 transition-colors' : ''}
                             onClick={() => {
                               if (activeSheet && canEdit) {
                                 setEditingHeader({ sheetId: activeSheet.id, index: colIndex });
@@ -802,26 +804,26 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                             }}
                           >
                             {col}
-                            {activeSheet && canEdit && <Pencil className="h-2.5 w-2.5 opacity-0 group-hover:opacity-50" />}
+                            {activeSheet && canEdit && <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-50 transition-opacity" />}
                           </span>
                         )}
                       </th>
                     );
                   })}
-                  <th className="px-3 py-2 text-left text-xs font-semibold min-w-[150px]">Category</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold min-w-[100px]">Notes</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold min-w-[100px]">Auto-Grouping</th>
-                  {canEdit && <th className="px-3 py-2 w-8"></th>}
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[150px]">Category</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[100px]">Notes</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[100px]">Auto-Grouping</th>
+                  {canEdit && <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap w-8"></th>}
                 </>
               ) : (
                 <>
-                  <th className="px-3 py-2 text-left text-xs font-semibold min-w-[100px]">Date</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold min-w-[90px]">Amount</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold min-w-[200px]">Description</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold min-w-[150px]">Category</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold min-w-[100px]">Notes</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold min-w-[100px]">Auto-Grouping</th>
-                  {canEdit && <th className="px-3 py-2 w-8"></th>}
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[100px]">Date</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[90px]">Amount</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[200px]">Description</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[150px]">Category</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[100px]">Notes</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[100px]">Auto-Grouping</th>
+                  {canEdit && <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap w-8"></th>}
                 </>
               )}
             </tr>
@@ -837,7 +839,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
               </tr>
             ) : (
               filteredTransactions.map((tx) => (
-                <tr key={tx.id} className="border-b border-border hover:bg-muted/30">
+                <tr key={tx.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
                   {hasRawData ? (
                     <>
                       {dynamicColumns.map((col, colIndex) => {
@@ -849,7 +851,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                         return (
                           <td
                             key={`${col}-${colIndex}`}
-                            className={`px-3 py-2 text-xs whitespace-nowrap ${
+                            className={`px-4 py-4 text-xs whitespace-nowrap ${
                               isAmt && numVal < 0 ? 'text-red-500 font-medium' : isAmt && numVal > 0 ? 'text-green-500 font-medium' : ''
                             }`}
                           >
@@ -861,7 +863,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                   ) : (
                     <>
                       {/* Date */}
-                      <td className="px-3 py-2 text-xs">
+                      <td className="px-4 py-4 text-xs whitespace-nowrap">
                         {editingCell?.id === tx.id && editingCell?.field === 'date' ? (
                           <input
                             autoFocus
@@ -878,14 +880,14 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                         ) : (
                           <span
                             onClick={canEdit ? () => { setEditingCell({ id: tx.id, field: 'date' }); setEditValue(tx.date ?? ''); } : undefined}
-                            className={`block min-h-[1.25rem] ${canEdit ? 'cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded' : ''}`}
+                            className={`block min-h-5 ${canEdit ? 'cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded' : ''}`}
                           >
                             {tx.date ?? <span className="text-muted-foreground/40">-</span>}
                           </span>
                         )}
                       </td>
                       {/* Amount */}
-                      <td className={`px-3 py-2 text-xs font-medium ${tx.amount != null && tx.amount < 0 ? 'text-red-500' : tx.amount != null && tx.amount > 0 ? 'text-green-500' : ''}`}>
+                      <td className={`px-4 py-4 text-xs font-medium whitespace-nowrap ${tx.amount != null && tx.amount < 0 ? 'text-red-500' : tx.amount != null && tx.amount > 0 ? 'text-green-500' : ''}`}>
                         {editingCell?.id === tx.id && editingCell?.field === 'amount' ? (
                           <input
                             autoFocus
@@ -903,7 +905,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                         ) : (
                           <span
                             onClick={canEdit ? () => { setEditingCell({ id: tx.id, field: 'amount' }); setEditValue(tx.amount != null ? String(tx.amount) : ''); } : undefined}
-                            className={`block min-h-[1.25rem] ${canEdit ? 'cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded' : ''}`}
+                            className={`block min-h-5 ${canEdit ? 'cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded' : ''}`}
                           >
                             {tx.amount != null
                               ? `${tx.amount < 0 ? '-' : ''}$${Math.abs(Number(tx.amount)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -912,7 +914,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                         )}
                       </td>
                       {/* Description */}
-                      <td className="px-3 py-2 text-xs text-muted-foreground max-w-[200px]">
+                      <td className="px-4 py-4 text-xs text-muted-foreground max-w-[200px] whitespace-nowrap">
                         {editingCell?.id === tx.id && editingCell?.field === 'description' ? (
                           <input
                             autoFocus
@@ -928,7 +930,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                         ) : (
                           <span
                             onClick={canEdit ? () => { setEditingCell({ id: tx.id, field: 'description' }); setEditValue(tx.description ?? ''); } : undefined}
-                            className={`block min-h-[1.25rem] ${canEdit ? 'cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded' : ''}`}
+                            className={`block min-h-5 ${canEdit ? 'cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded' : ''}`}
                           >
                             {tx.description || <span className="text-muted-foreground/40">-</span>}
                           </span>
@@ -937,19 +939,19 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                     </>
                   )}
                   {/* Category */}
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-1">
+                  <td className="px-4 py-4 whitespace-nowrap">
+                    <div className="flex items-center gap-1.5">
                       {tx.category_id ? (
                         tx.ai_needs_review ? (
                           <span title="AI suggested — needs human review. The AI was not confident about this category.">
-                            <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-amber-400" />
+                            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-400" />
                           </span>
                         ) : (
                           <span title={tx.auto_grouping === 'Do not group' ? 'Manually categorized' : 'AI categorized'}>
                             {tx.auto_grouping === 'Do not group' ? (
-                              <User className="h-3.5 w-3.5 flex-shrink-0 text-orange-400" />
+                              <User className="h-3.5 w-3.5 shrink-0 text-orange-400" />
                             ) : (
-                              <Bot className="h-3.5 w-3.5 flex-shrink-0 text-blue-400" />
+                              <Bot className="h-3.5 w-3.5 shrink-0 text-blue-400" />
                             )}
                           </span>
                         )
@@ -970,7 +972,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                     </div>
                   </td>
                   {/* Notes */}
-                  <td className="px-3 py-2">
+                  <td className="px-4 py-4 whitespace-nowrap">
                     {editingCell?.id === tx.id && editingCell?.field === 'notes' ? (
                       <input
                         autoFocus
@@ -986,14 +988,14 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                     ) : (
                       <span
                         onClick={canEdit ? () => { setEditingCell({ id: tx.id, field: 'notes' }); setEditValue(tx.notes ?? ''); } : undefined}
-                        className={`text-xs block min-h-[1.25rem] ${canEdit ? 'cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded' : ''}`}
+                        className={`text-xs block min-h-5 ${canEdit ? 'cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded' : ''}`}
                       >
                         {tx.notes || <span className="text-muted-foreground/40">-</span>}
                       </span>
                     )}
                   </td>
                   {/* Auto-Grouping */}
-                  <td className="px-3 py-2">
+                  <td className="px-4 py-4 whitespace-nowrap">
                     <select
                       value={tx.auto_grouping ?? ''}
                       onChange={(e) => handleAutoGroupingChange(tx.id, e.target.value)}
@@ -1005,9 +1007,9 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                     </select>
                   </td>
                   {canEdit && (
-                    <td className="px-3 py-2">
-                      <button onClick={() => handleDeleteTx(tx.id)} className="text-muted-foreground hover:text-destructive">
-                        <Trash2 className="h-3.5 w-3.5" />
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <button onClick={() => handleDeleteTx(tx.id)} className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all">
+                        <Trash2 className="h-4 w-4" />
                       </button>
                     </td>
                   )}
