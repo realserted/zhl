@@ -13,7 +13,7 @@ import {
   getUploadSheets, createUploadSheet, deleteUploadSheet, updateSheetColumnHeaders,
 } from '@/lib/db/financial';
 import { logUserAction } from '@/lib/db/user-logs';
-import { Upload, Plus, Trash2, X, Check, Pencil, Bot, User, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Upload, Plus, Trash2, X, Check, Pencil, Bot, User, AlertTriangle, ChevronLeft, ChevronRight, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 /** Normalize a description for fuzzy matching */
@@ -149,6 +149,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
 
   const permLevel = userPermission?.perm_reports ?? 'Admin';
   const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
+  const isAdmin = !userPermission || permLevel === 'Admin';
 
   useEffect(() => {
     if (!user) return;
@@ -959,23 +960,43 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
         </div>
       )}
 
-      {/* Upload area */}
+      {/* Upload area — two options */}
       {canEdit && (
-        <div
-          onClick={() => {
-            if (!selectedBankType) { setNotice('Select a bank type first.'); return; }
-            fileInputRef.current?.click();
-          }}
-          className="border-2 border-dashed border-primary/30 bg-primary/5 rounded-xl p-8 mb-6 cursor-pointer hover:border-primary hover:bg-primary/10 transition-all text-center max-w-xs shadow-sm"
-        >
-          <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-          <p className="font-semibold text-sm">Upload Financials</p>
-          <p className="text-xs text-muted-foreground">.xlsx, .xls, .csv</p>
+        <div className="flex gap-3 mb-6 max-w-md">
+          <div
+            onClick={() => {
+              if (!selectedBankType) { setNotice('Select a bank type first.'); return; }
+              quickFileInputRef.current?.click();
+            }}
+            className="flex-1 border-2 border-dashed border-primary/30 bg-primary/5 rounded-xl p-6 cursor-pointer hover:border-primary hover:bg-primary/10 transition-all text-center shadow-sm"
+          >
+            <Upload className="h-7 w-7 mx-auto mb-2 text-muted-foreground" />
+            <p className="font-semibold text-sm">Quick Upload</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Clean file, row 1 = headers</p>
+          </div>
+          <div
+            onClick={() => {
+              if (!selectedBankType) { setNotice('Select a bank type first.'); return; }
+              fileInputRef.current?.click();
+            }}
+            className="flex-1 border-2 border-dashed border-primary/30 bg-primary/5 rounded-xl p-6 cursor-pointer hover:border-primary hover:bg-primary/10 transition-all text-center shadow-sm"
+          >
+            <FileSpreadsheet className="h-7 w-7 mx-auto mb-2 text-muted-foreground" />
+            <p className="font-semibold text-sm">Customize</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Preview & map columns</p>
+          </div>
           <input
             ref={fileInputRef}
             type="file"
             accept=".xlsx,.xls,.csv"
             onChange={handleExcelUpload}
+            className="hidden"
+          />
+          <input
+            ref={quickFileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            onChange={handleQuickUpload}
             className="hidden"
           />
         </div>

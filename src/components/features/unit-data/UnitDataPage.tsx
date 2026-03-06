@@ -1310,6 +1310,22 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                   )}
                   {uploading ? 'IMPORTING...' : 'UPLOAD EXCEL'}
                 </button>
+                <button
+                  onClick={() => quickFileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="flex items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all disabled:opacity-50 px-1"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  QUICK UPLOAD
+                </button>
+                <button
+                  onClick={() => importFileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="flex items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-emerald-500 hover:text-emerald-400 transition-all disabled:opacity-50 px-1"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  IMPORT TO CATEGORY
+                </button>
               </div>
             )}
 
@@ -1616,7 +1632,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
           ) : (
             <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm relative">
               <div className="overflow-x-auto">
-                <table className="text-xs sm:text-sm" style={{ tableLayout: 'fixed', width: totalTableWidth, minWidth: '100%' }}>
+                <table className="text-xs sm:text-sm" style={{ tableLayout: 'fixed', width: totalTableWidth, minWidth: '100%' }} onPaste={handleTablePaste}>
                 {/* Colgroup drives column widths for table-layout:fixed */}
                 <colgroup>
                   {categories.map((cat) => {
@@ -1783,7 +1799,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                       </td>
                     </tr>
                   ) : (
-                    nonEmptyRows.map((row) => (
+                    nonEmptyRows.map((row, rowIndex) => (
                       <tr key={row.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
                         {categories.map((cat) => {
                           const catVisibleFields = getOrderedFields(cat).filter((f) => f.visible);
@@ -1804,10 +1820,25 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                             const cellValue = val?.value ?? '';
                             const isEditing = editingCell?.rowId === row.id && editingCell?.fieldId === field.id;
 
+                            // Auto-ID fields show sequential numbers
+                            if (field.is_auto_id) {
+                              return (
+                                <td
+                                  key={field.id}
+                                  className="px-4 py-4 whitespace-nowrap border-r border-border/50 last:border-r-0 overflow-hidden"
+                                >
+                                  <span className="text-xs text-blue-400 font-semibold">{rowIndex + 1}</span>
+                                </td>
+                              );
+                            }
+
                             return (
                               <td
                                 key={field.id}
-                                className="px-4 py-4 whitespace-nowrap border-r border-border/50 last:border-r-0 overflow-hidden group/td"
+                                data-field-id={field.id}
+                                data-row-id={row.id}
+                                tabIndex={0}
+                                className="px-4 py-4 whitespace-nowrap border-r border-border/50 last:border-r-0 overflow-hidden group/td focus:outline-none focus:ring-1 focus:ring-primary/30"
                               >
                                 {isEditing ? (
                                   <input
@@ -1903,18 +1934,64 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
         isOpen={showAddCategory}
         onClose={() => setShowAddCategory(false)}
         title="Add Category"
-        maxWidth="sm"
+        maxWidth="md"
       >
-        <div className="space-y-6">
-          <input
-            type="text"
-            autoFocus
-            value={newCategoryName}
-            onChange={(e) => setNewCategoryName(e.target.value)}
-            className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
-            placeholder="Enter category name..."
-            onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
-          />
+        <div className="space-y-5">
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Category Name</label>
+            <input
+              type="text"
+              autoFocus
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
+              placeholder="Enter category name..."
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Fields (optional)</label>
+            <div className="space-y-2">
+              {newCategoryFields.map((fieldName, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={fieldName}
+                    onChange={(e) => {
+                      const updated = [...newCategoryFields];
+                      updated[idx] = e.target.value;
+                      setNewCategoryFields(updated);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (fieldName.trim() && idx === newCategoryFields.length - 1) {
+                          setNewCategoryFields((prev) => [...prev, '']);
+                        } else if (!fieldName.trim() && newCategoryFields.length > 1) {
+                          handleAddCategory();
+                        }
+                      }
+                    }}
+                    className="flex-1 px-4 py-2.5 bg-background/50 border border-primary/20 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
+                    placeholder={`Field ${idx + 1} name...`}
+                  />
+                  {newCategoryFields.length > 1 && (
+                    <button
+                      onClick={() => setNewCategoryFields((prev) => prev.filter((_, i) => i !== idx))}
+                      className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                onClick={() => setNewCategoryFields((prev) => [...prev, ''])}
+                className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 transition-colors ml-1"
+              >
+                <Plus className="h-3 w-3" /> Add another field
+              </button>
+            </div>
+          </div>
           <div className="flex flex-col gap-3">
             <button
               onClick={handleAddCategory}
@@ -1991,6 +2068,306 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
             >
               Cancel
             </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ===== UPLOAD WITH PREVIEW MODAL ===== */}
+      <Modal
+        isOpen={udPreviewOpen}
+        onClose={() => { setUdPreviewOpen(false); setUdPreviewFile(null); setUdPreviewWorkbook(null); setUdPreviewRows([]); }}
+        title={`Upload Preview — ${udPreviewFile?.name ?? ''}`}
+        maxWidth="7xl"
+      >
+        <div className="flex flex-col" style={{ maxHeight: '75vh' }}>
+          {/* Controls */}
+          <div className="flex flex-wrap items-center gap-4 px-5 py-4 border-b border-border/50 bg-muted/20">
+            <label className="flex items-center gap-2">
+              <span className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">Header</span>
+              <input type="number" min={0} value={udHeaderRow} onChange={(e) => { setUdHeaderRow(Number(e.target.value)); setUdPreviewPage(0); }}
+                className="w-16 px-2.5 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs text-center font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">Start</span>
+              <input type="number" min={1} value={udDataStartRow} onChange={(e) => { setUdDataStartRow(Number(e.target.value)); setUdPreviewPage(0); }}
+                className="w-16 px-2.5 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs text-center font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">End</span>
+              <input type="number" min={0} value={udDataEndRow} onChange={(e) => setUdDataEndRow(Number(e.target.value))}
+                className="w-16 px-2.5 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs text-center font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">Col Start</span>
+              <input type="number" min={0} value={udStartCol} onChange={(e) => setUdStartCol(Number(e.target.value))}
+                className="w-16 px-2.5 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs text-center font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">Col End</span>
+              <input type="number" min={0} value={udEndCol} onChange={(e) => setUdEndCol(Number(e.target.value))}
+                className="w-16 px-2.5 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs text-center font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+            </label>
+            <span className="text-[10px] font-bold tracking-widest uppercase text-primary ml-auto">
+              {Math.max(0, (udDataEndRow || udPreviewRows.length) - udDataStartRow + 1)} data rows
+            </span>
+          </div>
+
+          {/* Data preview */}
+          <div className="flex-1 overflow-auto px-5 py-3">
+            <div className="min-w-max">
+              {(() => {
+                const pageStart = udPreviewPage * UD_PREVIEW_PAGE_SIZE;
+                const pageEnd = Math.min(pageStart + UD_PREVIEW_PAGE_SIZE, udPreviewRows.length);
+                const visibleRows = udPreviewRows.slice(pageStart, pageEnd);
+                const maxCols = Math.max(...udPreviewRows.map((r) => r.length), 0);
+
+                const selR1 = udSelStart && udSelEnd ? Math.min(udSelStart.r, udSelEnd.r) : null;
+                const selR2 = udSelStart && udSelEnd ? Math.max(udSelStart.r, udSelEnd.r) : null;
+                const selC1 = udSelStart && udSelEnd ? Math.min(udSelStart.c, udSelEnd.c) : null;
+                const selC2 = udSelStart && udSelEnd ? Math.max(udSelStart.c, udSelEnd.c) : null;
+
+                return visibleRows.map((row, rIdx) => {
+                  const actualRowIdx = pageStart + rIdx;
+                  const isHeaderRow = udHeaderRow >= 1 && actualRowIdx === udHeaderRow - 1;
+                  const isBeforeStart = actualRowIdx < udDataStartRow - 1;
+                  const isStartRow = actualRowIdx === udDataStartRow - 1;
+                  const isAfterEnd = udDataEndRow > 0 && actualRowIdx >= udDataEndRow;
+
+                  return (
+                    <div
+                      key={actualRowIdx}
+                      className={`flex items-center gap-1 rounded-lg transition-all ${
+                        isHeaderRow ? 'bg-blue-500/10 font-semibold'
+                        : isBeforeStart || isAfterEnd ? 'opacity-30'
+                        : isStartRow ? 'bg-primary/10 border-l-2 border-primary'
+                        : 'hover:bg-muted/30'
+                      }`}
+                    >
+                      <div
+                        className={`w-10 flex-shrink-0 text-xs text-center py-1.5 cursor-pointer hover:text-primary font-mono transition-colors ${
+                          isHeaderRow ? 'text-blue-500 font-bold' : isStartRow ? 'text-primary font-bold' : 'text-muted-foreground/60'
+                        }`}
+                        onClick={() => { setUdDataStartRow(actualRowIdx + 1); if (actualRowIdx >= 1) setUdHeaderRow(actualRowIdx); setUdPreviewPage(0); }}
+                        title={`Click to set data start at row ${actualRowIdx + 1}`}
+                      >
+                        {actualRowIdx + 1}
+                      </div>
+                      {Array.from({ length: maxCols }, (_, cIdx) => {
+                        const val = row[cIdx];
+                        const inRange = cIdx >= udStartCol && cIdx <= udEndCol && !udColumnSkip[cIdx];
+                        const inSelection = selR1 !== null && selC1 !== null && actualRowIdx >= selR1 && actualRowIdx <= selR2! && cIdx >= selC1 && cIdx <= selC2!;
+                        return (
+                          <div
+                            key={cIdx}
+                            className={`w-28 flex-shrink-0 px-2 py-1.5 text-xs truncate border-r border-border/20 cursor-cell font-medium transition-all ${
+                              inSelection ? 'bg-primary/20 ring-1 ring-primary/40 rounded' : inRange ? 'text-foreground/80' : 'opacity-20'
+                            }`}
+                            title={val != null ? String(val) : ''}
+                            onMouseDown={() => { setUdSelecting(true); setUdSelStart({ r: actualRowIdx, c: cIdx }); setUdSelEnd({ r: actualRowIdx, c: cIdx }); }}
+                            onMouseEnter={() => { if (udSelecting) setUdSelEnd({ r: actualRowIdx, c: cIdx }); }}
+                            onMouseUp={() => {
+                              setUdSelecting(false);
+                              if (udSelStart && udSelEnd) {
+                                const r1 = Math.min(udSelStart.r, udSelEnd.r);
+                                const r2 = Math.max(udSelStart.r, udSelEnd.r);
+                                const c1 = Math.min(udSelStart.c, udSelEnd.c);
+                                const c2 = Math.max(udSelStart.c, udSelEnd.c);
+                                setUdHeaderRow(r1 + 1);
+                                setUdDataStartRow(r1 + 2);
+                                setUdDataEndRow(r2 + 1);
+                                setUdStartCol(c1);
+                                setUdEndCol(c2);
+                              }
+                            }}
+                          >
+                            {val != null ? String(val) : ''}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+
+          {/* Pagination + Actions */}
+          <div className="px-5 py-4 border-t border-border/50 flex items-center justify-between bg-muted/20">
+            <div className="flex items-center gap-2">
+              <button disabled={udPreviewPage === 0} onClick={() => setUdPreviewPage((p) => Math.max(0, p - 1))}
+                className="p-1.5 rounded-lg border border-border/50 text-xs disabled:opacity-30 hover:bg-muted transition-all"><ChevronLeft className="h-3.5 w-3.5" /></button>
+              <span className="text-xs text-muted-foreground font-medium">
+                Rows {udPreviewPage * UD_PREVIEW_PAGE_SIZE + 1}–{Math.min((udPreviewPage + 1) * UD_PREVIEW_PAGE_SIZE, udPreviewRows.length)} of {udPreviewRows.length}
+              </span>
+              <button disabled={(udPreviewPage + 1) * UD_PREVIEW_PAGE_SIZE >= udPreviewRows.length} onClick={() => setUdPreviewPage((p) => p + 1)}
+                className="p-1.5 rounded-lg border border-border/50 text-xs disabled:opacity-30 hover:bg-muted transition-all"><ChevronRight className="h-3.5 w-3.5" /></button>
+            </div>
+            <div className="flex items-center gap-3">
+              <button onClick={() => { setUdPreviewOpen(false); setUdPreviewFile(null); setUdPreviewWorkbook(null); setUdPreviewRows([]); }}
+                className="px-4 py-2.5 text-xs border border-border rounded-2xl hover:bg-muted font-bold transition-all">Cancel</button>
+              <button onClick={processUdExcelWithMapping} disabled={uploading}
+                className="px-5 py-2.5 text-xs bg-primary text-primary-foreground rounded-2xl font-bold shadow-lg shadow-primary/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]">
+                {uploading ? 'Uploading...' : `Upload ${Math.max(0, (udDataEndRow || udPreviewRows.length) - udDataStartRow + 1)} rows`}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ===== IMPORT TO CATEGORY MODAL ===== */}
+      <Modal
+        isOpen={importOpen}
+        onClose={() => { setImportOpen(false); setImportFile(null); setImportRows([]); }}
+        title={`Import to Category — ${importFile?.name ?? ''}`}
+        maxWidth="7xl"
+      >
+        <div className="flex flex-col" style={{ maxHeight: '75vh' }}>
+          {/* Target category + range controls */}
+          <div className="flex flex-wrap items-center gap-4 px-5 py-4 border-b border-border/50 bg-muted/20">
+            <label className="flex items-center gap-2">
+              <span className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">Category</span>
+              <div className="relative">
+                <select value={importTargetCat} onChange={(e) => { setImportTargetCat(e.target.value); setImportColMapping({}); setImportNewFieldNames({}); }}
+                  className="px-3 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs font-medium appearance-none pr-7 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all">
+                  <option value="">Select category...</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+              </div>
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">Start</span>
+              <input type="number" min={1} value={importDataStartRow} onChange={(e) => { setImportDataStartRow(Number(e.target.value)); setImportPage(0); }}
+                className="w-16 px-2.5 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs text-center font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">End</span>
+              <input type="number" min={0} value={importDataEndRow} onChange={(e) => setImportDataEndRow(Number(e.target.value))}
+                className="w-16 px-2.5 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs text-center font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">Col Start</span>
+              <input type="number" min={0} value={importStartCol} onChange={(e) => setImportStartCol(Number(e.target.value))}
+                className="w-16 px-2.5 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs text-center font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">Col End</span>
+              <input type="number" min={0} value={importEndCol} onChange={(e) => setImportEndCol(Number(e.target.value))}
+                className="w-16 px-2.5 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs text-center font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+            </label>
+          </div>
+
+          {/* Column-to-field mapping */}
+          {importTargetCat && (
+            <div className="px-5 py-3 border-b border-border/50 overflow-x-auto bg-muted/10">
+              <div className="flex items-end gap-1 min-w-max">
+                <div className="w-10 flex-shrink-0" />
+                {Array.from({ length: Math.min(Math.max(...importRows.map((r) => r.length), 0), importEndCol + 1) }, (_, colIdx) => {
+                  if (colIdx < importStartCol) return null;
+                  const cat = categories.find((c) => c.id === importTargetCat);
+                  const mappedVal = importColMapping[colIdx] ?? '';
+                  const isNew = mappedVal === '__new__';
+                  return (
+                    <div key={colIdx} className="w-28 flex-shrink-0 space-y-1">
+                      <select value={mappedVal} onChange={(e) => setImportColMapping((prev) => ({ ...prev, [colIdx]: e.target.value }))}
+                        className={`w-full px-1.5 py-1 border rounded-lg text-[10px] font-medium transition-all ${mappedVal ? 'border-primary/40 bg-primary/10 text-primary font-bold' : 'border-border/50 bg-background/50 text-muted-foreground'}`}>
+                        <option value="">— Skip —</option>
+                        {cat?.fields.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                        <option value="__new__">+ New field...</option>
+                      </select>
+                      {isNew && (
+                        <input value={importNewFieldNames[colIdx] ?? ''} onChange={(e) => setImportNewFieldNames((prev) => ({ ...prev, [colIdx]: e.target.value }))}
+                          placeholder="Field name..."
+                          className="w-full px-1.5 py-1 border border-primary/20 rounded-lg text-[10px] bg-background/50 font-medium focus:outline-none focus:ring-1 focus:ring-primary/20 transition-all" />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Data preview */}
+          <div className="flex-1 overflow-auto px-5 py-3">
+            <div className="min-w-max">
+              {(() => {
+                const IMPORT_PAGE_SIZE = 20;
+                const pageStart = importPage * IMPORT_PAGE_SIZE;
+                const pageEnd = Math.min(pageStart + IMPORT_PAGE_SIZE, importRows.length);
+                const visibleRows = importRows.slice(pageStart, pageEnd);
+                const maxCols = Math.max(...importRows.map((r) => r.length), 0);
+
+                const selR1 = importSelStart && importSelEnd ? Math.min(importSelStart.r, importSelEnd.r) : null;
+                const selR2 = importSelStart && importSelEnd ? Math.max(importSelStart.r, importSelEnd.r) : null;
+                const selC1 = importSelStart && importSelEnd ? Math.min(importSelStart.c, importSelEnd.c) : null;
+                const selC2 = importSelStart && importSelEnd ? Math.max(importSelStart.c, importSelEnd.c) : null;
+
+                return visibleRows.map((row, rIdx) => {
+                  const actualRowIdx = pageStart + rIdx;
+                  const inDataRange = actualRowIdx >= importDataStartRow - 1 && (importDataEndRow === 0 || actualRowIdx < importDataEndRow);
+                  return (
+                    <div key={actualRowIdx} className={`flex items-center gap-1 rounded-lg transition-all ${inDataRange ? 'hover:bg-muted/30' : 'opacity-30'}`}>
+                      <div className="w-10 flex-shrink-0 text-xs text-center py-1.5 text-muted-foreground/60 font-mono">{actualRowIdx + 1}</div>
+                      {Array.from({ length: maxCols }, (_, cIdx) => {
+                        const val = row[cIdx];
+                        const inColRange = cIdx >= importStartCol && cIdx <= importEndCol;
+                        const inSelection = selR1 !== null && selC1 !== null && actualRowIdx >= selR1 && actualRowIdx <= selR2! && cIdx >= selC1 && cIdx <= selC2!;
+                        return (
+                          <div key={cIdx}
+                            className={`w-28 flex-shrink-0 px-2 py-1.5 text-xs truncate border-r border-border/20 cursor-cell font-medium transition-all ${
+                              inSelection ? 'bg-primary/20 ring-1 ring-primary/40 rounded' : inColRange ? 'text-foreground/80' : 'opacity-20'
+                            }`}
+                            title={val != null ? String(val) : ''}
+                            onMouseDown={() => { setImportSelecting(true); setImportSelStart({ r: actualRowIdx, c: cIdx }); setImportSelEnd({ r: actualRowIdx, c: cIdx }); }}
+                            onMouseEnter={() => { if (importSelecting) setImportSelEnd({ r: actualRowIdx, c: cIdx }); }}
+                            onMouseUp={() => {
+                              setImportSelecting(false);
+                              if (importSelStart && importSelEnd) {
+                                const r1 = Math.min(importSelStart.r, importSelEnd.r);
+                                const r2 = Math.max(importSelStart.r, importSelEnd.r);
+                                const c1 = Math.min(importSelStart.c, importSelEnd.c);
+                                const c2 = Math.max(importSelStart.c, importSelEnd.c);
+                                setImportDataStartRow(r1 + 1);
+                                setImportDataEndRow(r2 + 1);
+                                setImportStartCol(c1);
+                                setImportEndCol(c2);
+                              }
+                            }}
+                          >
+                            {val != null ? String(val) : ''}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+
+          {/* Pagination + Actions */}
+          <div className="px-5 py-4 border-t border-border/50 flex items-center justify-between bg-muted/20">
+            <div className="flex items-center gap-2">
+              <button disabled={importPage === 0} onClick={() => setImportPage((p) => Math.max(0, p - 1))}
+                className="p-1.5 rounded-lg border border-border/50 text-xs disabled:opacity-30 hover:bg-muted transition-all"><ChevronLeft className="h-3.5 w-3.5" /></button>
+              <span className="text-xs text-muted-foreground font-medium">
+                Rows {importPage * 20 + 1}–{Math.min((importPage + 1) * 20, importRows.length)} of {importRows.length}
+              </span>
+              <button disabled={(importPage + 1) * 20 >= importRows.length} onClick={() => setImportPage((p) => p + 1)}
+                className="p-1.5 rounded-lg border border-border/50 text-xs disabled:opacity-30 hover:bg-muted transition-all"><ChevronRight className="h-3.5 w-3.5" /></button>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">
+                Mapped: {Object.values(importColMapping).filter((v) => v !== '').length} field(s)
+              </span>
+              <button onClick={() => { setImportOpen(false); setImportFile(null); setImportRows([]); }}
+                className="px-4 py-2.5 text-xs border border-border rounded-2xl hover:bg-muted font-bold transition-all">Cancel</button>
+              <button onClick={processImportToCategory}
+                disabled={uploading || !importTargetCat || Object.values(importColMapping).filter((v) => v !== '').length === 0}
+                className="px-5 py-2.5 text-xs bg-emerald-600 text-white rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]">
+                {uploading ? 'Importing...' : 'Import to Category'}
+              </button>
+            </div>
           </div>
         </div>
       </Modal>
