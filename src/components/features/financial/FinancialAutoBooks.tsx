@@ -187,11 +187,17 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
 
   const handleRequestBankType = async () => {
     if (!newTypeName.trim()) return;
-    const bt = await createBankType(selectedProjectId, newTypeName.trim(), 'pending');
+    const status = isAdmin ? 'approved' : 'pending';
+    const bt = await createBankType(selectedProjectId, newTypeName.trim(), status);
     if (bt) {
       setBankTypes((prev) => [...prev, bt]);
-      setNotice(`Request for "${newTypeName.trim()}" sent to admin for approval.`);
-      log(`Requested bank type "${newTypeName.trim()}"`);
+      if (isAdmin) {
+        setNotice(`Added bank type "${newTypeName.trim()}".`);
+        log(`Added bank type "${newTypeName.trim()}"`);
+      } else {
+        setNotice(`Request for "${newTypeName.trim()}" sent to admin for approval.`);
+        log(`Requested bank type "${newTypeName.trim()}"`);
+      }
     }
     setNewTypeName('');
     setShowAddType(false);
