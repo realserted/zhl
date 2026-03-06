@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Loader2, Trash2, X, Link, Upload, Download, FileSpreadsheet, Pencil, FileText, ExternalLink, GripVertical } from 'lucide-react';
 import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
@@ -33,6 +33,8 @@ import {
 } from '@/lib/db/unit-data';
 import { createRecoveryRequest } from '@/lib/db/unit-data-recovery';
 import { downloadFileUrl } from '@/lib/db/files';
+
+const PdfViewer = lazy(() => import('@/components/shared/PdfViewer'));
 import { getView, getProjectViews, saveView, saveFieldOrder } from '@/lib/db/unit-data-views';
 import { getProjectSettings } from '@/lib/db/project-settings';
 import { logUserAction } from '@/lib/db/user-logs';
@@ -200,8 +202,13 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
   const [importNewFieldNames, setImportNewFieldNames] = useState<Record<number, string>>({}); // colIdx → new field name
 
   // File preview modal
-  const [filePreview, setFilePreview] = useState<{ url: string; name: string } | null>(null);
+  const [filePreview, setFilePreview] = useState<{ url: string; name: string; htmlContent?: string; downloadUrl?: string; pdfData?: ArrayBuffer } | null>(null);
   const [filePreviewLoading, setFilePreviewLoading] = useState(false);
+
+  const closeFilePreview = () => {
+    if (filePreview?.url?.startsWith('blob:')) URL.revokeObjectURL(filePreview.url);
+    setFilePreview(null);
+  };
 
   // Cell selection for bulk operations (click + shift-click range, or click-drag)
   const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set()); // "rowId-fieldId"
@@ -2042,11 +2049,33 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                             e.stopPropagation();
                                             setFilePreviewLoading(true);
                                             const url = await downloadFileUrl(val.file_url!, true);
-                                            setFilePreviewLoading(false);
-                                            if (url) {
-                                              const fileName = val.file_url!.split('/').pop() || 'File';
-                                              setFilePreview({ url, name: decodeURIComponent(fileName) });
+                                            if (!url) { setFilePreviewLoading(false); return; }
+                                            const fileName = decodeURIComponent(val.file_url!.split('/').pop() || 'File');
+
+                                            // For docx files, convert to HTML client-side using mammoth
+                                            if (/\.docx$/i.test(fileName)) {
+                                              try {
+                                                const mammoth = (await import('mammoth')).default;
+                                                const response = await fetch(url);
+                                                const arrayBuffer = await response.arrayBuffer();
+                                                const result = await mammoth.convertToHtml({ arrayBuffer });
+                                                setFilePreview({ url, name: fileName, htmlContent: result.value });
+                                              } catch {
+                                                setFilePreview({ url, name: fileName });
+                                              }
+                                            } else if (/\.pdf$/i.test(fileName)) {
+                                              // Download PDF as ArrayBuffer for client-side rendering with pdf.js
+                                              try {
+                                                const response = await fetch(url);
+                                                const arrayBuffer = await response.arrayBuffer();
+                                                setFilePreview({ url, name: fileName, pdfData: arrayBuffer });
+                                              } catch {
+                                                setFilePreview({ url, name: fileName });
+                                              }
+                                            } else {
+                                              setFilePreview({ url, name: fileName });
                                             }
+                                            setFilePreviewLoading(false);
                                           }}
                                           className="shrink-0 p-1 text-blue-500 hover:text-blue-400 transition-colors bg-blue-500/5 rounded-md"
                                           title={`Linked to: ${getRowLabel(row.id)} — Click to preview`}
@@ -2560,27 +2589,33 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
       {/* File Preview Modal */}
       {filePreview && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-background/60 backdrop-blur-md" onClick={() => setFilePreview(null)} />
+          <div className="absolute inset-0 bg-background/60 backdrop-blur-md" onClick={closeFilePreview} />
           <div className="relative bg-background/95 border border-white/10 rounded-xl shadow-2xl flex flex-col w-full max-w-5xl animate-in fade-in zoom-in duration-200" style={{ height: '85vh' }}>
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-border/50 shrink-0">
               <h3 className="text-sm font-bold tracking-tight truncate">{filePreview.name}</h3>
               <div className="flex items-center gap-2">
                 <a
-                  href={filePreview.url}
+                  href={filePreview.downloadUrl || filePreview.url}
                   download={filePreview.name}
                   className="px-3 py-1.5 text-[10px] font-bold tracking-wider uppercase text-muted-foreground hover:text-foreground border border-border/50 rounded-xl transition-all"
                 >
                   Download
                 </a>
-                <button onClick={() => setFilePreview(null)} className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg transition-colors">
+                <button onClick={closeFilePreview} className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg transition-colors">
                   <X className="h-4 w-4" />
                 </button>
               </div>
             </div>
             {/* Preview content */}
             <div className="flex-1 overflow-hidden p-1">
-              {/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(filePreview.name) ? (
+              {filePreview.htmlContent ? (
+                <div
+                  className="w-full h-full overflow-auto bg-white rounded-lg p-8"
+                  dangerouslySetInnerHTML={{ __html: filePreview.htmlContent }}
+                  style={{ color: '#222', fontSize: '14px', lineHeight: '1.6' }}
+                />
+              ) : /\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(filePreview.name) ? (
                 <div className="w-full h-full flex items-center justify-center overflow-auto p-4">
                   <img src={filePreview.url} alt={filePreview.name} className="max-w-full max-h-full object-contain rounded-lg" />
                 </div>
@@ -2590,19 +2625,11 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                 <div className="w-full h-full flex items-center justify-center">
                   <audio src={filePreview.url} controls className="w-full max-w-md" />
                 </div>
-              ) : /\.(docx?|xlsx?|pptx?|csv)$/i.test(filePreview.name) ? (
-                <iframe
-                  src={`https://docs.google.com/gview?url=${encodeURIComponent(filePreview.url)}&embedded=true`}
-                  className="w-full h-full rounded-lg border-0"
-                  title={filePreview.name}
-                />
-              ) : /\.pdf$/i.test(filePreview.name) ? (
-                <iframe
-                  src={`https://docs.google.com/gview?url=${encodeURIComponent(filePreview.url)}&embedded=true`}
-                  className="w-full h-full rounded-lg border-0"
-                  title={filePreview.name}
-                />
-              ) : /\.(txt|html?)$/i.test(filePreview.name) ? (
+              ) : filePreview.pdfData ? (
+                <Suspense fallback={<div className="w-full h-full flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" /></div>}>
+                  <PdfViewer data={filePreview.pdfData} />
+                </Suspense>
+              ) : /\.(txt|html?|csv)$/i.test(filePreview.name) ? (
                 <iframe
                   src={filePreview.url}
                   className="w-full h-full rounded-lg border-0"

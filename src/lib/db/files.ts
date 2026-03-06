@@ -468,6 +468,36 @@ export async function downloadFileUrl(storagePath: string, inline = false): Prom
   return data.signedUrl;
 }
 
+/** Download file as a blob URL for inline preview (bypasses Content-Disposition headers) */
+export async function previewFileAsBlob(storagePath: string): Promise<string | null> {
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .download(storagePath);
+
+  if (error) {
+    console.error('Error downloading file for preview:', error.message);
+    return null;
+  }
+
+  // Determine MIME type from extension
+  const ext = storagePath.split('.').pop()?.toLowerCase() ?? '';
+  const mimeMap: Record<string, string> = {
+    pdf: 'application/pdf',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    svg: 'image/svg+xml',
+    txt: 'text/plain',
+    html: 'text/html',
+    csv: 'text/csv',
+  };
+  const mime = mimeMap[ext] || data.type || 'application/octet-stream';
+  const blob = new Blob([data], { type: mime });
+  return URL.createObjectURL(blob);
+}
+
 export async function deleteFile(fileId: string): Promise<boolean> {
   const { data: file, error: fetchError } = await supabase
     .from('zhl_project_files')
