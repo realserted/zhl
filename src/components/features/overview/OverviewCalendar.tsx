@@ -170,31 +170,31 @@ export default function OverviewCalendar({ projectId, taskers }: OverviewCalenda
   const selectedEvents = selectedDate ? eventsByDate.get(selectedDate) ?? [] : [];
 
   return (
-    <div className="bg-card border border-border rounded-xl p-5">
-      <h2 className="text-sm font-semibold text-foreground mb-3">Calendar</h2>
+    <div className="glass-card rounded-2xl p-6">
+      <h2 className="text-sm font-bold text-foreground mb-4">Calendar</h2>
 
       {/* Month navigation */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-6">
         <button
           onClick={prevMonth}
-          className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+          className="p-2 rounded-lg hover:bg-muted transition-all text-muted-foreground hover:text-foreground active:scale-95"
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
-        <span className="text-sm font-medium text-foreground">{monthLabel}</span>
+        <span className="text-sm font-bold text-foreground tracking-tight">{monthLabel}</span>
         <button
           onClick={nextMonth}
-          className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+          className="p-2 rounded-lg hover:bg-muted transition-all text-muted-foreground hover:text-foreground active:scale-95"
         >
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>
 
       {/* Day headers */}
-      <div className="grid grid-cols-7 gap-0.5 mb-1">
+      <div className="grid grid-cols-7 gap-1 mb-2">
         {DAY_NAMES.map((d) => (
-          <div key={d} className="text-center text-[10px] font-medium text-muted-foreground py-1">
-            {d}
+          <div key={d} className="text-center text-[10px] font-black text-muted-foreground/50 uppercase tracking-widest py-1">
+            {d[0]}
           </div>
         ))}
       </div>
@@ -215,10 +215,11 @@ export default function OverviewCalendar({ projectId, taskers }: OverviewCalenda
               key={cell.dateKey}
               onClick={() => setSelectedDate(isSelected ? null : cell.dateKey)}
               className={`
-                h-9 rounded text-xs font-medium transition-colors relative flex flex-col items-center justify-center gap-0.5
-                ${isToday ? 'bg-accent text-white' : ''}
-                ${isSelected && !isToday ? 'bg-muted ring-1 ring-accent' : ''}
+                h-10 rounded-lg text-xs font-bold transition-all relative flex flex-col items-center justify-center gap-1
+                ${isToday ? 'bg-primary text-white shadow-[0_0_12px_rgba(var(--primary),0.3)] scale-105 z-10' : ''}
+                ${isSelected && !isToday ? 'bg-muted ring-2 ring-primary/30 z-10' : ''}
                 ${!isToday && !isSelected ? 'hover:bg-muted text-foreground' : ''}
+                ${!isToday ? 'active:scale-95' : ''}
               `}
             >
               <span>{cell.day}</span>
@@ -237,7 +238,7 @@ export default function OverviewCalendar({ projectId, taskers }: OverviewCalenda
         {selectedDate && (
           <div
             ref={popoverRef}
-            className="absolute z-50 left-1/2 -translate-x-1/2 top-full mt-2 w-72 bg-card border border-border rounded-lg shadow-lg p-3"
+            className="absolute z-50 left-1/2 -translate-x-1/2 top-full mt-4 w-72 glass-card rounded-2xl shadow-2xl p-5 animate-in fade-in zoom-in duration-200"
           >
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold text-foreground">

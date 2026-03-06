@@ -5,9 +5,10 @@ import { supabase } from '@/lib/supabase/client';
 import { ProjectPermission } from '@/lib/types/project';
 import {
   Trash2, Lock, Hash, Eye, EyeOff, ShieldAlert,
-  PlusCircle, Upload, Loader2, X,
+  PlusCircle, Upload, Loader2, X, Pencil
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { Button } from '@/components/shared/Button';
 
 interface ProjectAccount {
   id: string;
@@ -226,22 +227,22 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
   return (
     <div className="p-4 sm:p-6 max-w-[1800px] mx-auto">
       {/* Security Notice */}
-      <div className="mb-4 flex items-center gap-2 text-amber-500 dark:text-amber-400">
-        <ShieldAlert className="h-4 w-4 shrink-0" />
-        <span className="text-sm font-medium">
-          This page is highly secure — only authorized project members can view.
+      <div className="mb-6 flex items-start gap-2.5 p-3 rounded-xl bg-amber-500/5 border border-amber-500/20 text-amber-600 dark:text-amber-500 glass-card">
+        <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5" />
+        <span className="text-[11px] font-medium leading-relaxed">
+          This page is highly secure — only authorized project members can view these sensitive credentials.
         </span>
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <h2 className="text-sm font-semibold">Project Account Vault</h2>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 className="text-xl font-bold tracking-tight">Project Account Vault</h2>
         {canEdit && (
           <div className="flex items-center gap-3">
             <button
               onClick={handleAddRow}
               disabled={addingRow}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:text-accent/80 transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3 py-3 rounded-lg text-xs font-bold tracking-wider uppercase bg-primary/10 text-primary hover:bg-primary/20 transition-all disabled:opacity-50"
             >
               {addingRow ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
               Add Row
@@ -250,7 +251,7 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:text-accent/80 transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3 py-3 rounded-lg text-xs font-bold tracking-wider uppercase bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-90 transition-all disabled:opacity-50 active:scale-[0.98]"
               title="Upload an Excel (.xlsx) or CSV file. Columns are matched by header name."
             >
               {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
@@ -271,24 +272,26 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
       {importMessage && (
         <div className={`mb-3 flex items-center justify-between gap-2 text-xs px-3 py-2 rounded-lg border ${importMessage.ok ? 'bg-green-50 dark:bg-green-950/20 border-green-500/30 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-950/20 border-red-500/30 text-destructive'}`}>
           <span>{importMessage.text}</span>
-          <button onClick={() => setImportMessage(null)}><X className="h-3 w-3" /></button>
+          <Button variant="ghost" size="icon" onClick={() => setImportMessage(null)} className="h-6 w-6">
+            <X className="h-3 w-3" />
+          </Button>
         </div>
       )}
 
       {/* Table */}
-      <div className="border border-border rounded-lg overflow-x-auto">
-        <table className="text-sm border-collapse" style={{ tableLayout: 'auto', minWidth: '100%' }}>
+      <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
+        <table className="w-full text-xs sm:text-sm">
           <thead>
-            <tr className="bg-muted/50 border-b border-border">
+            <tr className="bg-muted/30 border-b border-border/50">
               {COLUMNS.map((col) => (
                 <th
                   key={col.field}
-                  className="px-3 py-2 text-left text-xs font-semibold text-foreground whitespace-nowrap"
+                  className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap"
                   style={{ minWidth: col.minWidth }}
                 >
-                  <div className="flex items-center gap-1">
-                    {col.icon === 'lock' && <Lock className="h-3 w-3 text-amber-500" />}
-                    {col.icon === 'hash' && <Hash className="h-3 w-3 text-blue-500" />}
+                  <div className="flex items-center gap-1.5">
+                    {col.icon === 'lock' && <Lock className="h-3.5 w-3.5 text-amber-500" />}
+                    {col.icon === 'hash' && <Hash className="h-3.5 w-3.5 text-blue-500" />}
                     {col.label}
                   </div>
                 </th>
@@ -311,9 +314,9 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
               </tr>
             ) : (
               accounts.map((account) => (
-                <tr key={account.id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                <tr key={account.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
                   {COLUMNS.map((col) => (
-                    <td key={col.field} className="px-3 py-1.5">
+                    <td key={col.field} className="px-4 py-4 whitespace-nowrap">
                       {col.field === 'password' ? (
                         <PasswordCell
                           account={account}
@@ -346,14 +349,16 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
                     </td>
                   ))}
                   {canEdit && (
-                    <td className="px-2 py-1.5">
-                      <button
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         onClick={() => handleDelete(account)}
-                        className="text-muted-foreground hover:text-destructive transition-colors"
+                        className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all h-8 w-8"
                         title="Delete row"
                       >
                         <Trash2 className="h-4 w-4" />
-                      </button>
+                      </Button>
                     </td>
                   )}
                 </tr>
@@ -408,7 +413,7 @@ function EditableCell({
   return (
     <span
       onClick={onStartEdit}
-      className="cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded text-xs block min-h-[1.25rem] min-w-[60px]"
+      className="cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded text-xs block min-h-5 min-w-[60px]"
     >
       {value || <span className="text-muted-foreground/30">—</span>}
     </span>
@@ -464,9 +469,15 @@ function PasswordCell({
         </span>
       )}
       {stored && (
-        <button onClick={onToggle} className="text-muted-foreground hover:text-foreground shrink-0" title={visible ? 'Hide' : 'Show'}>
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          onClick={onToggle} 
+          className="text-muted-foreground hover:text-foreground shrink-0 h-6 w-6" 
+          title={visible ? 'Hide' : 'Show'}
+        >
           {visible ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-        </button>
+        </Button>
       )}
     </div>
   );

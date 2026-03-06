@@ -19,7 +19,7 @@ export default function NavLogo() {
   const logoSrc = theme === 'dark' ? '/zhl-logo-light.png' : '/zhl-logo-dark.png';
 
   return (
-    <div className="flex items-center gap-4 border-r border-border pr-6 mr-6">
+    <div className="flex items-center gap-4">
       <Image
         src={logoSrc}
         alt="Zero Hassle Landlord"

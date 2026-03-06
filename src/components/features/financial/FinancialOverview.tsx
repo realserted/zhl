@@ -23,7 +23,8 @@ import {
   seedDefaultFinancials,
 } from '@/lib/db/financial';
 import { logUserAction } from '@/lib/db/user-logs';
-import { Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Trash2, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Button } from '@/components/shared/Button';
 
 interface Props {
   selectedProjectId: string;
@@ -267,24 +268,24 @@ export default function FinancialOverview({ selectedProjectId, userPermission }:
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto p-1 pb-4">
       {/* Year selector */}
-      <div className="flex items-center gap-3 mb-4">
-        <button onClick={() => setYear((y) => y - 1)} className="p-1 hover:bg-muted rounded">
+      <div className="flex items-center gap-3 mb-4 p-4 pb-0">
+        <button onClick={() => setYear((y) => y - 1)} className="p-1 hover:bg-muted rounded text-foreground/70 hover:text-foreground transition-colors">
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <span className="text-sm font-bold">{year}</span>
-        <button onClick={() => setYear((y) => y + 1)} className="p-1 hover:bg-muted rounded">
+        <span className="text-sm font-bold tracking-wider">{year}</span>
+        <button onClick={() => setYear((y) => y + 1)} className="p-1 hover:bg-muted rounded text-foreground/70 hover:text-foreground transition-colors">
           <ChevronRight className="h-4 w-4" />
         </button>
       </div>
 
-      <table className="w-full text-xs border-collapse">
+      <table className="w-full text-xs sm:text-sm">
         <thead>
-          <tr className="border-b border-border">
-            <th className="text-left px-2 py-1 min-w-[180px] sticky left-0 bg-background z-10"></th>
+          <tr className="bg-muted/30 border-b border-border/50">
+            <th className="text-left px-4 py-4 min-w-[180px] sticky left-0 bg-muted/30 z-10 backdrop-blur-md text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap"></th>
             {MONTHS.map((m, i) => (
-              <th key={i} className="text-center px-2 py-1 min-w-[70px] font-semibold text-foreground">
+              <th key={i} className="text-center px-2 py-4 min-w-[70px] text-[10px] font-bold tracking-widest uppercase text-muted-foreground whitespace-nowrap">
                 {m}
               </th>
             ))}
@@ -356,8 +357,8 @@ export default function FinancialOverview({ selectedProjectId, userPermission }:
           <tr>
             <td colSpan={13} className="h-2" />
           </tr>
-          <tr className="bg-muted/30">
-            <td className="px-2 py-1 font-bold text-foreground text-xs sticky left-0 bg-muted/30 z-10">
+          <tr className="bg-muted/30 border-y border-border/50">
+            <td className="px-4 py-4 font-bold text-foreground text-[11px] tracking-wider uppercase sticky left-0 bg-muted/30 z-10 backdrop-blur-md">
               CASHFLOW
             </td>
             {MONTHS.map((_, i) => {
@@ -404,8 +405,8 @@ export default function FinancialOverview({ selectedProjectId, userPermission }:
           <tr>
             <td colSpan={13} className="h-2" />
           </tr>
-          <tr className="bg-muted/30">
-            <td className="px-2 py-1 font-bold text-xs sticky left-0 bg-muted/30 z-10 text-foreground">
+          <tr className="bg-muted/40 border-t border-border/50">
+            <td className="px-4 py-4 font-bold text-[11px] tracking-wider uppercase sticky left-0 bg-muted/40 z-10 text-foreground backdrop-blur-md">
               Bank Balance - Projected
             </td>
             {MONTHS.map((_, i) => (
@@ -414,8 +415,8 @@ export default function FinancialOverview({ selectedProjectId, userPermission }:
               </td>
             ))}
           </tr>
-          <tr className="bg-green-600/20">
-            <td className="px-2 py-1 font-bold text-xs sticky left-0 bg-green-600/20 z-10 text-green-400">
+          <tr className="bg-green-500/10 border-t border-border/50">
+            <td className="px-4 py-4 font-bold text-[11px] tracking-wider uppercase sticky left-0 bg-green-500/10 z-10 text-green-500 dark:text-green-400 backdrop-blur-md">
               Bank Balance - Actual
             </td>
             {MONTHS.map((_, i) => (
@@ -442,12 +443,12 @@ function SectionHeader({
   fmt: (n: number) => string;
 }) {
   return (
-    <tr className="bg-muted/30">
-      <td className="px-2 py-1 font-bold text-foreground text-xs sticky left-0 bg-muted/30 z-10">
+    <tr className="bg-muted/30 border-y border-border/50">
+      <td className="px-4 py-4 font-bold text-foreground/90 text-[11px] tracking-wider uppercase sticky left-0 bg-muted/30 z-10 backdrop-blur-md">
         {label}
       </td>
       {MONTHS.map((_, i) => (
-        <td key={i} className="text-center px-2 py-1 font-semibold text-foreground">
+        <td key={i} className="text-center px-2 py-3 font-bold text-[11px] text-foreground/90">
           {fmt(getTotal(i + 1))}
         </td>
       ))}
@@ -465,10 +466,10 @@ function ItemRow({
   fmt: (n: number) => string;
 }) {
   return (
-    <tr className="border-b border-border/30 hover:bg-muted/20">
-      <td className="px-2 py-1 sticky left-0 bg-background z-10 text-foreground pl-4">{label}</td>
+    <tr className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
+      <td className="px-4 py-4 sticky left-0 bg-background/50 backdrop-blur-md z-10 text-foreground text-[11px] font-medium">{label}</td>
       {MONTHS.map((_, i) => (
-        <td key={i} className="text-center px-2 py-1">
+        <td key={i} className="text-center px-2 py-2 text-[11px] text-foreground/80">
           {fmt(getVal(i + 1))}
         </td>
       ))}
@@ -500,15 +501,20 @@ function EditableItemRow({
   fmt: (n: number) => string;
 }) {
   return (
-    <tr className="border-b border-border/30 hover:bg-muted/20 group">
-      <td className="px-2 py-1 sticky left-0 bg-background z-10">
-        <div className="flex items-center gap-1 pl-2">
+    <tr className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
+      <td className="px-4 py-4 sticky left-0 bg-background/50 backdrop-blur-md z-10">
+        <div className="flex items-center gap-1.5">
           {item.color && <span className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: item.color }} />}
-          <span className="text-foreground">{item.name}</span>
+          <span className="text-foreground text-[11px] font-medium">{item.name}</span>
           {canEdit && (
-            <button onClick={() => handleDeleteItem(item.id, item.name)} className="ml-auto text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100">
+            <Button 
+              variant="ghost" 
+              size="icon"
+              onClick={() => handleDeleteItem(item.id, item.name)} 
+              className="ml-auto text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all h-7 w-7"
+            >
               <Trash2 className="h-3 w-3" />
-            </button>
+            </Button>
           )}
         </div>
       </td>
@@ -579,18 +585,34 @@ function AddCategoryRow({
                 if (e.key === 'Escape') { setAddingItem(null); setNewItemName(''); }
               }}
               placeholder="Category name..."
-              className="px-2 py-0.5 bg-background border border-input rounded text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+              className="px-2 py-1 bg-background/50 border border-primary/20 rounded text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all font-medium placeholder:text-muted-foreground/50"
             />
-            <button onClick={() => handleAddItem(sectionId)} className="text-xs text-accent font-semibold">Add</button>
-            <button onClick={() => { setAddingItem(null); setNewItemName(''); }} className="text-xs text-muted-foreground">Cancel</button>
+            <Button 
+              size="sm"
+              onClick={() => handleAddItem(sectionId)} 
+              className="h-7"
+            >
+              Add
+            </Button>
+            <Button 
+              variant="ghost"
+              size="sm"
+              onClick={() => { setAddingItem(null); setNewItemName(''); }} 
+              className="h-7"
+            >
+              Cancel
+            </Button>
           </div>
         ) : (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setAddingItem(sectionId)}
-            className="flex items-center gap-1 text-xs text-accent hover:text-accent/80 font-semibold pl-2"
+            className="text-primary hover:text-primary/80 transition-all pl-2"
+            leftIcon={<Plus className="h-3 w-3" />}
           >
-            <Plus className="h-3 w-3" /> Add Category
-          </button>
+            Add Category
+          </Button>
         )}
       </td>
     </tr>

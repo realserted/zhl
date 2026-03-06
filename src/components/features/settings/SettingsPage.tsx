@@ -23,6 +23,8 @@ import {
   type ProjectSettings,
 } from '@/lib/db/project-settings';
 import { submitAdminRequest } from '@/lib/db/admin-requests';
+import { Modal } from '@/components/shared/Modal';
+import { Button } from '@/components/shared/Button';
 
 type EditingField = 'displayName' | 'phone' | 'email' | 'password' | null;
 
@@ -513,21 +515,21 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                   <label className="text-sm font-medium text-foreground">Change Display Name</label>
                   <input type="text" value={editValue} onChange={(e) => setEditValue(e.target.value)} className={inputClass} placeholder="Enter new display name" />
                   <div className="flex items-center gap-2">
-                    <button onClick={() => saveField('displayName')} disabled={saving} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent text-accent-foreground rounded-lg text-xs font-semibold hover:opacity-90 disabled:opacity-50">
-                      {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Save
-                    </button>
-                    <button onClick={cancelEdit} className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-input rounded-lg text-xs font-semibold hover:bg-muted">
-                      <X className="w-3 h-3" /> Cancel
-                    </button>
+                    <Button onClick={() => saveField('displayName')} disabled={saving} size="sm" isLoading={saving && editingField === 'displayName'}>
+                      {!saving && <Check className="w-3 h-3 mr-1.5" />} Save
+                    </Button>
+                    <Button onClick={cancelEdit} variant="outline" size="sm" className="flex items-center gap-1.5">
+                      <X className="w-3 h-3 mr-1.5" /> Cancel
+                    </Button>
                   </div>
                   {feedback?.field === 'displayName' && (
                     <p className={`text-xs ${feedback.type === 'success' ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`}>{feedback.message}</p>
                   )}
                 </div>
               ) : (
-                <button onClick={() => startEdit('displayName')} className="w-full text-left text-sm sm:text-base hover:text-accent transition-colors">
+                <Button onClick={() => startEdit('displayName')} variant="ghost" className="w-full justify-start text-sm sm:text-base hover:text-primary transition-colors h-auto py-2 px-3 sm:px-4">
                   Change Display Name <span className="text-muted-foreground ml-2">({displayName || '...'})</span>
-                </button>
+                </Button>
               )}
             </div>
 
@@ -538,21 +540,21 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                   <label className="text-sm font-medium text-foreground">Change Phone</label>
                   <input type="tel" value={editValue} onChange={(e) => setEditValue(e.target.value)} className={inputClass} placeholder="(555) 123-4567" />
                   <div className="flex items-center gap-2">
-                    <button onClick={() => saveField('phone')} disabled={saving} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent text-accent-foreground rounded-lg text-xs font-semibold hover:opacity-90 disabled:opacity-50">
-                      {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Save
-                    </button>
-                    <button onClick={cancelEdit} className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-input rounded-lg text-xs font-semibold hover:bg-muted">
-                      <X className="w-3 h-3" /> Cancel
-                    </button>
+                    <Button onClick={() => saveField('phone')} disabled={saving} size="sm" isLoading={saving && editingField === 'phone'}>
+                      {!saving && <Check className="w-3 h-3 mr-1.5" />} Save
+                    </Button>
+                    <Button onClick={cancelEdit} variant="outline" size="sm">
+                      <X className="w-3 h-3 mr-1.5" /> Cancel
+                    </Button>
                   </div>
                   {feedback?.field === 'phone' && (
                     <p className={`text-xs ${feedback.type === 'success' ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`}>{feedback.message}</p>
                   )}
                 </div>
               ) : (
-                <button onClick={() => startEdit('phone')} className="w-full text-left text-sm sm:text-base hover:text-accent transition-colors">
+                <Button onClick={() => startEdit('phone')} variant="ghost" className="w-full justify-start text-sm sm:text-base hover:text-primary transition-colors h-auto py-2 px-3 sm:px-4">
                   Change Phone <span className="text-muted-foreground ml-2">({phone || 'Not set'})</span>
-                </button>
+                </Button>
               )}
             </div>
 
@@ -563,21 +565,21 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                   <label className="text-sm font-medium text-foreground">Change Email</label>
                   <input type="email" value={editValue} onChange={(e) => setEditValue(e.target.value)} className={inputClass} placeholder="you@example.com" />
                   <div className="flex items-center gap-2">
-                    <button onClick={() => saveField('email')} disabled={saving} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent text-accent-foreground rounded-lg text-xs font-semibold hover:opacity-90 disabled:opacity-50">
-                      {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Save
-                    </button>
-                    <button onClick={cancelEdit} className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-input rounded-lg text-xs font-semibold hover:bg-muted">
-                      <X className="w-3 h-3" /> Cancel
-                    </button>
+                    <Button onClick={() => saveField('email')} disabled={saving} size="sm" isLoading={saving && editingField === 'email'}>
+                      {!saving && <Check className="w-3 h-3 mr-1.5" />} Save
+                    </Button>
+                    <Button onClick={cancelEdit} variant="outline" size="sm">
+                      <X className="w-3 h-3 mr-1.5" /> Cancel
+                    </Button>
                   </div>
                   {feedback?.field === 'email' && (
                     <p className={`text-xs ${feedback.type === 'success' ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`}>{feedback.message}</p>
                   )}
                 </div>
               ) : (
-                <button onClick={() => startEdit('email')} className="w-full text-left text-sm sm:text-base hover:text-accent transition-colors">
+                <Button onClick={() => startEdit('email')} variant="ghost" className="w-full justify-start text-sm sm:text-base hover:text-primary transition-colors h-auto py-2 px-3 sm:px-4">
                   Change Email <span className="text-muted-foreground ml-2">({email || '...'})</span>
-                </button>
+                </Button>
               )}
             </div>
 
@@ -589,27 +591,27 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                   <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className={inputClass} placeholder="New password (min 6 characters)" />
                   <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className={inputClass} placeholder="Confirm new password" />
                   <div className="flex items-center gap-2">
-                    <button onClick={() => saveField('password')} disabled={saving} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent text-accent-foreground rounded-lg text-xs font-semibold hover:opacity-90 disabled:opacity-50">
-                      {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Save
-                    </button>
-                    <button onClick={cancelEdit} className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-input rounded-lg text-xs font-semibold hover:bg-muted">
-                      <X className="w-3 h-3" /> Cancel
-                    </button>
+                    <Button onClick={() => saveField('password')} disabled={saving} size="sm" isLoading={saving && editingField === 'password'}>
+                      {!saving && <Check className="w-3 h-3 mr-1.5" />} Save
+                    </Button>
+                    <Button onClick={cancelEdit} variant="outline" size="sm">
+                      <X className="w-3 h-3 mr-1.5" /> Cancel
+                    </Button>
                   </div>
                   {feedback?.field === 'password' && (
                     <p className={`text-xs ${feedback.type === 'success' ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`}>{feedback.message}</p>
                   )}
                 </div>
               ) : (
-                <button onClick={() => startEdit('password')} className="w-full text-left text-sm sm:text-base hover:text-accent transition-colors">
+                <Button onClick={() => startEdit('password')} variant="ghost" className="w-full justify-start text-sm sm:text-base hover:text-primary transition-colors h-auto py-2 px-3 sm:px-4">
                   Change Password
-                </button>
+                </Button>
               )}
             </div>
 
-            <button className="w-full text-left py-2 px-3 sm:px-4 rounded hover:bg-muted transition-colors text-sm sm:text-base">
+            <Button variant="ghost" className="w-full justify-start text-sm sm:text-base hover:text-primary transition-colors h-auto py-2 px-3 sm:px-4">
               Billing Settings
-            </button>
+            </Button>
           </div>
         </section>
 
@@ -621,53 +623,62 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
               <span className="text-sm text-muted-foreground">— Select a project from the navbar</span>
             )}
             <div className="w-full sm:w-auto sm:ml-auto flex items-center gap-2">
-              <button
+              <Button
                 onClick={() => setShowCreateProject(true)}
-                className="border-2 border-foreground px-4 sm:px-6 py-2 rounded font-semibold hover:bg-muted transition-colors text-sm sm:text-base"
+                variant="outline"
+                className="border-2 border-foreground px-4 sm:px-6 py-2 rounded font-semibold hover:bg-muted transition-colors text-sm sm:text-base h-auto"
               >
                 CREATE NEW PROJECT
-              </button>
+              </Button>
               {selectedProjectId && isProjectOwner && (
-                <button
+                <Button
                   onClick={handleDeleteProject}
                   disabled={deletingProject}
-                  className="border-2 border-destructive text-destructive px-4 sm:px-6 py-2 rounded font-semibold hover:bg-destructive hover:text-destructive-foreground transition-colors text-sm sm:text-base disabled:opacity-50"
+                  variant="danger"
+                  className="border-2 border-destructive text-white px-4 sm:px-6 py-2 rounded font-semibold hover:bg-destructive hover:text-white transition-colors text-sm sm:text-base disabled:opacity-50 h-auto"
+                  isLoading={deletingProject}
                 >
                   {deletingProject ? 'Deleting...' : 'DELETE PROJECT'}
-                </button>
+                </Button>
               )}
             </div>
           </h2>
 
           {/* Create Project Modal */}
-          {showCreateProject && (
-            <div className="mb-6 bg-card border border-border rounded-xl p-5 max-w-md">
-              <h3 className="text-sm font-semibold text-foreground mb-3">New Project</h3>
+          <Modal
+            isOpen={showCreateProject}
+            onClose={() => { setShowCreateProject(false); setNewProjectName(''); }}
+            title="New Project"
+            maxWidth="md"
+          >
+            <div className="space-y-4">
               <input
                 type="text"
                 value={newProjectName}
                 onChange={(e) => setNewProjectName(e.target.value)}
                 placeholder="Project name"
-                className={inputClass + ' mb-3'}
+                className={inputClass}
                 onKeyDown={(e) => e.key === 'Enter' && handleCreateProject()}
               />
               <div className="flex items-center gap-2">
-                <button
+                <Button
                   onClick={handleCreateProject}
                   disabled={creatingProject || !newProjectName.trim()}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent text-accent-foreground rounded-lg text-xs font-semibold hover:opacity-90 disabled:opacity-50"
+                  isLoading={creatingProject}
+                  size="sm"
                 >
-                  {creatingProject ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Create
-                </button>
-                <button
+                  {!creatingProject && <Check className="w-3 h-3 mr-1.5" />} Create
+                </Button>
+                <Button
                   onClick={() => { setShowCreateProject(false); setNewProjectName(''); }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-input rounded-lg text-xs font-semibold hover:bg-muted"
+                  variant="outline"
+                  size="sm"
                 >
-                  <X className="w-3 h-3" /> Cancel
-                </button>
+                  <X className="w-3 h-3 mr-1.5" /> Cancel
+                </Button>
               </div>
             </div>
-          )}
+          </Modal>
 
           {/* Project Status */}
           {selectedProjectId && isProjectOwner && (
@@ -692,16 +703,17 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                     Excellent:      'border-input hover:border-blue-500 hover:text-blue-500',
                   };
                   return (
-                    <button
+                    <Button
                       key={status}
                       onClick={() => handleStatusChange(status)}
                       disabled={savingStatus}
-                      className={`px-4 py-2 rounded-lg border-2 text-sm font-semibold transition-colors disabled:opacity-50 ${
+                      className={`px-4 py-2 rounded-lg border-2 text-sm font-semibold transition-colors disabled:opacity-50 h-auto shadow-none ${
                         isActive ? colorMap[status] : `text-muted-foreground ${idleMap[status]}`
                       }`}
+                      variant="ghost"
                     >
                       {status}
-                    </button>
+                    </Button>
                   );
                 })}
               </div>
@@ -712,6 +724,7 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
               )}
             </div>
           )}
+        </section>
 
         {/* USERS AND PERMISSIONS SECTION */}
         {selectedProjectId && (
@@ -725,28 +738,28 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
           ) : permissions.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4">No users added to this project yet.</p>
           ) : (
-            <div className="overflow-x-auto border border-input rounded-lg">
-              <table className="w-full text-sm">
+            <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
+              <table className="w-full text-xs sm:text-sm">
                 <thead>
-                  <tr className="bg-muted border-b border-input">
-                    <th className="px-4 py-3 text-left font-semibold">NAME</th>
-                    <th className="px-4 py-3 text-left font-semibold">Email</th>
+                  <tr className="bg-muted/30 border-b border-border/50">
+                    <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">NAME</th>
+                    <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Email</th>
                     {permColumns.map((col) => (
-                      <th key={col.key} className="px-4 py-3 text-left font-semibold">{col.label}</th>
+                      <th key={col.key} className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">{col.label}</th>
                     ))}
-                    <th className="px-4 py-3 text-left font-semibold">Unit Data View</th>
-                    <th className="px-4 py-3 text-left font-semibold">Project Permissions</th>
-                    <th className="px-4 py-3 text-left font-semibold">Work Roles</th>
-                    <th className="px-4 py-3 text-left font-semibold"></th>
+                    <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Unit Data View</th>
+                    <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Project Permissions</th>
+                    <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Work Roles</th>
+                    <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {permissions.map((perm) => (
-                    <tr key={perm.id} className="border-b border-input hover:bg-muted/50">
-                      <td className="px-4 py-3 whitespace-nowrap">{perm.user_name}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">{perm.user_email}</td>
+                    <tr key={perm.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
+                      <td className="px-4 py-4 whitespace-nowrap">{perm.user_name}</td>
+                      <td className="px-4 py-4 whitespace-nowrap">{perm.user_email}</td>
                       {permColumns.map((col) => (
-                        <td key={col.key} className="px-4 py-3">
+                        <td key={col.key} className="px-4 py-4 whitespace-nowrap">
                           <select
                             disabled={!canManagePerms}
                             className={`${selectClass} ${!canManagePerms ? 'opacity-75 cursor-default' : ''}`}
@@ -759,7 +772,7 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                           </select>
                         </td>
                       ))}
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-4 whitespace-nowrap">
                         <select
                           disabled={!canManagePerms}
                           className={`${selectClass} ${!canManagePerms ? 'opacity-75 cursor-default' : ''}`}
@@ -771,7 +784,7 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                           <option value="Personal View">Personal View</option>
                         </select>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-4 whitespace-nowrap">
                         <select
                           disabled={!canManagePerms}
                           className={`${selectClass} ${!canManagePerms ? 'opacity-75 cursor-default' : ''}`}
@@ -783,7 +796,7 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                           ))}
                         </select>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-4 whitespace-nowrap">
                         <select
                           disabled={!canManagePerms}
                           className={`${selectClass} ${!canManagePerms ? 'opacity-75 cursor-default' : ''}`}
@@ -795,15 +808,17 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                           ))}
                         </select>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-4 whitespace-nowrap">
                         {canManagePerms && (
-                          <button
+                          <Button
+                            variant="ghost"
+                            size="icon"
                             onClick={() => handleRemoveUser(perm.id)}
                             title="Remove user"
-                            className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-all"
                           >
                             <Trash2 className="w-4 h-4" />
-                          </button>
+                          </Button>
                         )}
                       </td>
                     </tr>
@@ -814,110 +829,109 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
           )}
 
           {/* Add User Modal */}
-          {showAddUser && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-              <div className="bg-card border border-border rounded-xl p-6 w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
-                <div className="flex items-center justify-between mb-5">
-                  <h3 className="text-lg font-bold">Add User to Project</h3>
-                  <button onClick={() => { setShowAddUser(false); setNewUserName(''); setNewUserEmail(''); setEmailNotFound(false); }} className="p-1 hover:bg-muted rounded">
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-
-                {/* Email + auto-resolved name */}
-                <div className="mb-5">
-                  <label className="block text-xs font-semibold mb-1">Email</label>
-                  <input type="email" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} placeholder="user@example.com" className={inputClass} />
-                  <div className="mt-1.5 min-h-[1.25rem]">
-                    {lookingUpName && (
-                      <span className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Looking up user…</span>
-                    )}
-                    {!lookingUpName && newUserName && (
-                      <span className="text-xs text-green-500 font-medium">User found: {newUserName}</span>
-                    )}
-                    {!lookingUpName && emailNotFound && (
-                      <span className="text-xs text-red-500">No account found with this email</span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Roles */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
-                  <div>
-                    <label className="block text-xs font-semibold mb-1">Project Role</label>
-                    <select value={newUserPerms.project_role} onChange={(e) => setNewUserPerms((p) => ({ ...p, project_role: e.target.value }))} className={inputClass}>
-                      {projectRoleOptions.map((o) => <option key={o} value={o}>{o}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold mb-1">Work Role</label>
-                    <select value={newUserPerms.work_role} onChange={(e) => setNewUserPerms((p) => ({ ...p, work_role: e.target.value }))} className={inputClass}>
-                      {workRoleOptions.map((o) => <option key={o} value={o}>{o}</option>)}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Unit Data View assignment */}
-                <div className="mb-5">
-                  <label className="block text-xs font-semibold mb-1">Unit Data View</label>
-                  <select
-                    value={newUserPerms.unit_data_view}
-                    onChange={(e) => setNewUserPerms((p) => ({ ...p, unit_data_view: e.target.value }))}
-                    className={inputClass}
-                  >
-                    <option value="All Project Users">All Project Users</option>
-                    <option value="PM View">PM View</option>
-                    <option value="Personal View">Personal View</option>
-                  </select>
-                  <p className="text-xs text-muted-foreground mt-1">Controls which field visibility config the user sees on Unit Data</p>
-                </div>
-
-                {/* Permissions per module */}
-                <div className="mb-5">
-                  <label className="block text-xs font-semibold mb-2">Module Permissions</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {permColumns.map((col) => (
-                      <div key={col.key}>
-                        <label className="block text-xs text-muted-foreground mb-1">{col.label}</label>
-                        <select
-                          value={newUserPerms[col.key as string]}
-                          onChange={(e) => setNewUserPerms((p) => ({ ...p, [col.key]: e.target.value }))}
-                          className={inputClass}
-                        >
-                          {col.options.map((o) => <option key={o} value={o}>{o}</option>)}
-                        </select>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleAddUser}
-                    disabled={addingUser || !newUserName.trim() || !newUserEmail.trim() || lookingUpName || emailNotFound}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50"
-                  >
-                    {addingUser ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Add User
-                  </button>
-                  <button
-                    onClick={() => { setShowAddUser(false); setNewUserName(''); setNewUserEmail(''); setEmailNotFound(false); }}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 border border-input rounded-lg text-sm font-semibold hover:bg-muted"
-                  >
-                    <X className="w-4 h-4" /> Cancel
-                  </button>
+          <Modal
+            isOpen={showAddUser}
+            onClose={() => { setShowAddUser(false); setNewUserName(''); setNewUserEmail(''); setEmailNotFound(false); }}
+            title="Add User to Project"
+            maxWidth="2xl"
+          >
+            <div className="space-y-5">
+              {/* Email + auto-resolved name */}
+              <div>
+                <label className="block text-xs font-semibold mb-1">Email</label>
+                <input type="email" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} placeholder="user@example.com" className={inputClass} />
+                <div className="mt-1.5 min-h-5">
+                  {lookingUpName && (
+                    <span className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Looking up user…</span>
+                  )}
+                  {!lookingUpName && newUserName && (
+                    <span className="text-xs text-green-500 font-medium">User found: {newUserName}</span>
+                  )}
+                  {!lookingUpName && emailNotFound && (
+                    <span className="text-xs text-red-500">No account found with this email</span>
+                  )}
                 </div>
               </div>
+
+              {/* Roles */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Project Role</label>
+                  <select value={newUserPerms.project_role} onChange={(e) => setNewUserPerms((p) => ({ ...p, project_role: e.target.value }))} className={inputClass}>
+                    {projectRoleOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Work Role</label>
+                  <select value={newUserPerms.work_role} onChange={(e) => setNewUserPerms((p) => ({ ...p, work_role: e.target.value }))} className={inputClass}>
+                    {workRoleOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Unit Data View assignment */}
+              <div>
+                <label className="block text-xs font-semibold mb-1">Unit Data View</label>
+                <select
+                  value={newUserPerms.unit_data_view}
+                  onChange={(e) => setNewUserPerms((p) => ({ ...p, unit_data_view: e.target.value }))}
+                  className={inputClass}
+                >
+                  <option value="All Project Users">All Project Users</option>
+                  <option value="PM View">PM View</option>
+                  <option value="Personal View">Personal View</option>
+                </select>
+                <p className="text-xs text-muted-foreground mt-1">Controls which field visibility config the user sees on Unit Data</p>
+              </div>
+
+              {/* Permissions per module */}
+              <div>
+                <label className="block text-xs font-semibold mb-2">Module Permissions</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {permColumns.map((col) => (
+                    <div key={col.key}>
+                      <label className="block text-xs text-muted-foreground mb-1">{col.label}</label>
+                      <select
+                        value={newUserPerms[col.key as string]}
+                        onChange={(e) => setNewUserPerms((p) => ({ ...p, [col.key]: e.target.value }))}
+                        className={inputClass}
+                      >
+                        {col.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-3">
+                <Button
+                  onClick={handleAddUser}
+                  disabled={addingUser || !newUserName.trim() || !newUserEmail.trim() || lookingUpName || emailNotFound}
+                  isLoading={addingUser}
+                  className="w-full sm:w-auto"
+                >
+                  {!addingUser && <Check className="w-4 h-4 mr-1.5" />} Add User
+                </Button>
+                <Button
+                  onClick={() => { setShowAddUser(false); setNewUserName(''); setNewUserEmail(''); setEmailNotFound(false); }}
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                >
+                  <X className="w-4 h-4 mr-1.5" /> Cancel
+                </Button>
+              </div>
             </div>
-          )}
+          </Modal>
 
           {canManagePerms && (
-            <button
+            <Button
               onClick={() => setShowAddUser(true)}
-              className="mt-4 inline-flex items-center gap-2 border-2 border-foreground px-4 sm:px-6 py-2 rounded font-semibold hover:bg-muted transition-colors text-sm sm:text-base"
+              variant="outline"
+              className="mt-4 border-2 border-foreground px-4 sm:px-6 py-2 rounded font-semibold hover:bg-muted transition-colors text-sm sm:text-base h-auto"
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="h-4 w-4 mr-2" />
               Add User
-            </button>
+            </Button>
           )}
         </section>
         )}
@@ -926,26 +940,26 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
           <div className="mt-10 mb-8 ml-6">
             <h3 className="text-lg font-bold mb-3 text-foreground">EMAIL READING</h3>
             <div className="space-y-2 ml-4">
-              <button className="w-full text-left py-2 px-4 rounded hover:bg-muted transition-colors">
+              <Button variant="ghost" className="w-full justify-start text-sm sm:text-base hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">
                 Link Company Gmail
-              </button>
-              <button className="w-full text-left py-2 px-4 rounded hover:bg-muted transition-colors">
+              </Button>
+              <Button variant="ghost" className="w-full justify-start text-sm sm:text-base hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">
                 Autoforwarding
-              </button>
-              <button className="w-full text-left py-2 px-4 rounded hover:bg-muted transition-colors">
+              </Button>
+              <Button variant="ghost" className="w-full justify-start text-sm sm:text-base hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">
                 Summarize prompt
-              </button>
-              <button className="w-full text-left py-2 px-4 rounded hover:bg-muted transition-colors">
+              </Button>
+              <Button variant="ghost" className="w-full justify-start text-sm sm:text-base hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">
                 Notify if
-              </button>
+              </Button>
             </div>
           </div>
 
           {/* LINK BANK ACCOUNT SECTION */}
           <div className="mb-8 ml-6">
-            <button className="w-full text-left py-2 px-4 rounded hover:bg-muted transition-colors">
+            <Button variant="ghost" className="w-full justify-start text-sm sm:text-base hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">
               Link Bank Account
-            </button>
+            </Button>
             <p className="text-sm text-muted-foreground ml-4 mt-1">(do via Plaid)</p>
           </div>
 
@@ -964,15 +978,15 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                     ? 'Click any value to edit it. Changes save automatically.'
                     : 'Only the project owner can edit thresholds.'}
                 </p>
-                <div className="overflow-x-auto border border-input rounded-lg">
-                  <table className="w-full text-sm">
+                <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
+                  <table className="w-full text-xs sm:text-sm">
                     <thead>
-                      <tr className="bg-muted border-b border-input">
-                        <th className="px-4 py-3 text-left font-semibold">Metric</th>
-                        <th className="px-4 py-3 text-center font-semibold text-red-500">Critical</th>
-                        <th className="px-4 py-3 text-center font-semibold text-orange-500">Problematic</th>
-                        <th className="px-4 py-3 text-center font-semibold text-green-500">Good</th>
-                        <th className="px-4 py-3 text-center font-semibold text-muted-foreground">Current</th>
+                      <tr className="bg-muted/30 border-b border-border/50">
+                        <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Metric</th>
+                        <th className="px-4 py-4 text-center text-[10px] font-bold uppercase tracking-widest text-red-500 whitespace-nowrap">Critical</th>
+                        <th className="px-4 py-4 text-center text-[10px] font-bold uppercase tracking-widest text-orange-500 whitespace-nowrap">Problematic</th>
+                        <th className="px-4 py-4 text-center text-[10px] font-bold uppercase tracking-widest text-green-500 whitespace-nowrap">Good</th>
+                        <th className="px-4 py-4 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Current</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -996,14 +1010,14 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                           good:        'threshold_unit_data_good'        as const,
                         },
                       ] as const).map((row) => (
-                        <tr key={row.label} className="border-b border-input hover:bg-muted/50">
-                          <td className="px-4 py-3">{row.label}</td>
+                        <tr key={row.label} className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
+                          <td className="px-4 py-4 whitespace-nowrap">{row.label}</td>
                           {([
                             { key: row.critical,    color: 'text-red-500' },
                             { key: row.problematic, color: 'text-orange-500' },
                             { key: row.good,        color: 'text-green-500' },
                           ] as const).map(({ key, color }) => (
-                            <td key={key} className="px-4 py-2 text-center">
+                            <td key={key} className="px-4 py-4 text-center whitespace-nowrap">
                               <input
                                 type="number"
                                 min={0}
@@ -1018,7 +1032,7 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                               />
                             </td>
                           ))}
-                          <td className="px-4 py-2 text-center">
+                          <td className="px-4 py-4 text-center whitespace-nowrap">
                             {row.label === 'Taskers without comments' ? (
                               currentMetrics.noCommentsCount !== null ? (
                                 <span className={`text-sm font-semibold ${
@@ -1060,28 +1074,30 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
             <div className="ml-4">
               <p className="text-sm font-medium mb-3">Allow Users to customize their display</p>
               <div className="flex gap-3 text-sm">
-                <button
+                <Button
                   disabled={!isProjectOwner || !selectedProjectId}
                   onClick={() => setAllowCustomization(true)}
-                  className={`px-4 py-1.5 rounded border font-semibold transition-colors disabled:opacity-50 disabled:cursor-default ${
+                  variant="ghost"
+                  className={`px-4 py-1.5 rounded border font-semibold transition-colors disabled:opacity-50 disabled:cursor-default h-auto shadow-none ${
                     projectSettings.allow_user_customization
                       ? 'border-green-500 bg-green-500/10 text-green-600 dark:text-green-400'
                       : 'border-input text-muted-foreground hover:bg-muted'
                   }`}
                 >
                   Yes
-                </button>
-                <button
+                </Button>
+                <Button
                   disabled={!isProjectOwner || !selectedProjectId}
                   onClick={() => setAllowCustomization(false)}
-                  className={`px-4 py-1.5 rounded border font-semibold transition-colors disabled:opacity-50 disabled:cursor-default ${
+                  variant="ghost"
+                  className={`px-4 py-1.5 rounded border font-semibold transition-colors disabled:opacity-50 disabled:cursor-default h-auto shadow-none ${
                     !projectSettings.allow_user_customization
                       ? 'border-red-500 bg-red-500/10 text-red-600 dark:text-red-400'
                       : 'border-input text-muted-foreground hover:bg-muted'
                   }`}
                 >
                   No
-                </button>
+                </Button>
               </div>
               {!isProjectOwner && selectedProjectId && (
                 <p className="text-xs text-muted-foreground mt-2">Only the project owner can change this.</p>
@@ -1174,22 +1190,22 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
           {/* NOTIFICATIONS SECTION */}
           <div className="mb-8 ml-6">
             <h3 className="text-lg font-bold mb-4 bg-muted px-3 py-2 rounded text-orange-600 dark:text-orange-400">NOTIFICATIONS</h3>
-            <div className="overflow-x-auto border border-input rounded-lg">
-              <table className="w-full text-sm">
+            <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
+              <table className="w-full text-xs sm:text-sm">
                 <thead>
-                  <tr className="bg-muted border-b border-input">
-                    <th className="px-4 py-3 text-left font-semibold"></th>
-                    <th className="px-4 py-3 text-center font-semibold">Email</th>
-                    <th className="px-4 py-3 text-center font-semibold">Text</th>
-                    <th className="px-4 py-3 text-left font-semibold">Setting</th>
+                  <tr className="bg-muted/30 border-b border-border/50">
+                    <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap"></th>
+                    <th className="px-4 py-4 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Email</th>
+                    <th className="px-4 py-4 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Text</th>
+                    <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Setting</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr className="border-b border-input hover:bg-muted/50">
-                    <td className="px-4 py-3">Taskers as #1 Due Date</td>
-                    <td className="px-4 py-3 text-center"><input type="checkbox" className="w-4 h-4" /></td>
-                    <td className="px-4 py-3 text-center"><input type="checkbox" className="w-4 h-4" /></td>
-                    <td className="px-4 py-3">
+                  <tr className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
+                    <td className="px-4 py-4 whitespace-nowrap">Taskers as #1 Due Date</td>
+                    <td className="px-4 py-4 text-center whitespace-nowrap"><input type="checkbox" className="w-4 h-4" /></td>
+                    <td className="px-4 py-4 text-center whitespace-nowrap"><input type="checkbox" className="w-4 h-4" /></td>
+                    <td className="px-4 py-4 whitespace-nowrap">
                       <select className={selectClass}>
                         <option>Missed</option>
                         <option>24 H</option>
@@ -1197,11 +1213,11 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                       </select>
                     </td>
                   </tr>
-                  <tr className="border-b border-input hover:bg-muted/50">
-                    <td className="px-4 py-3">Taskers as #2 Due Date</td>
-                    <td className="px-4 py-3 text-center"><input type="checkbox" className="w-4 h-4" /></td>
-                    <td className="px-4 py-3 text-center"><input type="checkbox" className="w-4 h-4" /></td>
-                    <td className="px-4 py-3">
+                  <tr className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
+                    <td className="px-4 py-4 whitespace-nowrap">Taskers as #2 Due Date</td>
+                    <td className="px-4 py-4 text-center whitespace-nowrap"><input type="checkbox" className="w-4 h-4" /></td>
+                    <td className="px-4 py-4 text-center whitespace-nowrap"><input type="checkbox" className="w-4 h-4" /></td>
+                    <td className="px-4 py-4 whitespace-nowrap">
                       <select className={selectClass}>
                         <option>Missed</option>
                         <option>24 H</option>
@@ -1209,39 +1225,39 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                       </select>
                     </td>
                   </tr>
-                  <tr className="border-b border-input hover:bg-muted/50">
-                    <td className="px-4 py-3">Every user&apos;s Tasker Due Date</td>
-                    <td className="px-4 py-3 text-center"><input type="checkbox" className="w-4 h-4" /></td>
-                    <td className="px-4 py-3 text-center"><input type="checkbox" className="w-4 h-4" /></td>
-                    <td className="px-4 py-3"></td>
+                  <tr className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
+                    <td className="px-4 py-4 whitespace-nowrap">Every user&apos;s Tasker Due Date</td>
+                    <td className="px-4 py-4 text-center whitespace-nowrap"><input type="checkbox" className="w-4 h-4" /></td>
+                    <td className="px-4 py-4 text-center whitespace-nowrap"><input type="checkbox" className="w-4 h-4" /></td>
+                    <td className="px-4 py-4 whitespace-nowrap"></td>
                   </tr>
-                  <tr className="border-b border-input hover:bg-muted/50">
-                    <td className="px-4 py-3">Utility Bill Irregularity</td>
-                    <td className="px-4 py-3 text-center"><input type="checkbox" className="w-4 h-4" /></td>
-                    <td className="px-4 py-3 text-center"><input type="checkbox" className="w-4 h-4" /></td>
-                    <td className="px-4 py-3">
+                  <tr className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
+                    <td className="px-4 py-4 whitespace-nowrap">Utility Bill Irregularity</td>
+                    <td className="px-4 py-4 text-center whitespace-nowrap"><input type="checkbox" className="w-4 h-4" /></td>
+                    <td className="px-4 py-4 text-center whitespace-nowrap"><input type="checkbox" className="w-4 h-4" /></td>
+                    <td className="px-4 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-muted-foreground">Variance:</span>
                         <input type="text" placeholder="x%" className="w-16 px-2 py-1 border border-input rounded bg-background text-foreground text-xs" />
                       </div>
                     </td>
                   </tr>
-                  <tr className="border-b border-input hover:bg-muted/50">
-                    <td className="px-4 py-3">Major Financial Discrepancy</td>
-                    <td className="px-4 py-3 text-center"><input type="checkbox" className="w-4 h-4" /></td>
-                    <td className="px-4 py-3 text-center"><input type="checkbox" className="w-4 h-4" /></td>
-                    <td className="px-4 py-3">
+                  <tr className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
+                    <td className="px-4 py-4 whitespace-nowrap">Major Financial Discrepancy</td>
+                    <td className="px-4 py-4 text-center whitespace-nowrap"><input type="checkbox" className="w-4 h-4" /></td>
+                    <td className="px-4 py-4 text-center whitespace-nowrap"><input type="checkbox" className="w-4 h-4" /></td>
+                    <td className="px-4 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-muted-foreground">$</span>
                         <input type="text" placeholder="Amount" className="w-20 px-2 py-1 border border-input rounded bg-background text-foreground text-xs" />
                       </div>
                     </td>
                   </tr>
-                  <tr className="border-b border-input hover:bg-muted/50">
-                    <td className="px-4 py-3">Out of Office start/ends</td>
-                    <td className="px-4 py-3 text-center"><input type="checkbox" className="w-4 h-4" /></td>
-                    <td className="px-4 py-3 text-center"><input type="checkbox" className="w-4 h-4" /></td>
-                    <td className="px-4 py-3">
+                  <tr className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
+                    <td className="px-4 py-4 whitespace-nowrap">Out of Office start/ends</td>
+                    <td className="px-4 py-4 text-center whitespace-nowrap"><input type="checkbox" className="w-4 h-4" /></td>
+                    <td className="px-4 py-4 text-center whitespace-nowrap"><input type="checkbox" className="w-4 h-4" /></td>
+                    <td className="px-4 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-3">
                         <label className="flex items-center gap-1 text-xs"><input type="checkbox" className="w-3 h-3" /> User 1</label>
                         <label className="flex items-center gap-1 text-xs"><input type="checkbox" className="w-3 h-3" /> User 2</label>
@@ -1262,10 +1278,10 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                   <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="w-4 h-4" /> Hurricane / Tornado / Earthquake</label>
                 </div>
               </div>
-              <button className="w-full text-left py-2 px-4 rounded hover:bg-muted transition-colors text-sm">Law changes</button>
-              <button className="w-full text-left py-2 px-4 rounded hover:bg-muted transition-colors text-sm">City Development Plan</button>
+              <Button variant="ghost" className="w-full justify-start text-sm hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">Law changes</Button>
+              <Button variant="ghost" className="w-full justify-start text-sm hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">City Development Plan</Button>
               <div className="space-y-2">
-                <button className="w-full text-left py-2 px-4 rounded hover:bg-muted transition-colors text-sm">Property Tax Unpaid</button>
+                <Button variant="ghost" className="w-full justify-start text-sm hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">Property Tax Unpaid</Button>
                 <div className="flex items-center gap-3 py-2 px-4">
                   <span className="text-sm">Property Tax Reassessment</span>
                   <span className="text-xs text-muted-foreground ml-auto">Notify in advance:</span>
@@ -1273,7 +1289,7 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                   <span className="text-xs text-muted-foreground">days</span>
                 </div>
               </div>
-              <button className="w-full text-left py-2 px-4 rounded hover:bg-muted transition-colors text-sm">Contractor Bids</button>
+              <Button variant="ghost" className="w-full justify-start text-sm hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">Contractor Bids</Button>
             </div>
           </div>
 
@@ -1281,9 +1297,9 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
           <div className="mb-8 ml-6">
             <h3 className="text-lg font-bold mb-4 bg-muted px-3 py-2 rounded text-orange-600 dark:text-orange-400">MEETINGS</h3>
             <div className="ml-4 space-y-2">
-              <button className="w-full text-left py-2 px-4 rounded hover:bg-muted transition-colors text-sm">Google Meet settings</button>
-              <button className="w-full text-left py-2 px-4 rounded hover:bg-muted transition-colors text-sm underline">Edit Transcription to Summary Prompt (for YOU)</button>
-              <button className="w-full text-left py-2 px-4 rounded hover:bg-muted transition-colors text-sm underline">Edit Transcription to Summary Prompt (for EVERYONE)</button>
+              <Button variant="ghost" className="w-full justify-start text-sm hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">Google Meet settings</Button>
+              <Button variant="ghost" className="w-full justify-start text-sm underline hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">Edit Transcription to Summary Prompt (for YOU)</Button>
+              <Button variant="ghost" className="w-full justify-start text-sm underline hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">Edit Transcription to Summary Prompt (for EVERYONE)</Button>
             </div>
           </div>
 
@@ -1348,9 +1364,9 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                 <span className="text-sm">Prompt for reviewing leases:</span>
                 <input type="text" placeholder="Make sure they don't have a $2700 deposit" className="flex-1 px-2 py-1 border border-input rounded bg-background text-foreground text-xs" />
               </div>
-              <button className="w-full text-left py-2 px-4 rounded hover:bg-muted transition-colors text-sm text-red-600 dark:text-red-400 underline">
+              <Button variant="ghost" className="w-full justify-start text-sm text-red-600 dark:text-red-400 underline hover:text-red-500 transition-colors h-auto py-2 px-4 shadow-none">
                 UNIT DATA: Link and edit to a target google sheet
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -1376,7 +1392,6 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
               <p className="text-sm text-muted-foreground py-2 px-4">Report settings coming soon.</p>
             </div>
           </div>
-        </section>
 
       </div>
     </main>
