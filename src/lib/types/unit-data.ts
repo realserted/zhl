@@ -17,6 +17,7 @@ export interface UnitDataField {
   tooltip: string | null;
   is_file_link: boolean;
   is_hyperlink: boolean;
+  is_auto_id: boolean;
   show_sum: boolean;
   visible: boolean;
   sort_order: number;

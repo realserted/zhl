@@ -16,11 +16,55 @@ import { logUserAction } from '@/lib/db/user-logs';
 import { Upload, Plus, Trash2, X, Check, Pencil, Bot, User, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
+/** Normalize a description for fuzzy matching */
+function normalizeDesc(desc: string): string {
+  return desc
+    .toLowerCase()
+    .replace(/\b(srr?#|sr#|srf#|trn#|rfb#|rb#|ref#|ref|ow\d+|cb\d+)\s*\S*/gi, '') // strip reference numbers
+    .replace(/\d{4,}/g, '') // strip long number sequences (account numbers, etc.)
+    .replace(/[^a-z\s]/g, '') // strip non-alpha
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Match new transactions against existing user-categorized ones by normalized description similarity */
+function localPatternMatch(
+  newTxs: { id: string; description: string }[],
+  existingTxs: { description: string; category_id: string }[],
+): Map<string, string> {
+  const matched = new Map<string, string>();
+  if (existingTxs.length === 0) return matched;
+
+  // Build a map of normalized description → category_id from existing user-categorized transactions
+  const descToCat = new Map<string, string>();
+  for (const tx of existingTxs) {
+    if (!tx.description || !tx.category_id) continue;
+    const norm = normalizeDesc(tx.description);
+    if (norm.length >= 5) descToCat.set(norm, tx.category_id);
+  }
+
+  for (const tx of newTxs) {
+    const norm = normalizeDesc(tx.description);
+    // Exact normalized match
+    const exact = descToCat.get(norm);
+    if (exact) { matched.set(tx.id, exact); continue; }
+    // Prefix/substring match: if the new description starts with or contains an existing pattern
+    for (const [pattern, catId] of descToCat) {
+      if (pattern.length >= 10 && (norm.startsWith(pattern) || pattern.startsWith(norm) || norm.includes(pattern) || pattern.includes(norm))) {
+        matched.set(tx.id, catId);
+        break;
+      }
+    }
+  }
+  return matched;
+}
+
 /** Call the server-side Gemini API route to auto-categorize transactions. */
 async function aiCategorize(
   txs: { id: string; description: string }[],
   categories: { id: string; name: string }[],
   customPrompt?: string,
+  examples?: { description: string; categoryName: string }[],
 ): Promise<{ catMap: Map<string, string>; lowConfidenceIds: Set<string> }> {
   const catMap = new Map<string, string>();
   const lowConfidenceIds = new Set<string>();
@@ -30,10 +74,22 @@ async function aiCategorize(
     const res = await fetch('/api/ai/categorize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ transactions: txs, categories, customPrompt: customPrompt || undefined }),
+      body: JSON.stringify({
+        transactions: txs,
+        categories,
+        customPrompt: customPrompt || undefined,
+        examples: examples?.length ? examples : undefined,
+      }),
     });
-    if (!res.ok) return { catMap, lowConfidenceIds };
+    if (!res.ok) {
+      console.error('AI categorize API error:', res.status, await res.text().catch(() => ''));
+      return { catMap, lowConfidenceIds };
+    }
     const data = await res.json();
+    if (data.error) {
+      console.error('AI categorize error:', data.error);
+      return { catMap, lowConfidenceIds };
+    }
     if (Array.isArray(data.results)) {
       for (const r of data.results) {
         if (r.txId && r.categoryId) {
@@ -42,8 +98,8 @@ async function aiCategorize(
         }
       }
     }
-  } catch {
-    console.error('AI categorize failed');
+  } catch (err) {
+    console.error('AI categorize failed:', err);
   }
   return { catMap, lowConfidenceIds };
 }
@@ -87,7 +143,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
   const [previewWorkbook, setPreviewWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [headerRow, setHeaderRow] = useState(0); // 1-indexed row used as column names (0 = none)
   const [dataStartRow, setDataStartRow] = useState(1); // 1-indexed row where data starts
-  const [columnMapping, setColumnMapping] = useState<Record<number, TemplateField | 'skip'>>({}); // colIndex -> field
+  const [columnMapping, setColumnMapping] = useState<Record<number, TemplateField | 'skip' | string>>({}); // colIndex -> field or custom name
   const [previewPage, setPreviewPage] = useState(0);
   const PREVIEW_PAGE_SIZE = 20;
 
@@ -253,19 +309,28 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
     const detectedHeaderRow = detectedStart >= 2 ? detectedStart - 1 : 0;
     setHeaderRow(detectedHeaderRow);
 
-    // Auto-detect column mapping from header row
+    // Auto-detect column mapping from header row (prevent duplicate assignments)
     const maxCols = Math.max(...cleaned.map((r) => r.length), 0);
-    const newMapping: Record<number, TemplateField | 'skip'> = {};
+    const newMapping: Record<number, TemplateField | 'skip' | string> = {};
     const hdrRowData = detectedHeaderRow >= 1 ? cleaned[detectedHeaderRow - 1] : null;
+    const usedFields = new Set<string>();
+
+    const tryAssign = (c: number, field: TemplateField): boolean => {
+      if (usedFields.has(field)) return false;
+      usedFields.add(field);
+      newMapping[c] = field;
+      return true;
+    };
 
     for (let c = 0; c < maxCols; c++) {
-      const headerVal = hdrRowData ? String(hdrRowData[c] ?? '').toLowerCase() : '';
-      if (/date|posting|trans.*date|posted/i.test(headerVal)) { newMapping[c] = 'Date'; continue; }
-      if (/^amount$|transaction.*amount|instructed.*amount/i.test(headerVal)) { newMapping[c] = 'Amount'; continue; }
-      if (/description|memo|narrative|payee|details/i.test(headerVal)) { newMapping[c] = 'Description'; continue; }
-      if (/category/i.test(headerVal)) { newMapping[c] = 'Category'; continue; }
-      if (/notes?$/i.test(headerVal)) { newMapping[c] = 'Notes'; continue; }
-      if (/group|auto/i.test(headerVal)) { newMapping[c] = 'Auto-Grouping'; continue; }
+      const headerVal = hdrRowData ? String(hdrRowData[c] ?? '').trim() : '';
+      const headerLower = headerVal.toLowerCase();
+      if (/^date$|posting|trans.*date|posted/i.test(headerLower) && tryAssign(c, 'Date')) continue;
+      if (/^amount$|transaction.*amount|instructed.*amount/i.test(headerLower) && tryAssign(c, 'Amount')) continue;
+      if (/^description$|^memo$|^narrative$|^payee$|^details$/i.test(headerLower) && tryAssign(c, 'Description')) continue;
+      if (/^category$/i.test(headerLower) && tryAssign(c, 'Category')) continue;
+      if (/^notes?$/i.test(headerLower) && tryAssign(c, 'Notes')) continue;
+      if (/group|auto/i.test(headerLower) && tryAssign(c, 'Auto-Grouping')) continue;
       newMapping[c] = 'skip';
     }
     setColumnMapping(newMapping);
@@ -371,38 +436,75 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
       }
       log(`Uploaded ${created.length} transactions from "${previewFile.name}"`);
 
-      // AI auto-categorize
+      // Auto-categorize: local pattern matching first, then AI for the rest
+      let categorizedCount = 0;
       const autoTxs = created.filter((t) => !t.auto_grouping && t.description);
       if (autoTxs.length > 0 && txCategories.length > 0) {
-        const bankTypePrompt = bankTypes.find((b) => b.id === selectedBankType)?.ai_prompt;
-        const { catMap, lowConfidenceIds } = await aiCategorize(
+        // Build list of existing user-categorized transactions for training
+        const existingCategorized = transactions.filter((t) => t.category_id && t.description && t.bank_type_id === selectedBankType);
+
+        // 1) Local pattern match against user history
+        const localMatches = localPatternMatch(
           autoTxs.map((t) => ({ id: t.id, description: t.description! })),
-          txCategories.map((c) => ({ id: c.id, name: c.name })),
-          bankTypePrompt,
+          existingCategorized.map((t) => ({ description: t.description!, category_id: t.category_id! })),
         );
-        if (catMap.size > 0) {
-          const updates = Array.from(catMap.entries());
-          await Promise.all(updates.map(([txId, catId]) => {
-            const needsReview = lowConfidenceIds.has(txId);
-            return Promise.all([
-              updateTransaction(txId, 'category_id', catId),
-              needsReview ? updateTransaction(txId, 'ai_needs_review', true) : Promise.resolve(true),
-            ]);
-          }));
+
+        // Apply local matches immediately
+        if (localMatches.size > 0) {
+          categorizedCount += localMatches.size;
+          await Promise.all(Array.from(localMatches.entries()).map(([txId, catId]) =>
+            updateTransaction(txId, 'category_id', catId)
+          ));
           setTransactions((prev) =>
             prev.map((t) => {
-              const catId = catMap.get(t.id);
-              return catId ? { ...t, category_id: catId, ai_needs_review: lowConfidenceIds.has(t.id) } : t;
+              const catId = localMatches.get(t.id);
+              return catId ? { ...t, category_id: catId } : t;
             }),
           );
+        }
+
+        // 2) AI categorize the remaining unmatched transactions
+        const unmatchedTxs = autoTxs.filter((t) => !localMatches.has(t.id));
+        if (unmatchedTxs.length > 0) {
+          // Build examples from user-assigned categories for AI training
+          const catIdToName = new Map(txCategories.map((c) => [c.id, c.name]));
+          const examples = existingCategorized
+            .filter((t) => catIdToName.has(t.category_id!))
+            .map((t) => ({ description: t.description!, categoryName: catIdToName.get(t.category_id!)! }));
+
+          const bankTypePrompt = bankTypes.find((b) => b.id === selectedBankType)?.ai_prompt;
+          const { catMap, lowConfidenceIds } = await aiCategorize(
+            unmatchedTxs.map((t) => ({ id: t.id, description: t.description! })),
+            txCategories.map((c) => ({ id: c.id, name: c.name })),
+            bankTypePrompt,
+            examples,
+          );
+          if (catMap.size > 0) {
+            categorizedCount += catMap.size;
+            const updates = Array.from(catMap.entries());
+            await Promise.all(updates.map(([txId, catId]) => {
+              const needsReview = lowConfidenceIds.has(txId);
+              return Promise.all([
+                updateTransaction(txId, 'category_id', catId),
+                needsReview ? updateTransaction(txId, 'ai_needs_review', true) : Promise.resolve(true),
+              ]);
+            }));
+            setTransactions((prev) =>
+              prev.map((t) => {
+                const catId = catMap.get(t.id);
+                return catId ? { ...t, category_id: catId, ai_needs_review: lowConfidenceIds.has(t.id) } : t;
+              }),
+            );
+          }
         }
       }
 
       const duplicateCount = Math.max(0, parsed.length - uniqueParsed.length);
+      const catMsg = categorizedCount > 0 ? ` Auto-categorized ${categorizedCount} transaction(s).` : '';
       setNotice(
         duplicateCount > 0
-          ? `Uploaded "${sheetName}" with ${created.length} new rows (${duplicateCount} duplicate entries skipped).`
-          : `Uploaded "${sheetName}" with ${created.length} rows.`
+          ? `Uploaded "${sheetName}" with ${created.length} new rows (${duplicateCount} duplicate entries skipped).${catMsg}`
+          : `Uploaded "${sheetName}" with ${created.length} rows.${catMsg}`
       );
     }
 
@@ -525,36 +627,70 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
       }
       log(`Uploaded ${created.length} transactions from "${file.name}"`);
 
+      // Auto-categorize: local pattern matching first, then AI for the rest
+      let categorizedCount = 0;
       const autoTxs = created.filter((t) => !t.auto_grouping && t.description);
       if (autoTxs.length > 0 && txCategories.length > 0) {
-        const bankTypePrompt = bankTypes.find((b) => b.id === selectedBankType)?.ai_prompt;
-        const { catMap, lowConfidenceIds } = await aiCategorize(
+        const existingCategorized = transactions.filter((t) => t.category_id && t.description && t.bank_type_id === selectedBankType);
+
+        // 1) Local pattern match
+        const localMatches = localPatternMatch(
           autoTxs.map((t) => ({ id: t.id, description: t.description! })),
-          txCategories.map((c) => ({ id: c.id, name: c.name })),
-          bankTypePrompt,
+          existingCategorized.map((t) => ({ description: t.description!, category_id: t.category_id! })),
         );
-        if (catMap.size > 0) {
-          await Promise.all(Array.from(catMap.entries()).map(([txId, catId]) => {
-            const needsReview = lowConfidenceIds.has(txId);
-            return Promise.all([
-              updateTransaction(txId, 'category_id', catId),
-              needsReview ? updateTransaction(txId, 'ai_needs_review', true) : Promise.resolve(true),
-            ]);
-          }));
+        if (localMatches.size > 0) {
+          categorizedCount += localMatches.size;
+          await Promise.all(Array.from(localMatches.entries()).map(([txId, catId]) =>
+            updateTransaction(txId, 'category_id', catId)
+          ));
           setTransactions((prev) =>
             prev.map((t) => {
-              const catId = catMap.get(t.id);
-              return catId ? { ...t, category_id: catId, ai_needs_review: lowConfidenceIds.has(t.id) } : t;
+              const catId = localMatches.get(t.id);
+              return catId ? { ...t, category_id: catId } : t;
             }),
           );
         }
+
+        // 2) AI categorize remaining
+        const unmatchedTxs = autoTxs.filter((t) => !localMatches.has(t.id));
+        if (unmatchedTxs.length > 0) {
+          const catIdToName = new Map(txCategories.map((c) => [c.id, c.name]));
+          const examples = existingCategorized
+            .filter((t) => catIdToName.has(t.category_id!))
+            .map((t) => ({ description: t.description!, categoryName: catIdToName.get(t.category_id!)! }));
+
+          const bankTypePrompt = bankTypes.find((b) => b.id === selectedBankType)?.ai_prompt;
+          const { catMap, lowConfidenceIds } = await aiCategorize(
+            unmatchedTxs.map((t) => ({ id: t.id, description: t.description! })),
+            txCategories.map((c) => ({ id: c.id, name: c.name })),
+            bankTypePrompt,
+            examples,
+          );
+          if (catMap.size > 0) {
+            categorizedCount += catMap.size;
+            await Promise.all(Array.from(catMap.entries()).map(([txId, catId]) => {
+              const needsReview = lowConfidenceIds.has(txId);
+              return Promise.all([
+                updateTransaction(txId, 'category_id', catId),
+                needsReview ? updateTransaction(txId, 'ai_needs_review', true) : Promise.resolve(true),
+              ]);
+            }));
+            setTransactions((prev) =>
+              prev.map((t) => {
+                const catId = catMap.get(t.id);
+                return catId ? { ...t, category_id: catId, ai_needs_review: lowConfidenceIds.has(t.id) } : t;
+              }),
+            );
+          }
+        }
       }
 
+      const catMsg = categorizedCount > 0 ? ` Auto-categorized ${categorizedCount} transaction(s).` : '';
       const duplicateCount = Math.max(0, parsed.length - uniqueParsed.length);
       setNotice(
         duplicateCount > 0
-          ? `Uploaded "${sheetName}" with ${created.length} new rows (${duplicateCount} duplicate entries skipped).`
-          : `Uploaded "${sheetName}" with ${created.length} rows.`
+          ? `Uploaded "${sheetName}" with ${created.length} new rows (${duplicateCount} duplicate entries skipped).${catMsg}`
+          : `Uploaded "${sheetName}" with ${created.length} rows.${catMsg}`
       );
     }
     e.target.value = '';
@@ -631,6 +767,42 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
         await updateTransaction(txId, 'ai_needs_review', false);
       }
       setTransactions((prev) => prev.map((t) => (t.id === txId ? { ...t, category_id: categoryId || null, ai_needs_review: false } : t)));
+
+      // Propagate to similar descriptions: find other transactions with similar descriptions
+      // that have auto_grouping = Auto (null) and update them to the same category
+      if (categoryId && tx?.description) {
+        const normDesc = normalizeDesc(tx.description);
+        if (normDesc.length >= 5) {
+          const similarTxs = transactions.filter((t) =>
+            t.id !== txId &&
+            t.description &&
+            !t.auto_grouping && // Only auto-grouped ones
+            t.bank_type_id === tx.bank_type_id &&
+            (() => {
+              const norm = normalizeDesc(t.description!);
+              return norm === normDesc ||
+                (norm.length >= 10 && normDesc.length >= 10 && (norm.startsWith(normDesc) || normDesc.startsWith(norm) || norm.includes(normDesc) || normDesc.includes(norm)));
+            })()
+          );
+
+          if (similarTxs.length > 0) {
+            await Promise.all(similarTxs.map((t) =>
+              Promise.all([
+                updateTransaction(t.id, 'category_id', categoryId),
+                t.ai_needs_review ? updateTransaction(t.id, 'ai_needs_review', false) : Promise.resolve(true),
+              ])
+            ));
+            setTransactions((prev) =>
+              prev.map((t) => {
+                if (similarTxs.some((s) => s.id === t.id)) {
+                  return { ...t, category_id: categoryId, ai_needs_review: false };
+                }
+                return t;
+              }),
+            );
+          }
+        }
+      }
     }
   };
 
@@ -639,22 +811,40 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
     if (ok) {
       setTransactions((prev) => prev.map((t) => (t.id === txId ? { ...t, auto_grouping: value || null } : t)));
 
-      // If switching to "Auto" and no category assigned yet, trigger AI categorization
+      // If switching to "Auto" and no category assigned yet, trigger categorization
       if (!value) {
         const tx = transactions.find((t) => t.id === txId);
         if (tx && !tx.category_id && tx.description && txCategories.length > 0) {
-          const bankTypePrompt = bankTypes.find((b) => b.id === tx.bank_type_id)?.ai_prompt;
-          const { catMap, lowConfidenceIds } = await aiCategorize(
+          // Try local match first
+          const existingCategorized = transactions.filter((t) => t.category_id && t.description && t.bank_type_id === tx.bank_type_id && t.id !== txId);
+          const localMatches = localPatternMatch(
             [{ id: txId, description: tx.description }],
-            txCategories.map((c) => ({ id: c.id, name: c.name })),
-            bankTypePrompt,
+            existingCategorized.map((t) => ({ description: t.description!, category_id: t.category_id! })),
           );
-          const catId = catMap.get(txId);
-          if (catId) {
-            const needsReview = lowConfidenceIds.has(txId);
-            await updateTransaction(txId, 'category_id', catId);
-            if (needsReview) await updateTransaction(txId, 'ai_needs_review', true);
-            setTransactions((prev) => prev.map((t) => (t.id === txId ? { ...t, category_id: catId, ai_needs_review: needsReview } : t)));
+          const localCatId = localMatches.get(txId);
+          if (localCatId) {
+            await updateTransaction(txId, 'category_id', localCatId);
+            setTransactions((prev) => prev.map((t) => (t.id === txId ? { ...t, category_id: localCatId } : t)));
+          } else {
+            // Fall back to AI with examples
+            const catIdToName = new Map(txCategories.map((c) => [c.id, c.name]));
+            const examples = existingCategorized
+              .filter((t) => catIdToName.has(t.category_id!))
+              .map((t) => ({ description: t.description!, categoryName: catIdToName.get(t.category_id!)! }));
+            const bankTypePrompt = bankTypes.find((b) => b.id === tx.bank_type_id)?.ai_prompt;
+            const { catMap, lowConfidenceIds } = await aiCategorize(
+              [{ id: txId, description: tx.description }],
+              txCategories.map((c) => ({ id: c.id, name: c.name })),
+              bankTypePrompt,
+              examples,
+            );
+            const catId = catMap.get(txId);
+            if (catId) {
+              const needsReview = lowConfidenceIds.has(txId);
+              await updateTransaction(txId, 'category_id', catId);
+              if (needsReview) await updateTransaction(txId, 'ai_needs_review', true);
+              setTransactions((prev) => prev.map((t) => (t.id === txId ? { ...t, category_id: catId, ai_needs_review: needsReview } : t)));
+            }
           }
         }
       }
@@ -1269,6 +1459,8 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                 <div className="w-12 flex-shrink-0 text-xs font-semibold text-muted-foreground text-center">Row</div>
                 {Array.from({ length: Math.max(...previewRows.map((r) => r.length), 0) }, (_, colIdx) => {
                   const hdrVal = headerRow >= 1 ? String(previewRows[headerRow - 1]?.[colIdx] ?? '').trim() : '';
+                  const currentVal = columnMapping[colIdx] ?? 'skip';
+                  const isCustom = currentVal !== 'skip' && !(TEMPLATE_FIELDS as readonly string[]).includes(currentVal);
                   return (
                     <div key={colIdx} className="w-32 flex-shrink-0">
                       {hdrVal && (
@@ -1276,32 +1468,60 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                           {hdrVal}
                         </div>
                       )}
-                      <select
-                        value={columnMapping[colIdx] ?? 'skip'}
-                        onChange={(e) => {
-                          const val = e.target.value as TemplateField | 'skip';
-                          setColumnMapping((prev) => {
-                            const next = { ...prev };
-                            if (val !== 'skip') {
-                              for (const [k, v] of Object.entries(next)) {
-                                if (v === val) next[Number(k)] = 'skip';
-                              }
+                      {isCustom ? (
+                        <div className="flex gap-0.5">
+                          <input
+                            value={currentVal}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setColumnMapping((prev) => ({ ...prev, [colIdx]: val || 'skip' }));
+                            }}
+                            className="flex-1 min-w-0 px-1.5 py-1 border border-accent bg-accent/10 text-accent font-semibold rounded text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                            placeholder="Column name"
+                          />
+                          <button
+                            onClick={() => setColumnMapping((prev) => ({ ...prev, [colIdx]: 'skip' }))}
+                            className="px-1 text-muted-foreground hover:text-destructive flex-shrink-0"
+                            title="Clear"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <select
+                          value={currentVal}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === '__custom__') {
+                              // Set to the header value or empty custom name
+                              setColumnMapping((prev) => ({ ...prev, [colIdx]: hdrVal || 'Custom' }));
+                              return;
                             }
-                            next[colIdx] = val;
-                            return next;
-                          });
-                        }}
-                        className={`w-full px-1.5 py-1 border rounded text-xs ${
-                          columnMapping[colIdx] && columnMapping[colIdx] !== 'skip'
-                            ? 'border-accent bg-accent/10 text-accent font-semibold'
-                            : 'border-input bg-background text-muted-foreground'
-                        }`}
-                      >
-                        <option value="skip">— Skip —</option>
-                        {TEMPLATE_FIELDS.map((f) => (
-                          <option key={f} value={f}>{f}</option>
-                        ))}
-                      </select>
+                            setColumnMapping((prev) => {
+                              const next = { ...prev };
+                              // For template fields, ensure only one column has each field
+                              if (val !== 'skip' && (TEMPLATE_FIELDS as readonly string[]).includes(val)) {
+                                for (const [k, v] of Object.entries(next)) {
+                                  if (v === val) next[Number(k)] = 'skip';
+                                }
+                              }
+                              next[colIdx] = val;
+                              return next;
+                            });
+                          }}
+                          className={`w-full px-1.5 py-1 border rounded text-xs ${
+                            currentVal !== 'skip'
+                              ? 'border-accent bg-accent/10 text-accent font-semibold'
+                              : 'border-input bg-background text-muted-foreground'
+                          }`}
+                        >
+                          <option value="skip">— Skip —</option>
+                          {TEMPLATE_FIELDS.map((f) => (
+                            <option key={f} value={f}>{f}</option>
+                          ))}
+                          <option value="__custom__">Custom name...</option>
+                        </select>
+                      )}
                     </div>
                   );
                 })}
@@ -1391,7 +1611,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">
-                  Mapped: {Object.values(columnMapping).filter((v) => v !== 'skip').length}/{TEMPLATE_FIELDS.length} fields
+                  Mapped: {Object.values(columnMapping).filter((v) => v !== 'skip').length}/{Math.max(...previewRows.map((r) => r.length), 0)} fields
                 </span>
                 <button
                   onClick={() => { setPreviewOpen(false); setPreviewFile(null); setPreviewWorkbook(null); setPreviewRows([]); }}

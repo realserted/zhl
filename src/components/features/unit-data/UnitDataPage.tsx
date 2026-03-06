@@ -694,6 +694,93 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
     setEditingCell(null);
   };
 
+  // Paste handler — paste CSV/Excel data starting from a clicked cell
+  const handleTablePaste = async (e: React.ClipboardEvent<HTMLTableElement>) => {
+    if (!canEdit || !selectedProjectId || !user) return;
+
+    const text = e.clipboardData.getData('text/plain');
+    if (!text.trim()) return;
+
+    // Parse pasted text: rows split by newlines, columns by tabs (Excel) or commas (CSV)
+    const pastedRows = text.trim().split(/\r?\n/).map((line) => {
+      // Excel uses tabs; fall back to comma if no tabs found
+      if (line.includes('\t')) return line.split('\t');
+      return line.split(',');
+    });
+    if (pastedRows.length === 0) return;
+
+    // Find which cell is active (editing or focused)
+    const activeEl = document.activeElement;
+    const td = activeEl?.closest?.('td');
+    if (!td) return;
+
+    const fieldId = td.getAttribute('data-field-id');
+    const rowId = td.getAttribute('data-row-id');
+    if (!fieldId || !rowId) return;
+
+    e.preventDefault();
+
+    // Find the starting position in visible (non-auto-id) fields and nonEmptyRows
+    const pasteableFields = visibleFields.filter((f) => !f.is_auto_id);
+    const startFieldIdx = pasteableFields.findIndex((f) => f.id === fieldId);
+    const startRowIdx = nonEmptyRows.findIndex((r) => r.id === rowId);
+    if (startFieldIdx === -1 || startRowIdx === -1) return;
+
+    // Expand rows if paste extends beyond existing rows
+    let currentRows = [...nonEmptyRows];
+    const neededExtraRows = (startRowIdx + pastedRows.length) - currentRows.length;
+    if (neededExtraRows > 0) {
+      const newRows: UnitDataRow[] = [];
+      for (let i = 0; i < neededExtraRows; i++) {
+        const row = await createRow(selectedProjectId, rows.length + i);
+        if (row) newRows.push(row);
+      }
+      if (newRows.length > 0) {
+        setRows((prev) => [...prev, ...newRows]);
+        currentRows = [...currentRows, ...newRows];
+      }
+    }
+
+    // Upsert values for each pasted cell
+    const updates: { rowId: string; fieldId: string; value: string }[] = [];
+    for (let r = 0; r < pastedRows.length; r++) {
+      const targetRow = currentRows[startRowIdx + r];
+      if (!targetRow) break;
+      for (let c = 0; c < pastedRows[r].length; c++) {
+        const targetField = pasteableFields[startFieldIdx + c];
+        if (!targetField) break;
+        const val = pastedRows[r][c].trim();
+        updates.push({ rowId: targetRow.id, fieldId: targetField.id, value: val });
+      }
+    }
+
+    // Batch upsert all values
+    const promises = updates.map((u) => upsertValue(u.rowId, u.fieldId, u.value || null));
+    await Promise.all(promises);
+
+    // Update local valueMap
+    setValueMap((prev) => {
+      const next = new Map(prev);
+      for (const u of updates) {
+        const key = `${u.rowId}-${u.fieldId}`;
+        const existing = prev.get(key);
+        next.set(key, {
+          id: existing?.id ?? '',
+          row_id: u.rowId,
+          field_id: u.fieldId,
+          value: u.value || null,
+          file_url: existing?.file_url ?? null,
+          created_at: existing?.created_at ?? new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+      }
+      return next;
+    });
+
+    setEditingCell(null);
+    log(`Pasted data into ${updates.length} cell(s)`);
+  };
+
   // Add category
   const handleAddCategory = async () => {
     if (!selectedProjectId || !user || !newCategoryName.trim()) return;
@@ -1374,6 +1461,26 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                               {canEdit && editingFieldId !== field.id && (
                                 <>
                                   <button
+                                    onClick={async () => {
+                                      const newVal = !field.is_auto_id;
+                                      const ok = await updateField(field.id, { is_auto_id: newVal });
+                                      if (ok) {
+                                        setCategories((prev) => prev.map((c) => c.id === cat.id
+                                          ? { ...c, fields: c.fields.map((f) => f.id === field.id ? { ...f, is_auto_id: newVal } : f) }
+                                          : c
+                                        ));
+                                      }
+                                    }}
+                                    className={`px-1 py-0.5 rounded text-[9px] font-bold flex-shrink-0 transition-colors ${
+                                      field.is_auto_id
+                                        ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40'
+                                        : 'text-muted-foreground/50 hover:text-blue-400 opacity-0 group-hover/field:opacity-100 border border-transparent'
+                                    }`}
+                                    title={field.is_auto_id ? 'Disable auto ID' : 'Set as auto ID column'}
+                                  >
+                                    ID
+                                  </button>
+                                  <button
                                     onClick={() => { setEditingFieldId(field.id); setEditingFieldName(field.name); }}
                                     className="p-0.5 text-muted-foreground hover:text-accent transition-colors flex-shrink-0 opacity-0 group-hover/field:opacity-100"
                                     title={`Rename "${field.name}"`}
@@ -1427,6 +1534,9 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                 <span title="Shows to indicate a linked file column" className="flex-shrink-0">
                                   <Link className="h-3 w-3 text-muted-foreground" />
                                 </span>
+                              )}
+                              {field.is_auto_id && (
+                                <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/40 flex-shrink-0">ID</span>
                               )}
                             </span>
                           </label>
@@ -1524,7 +1634,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
             </div>
           ) : (
             <div className="border border-input rounded-lg overflow-x-auto">
-              <table className="text-xs sm:text-sm" style={{ tableLayout: 'fixed', width: totalTableWidth, minWidth: '100%' }}>
+              <table className="text-xs sm:text-sm" style={{ tableLayout: 'fixed', width: totalTableWidth, minWidth: '100%' }} onPaste={handleTablePaste}>
                 {/* Colgroup drives column widths for table-layout:fixed */}
                 <colgroup>
                   {categories.map((cat) => {
@@ -1705,7 +1815,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                       </td>
                     </tr>
                   ) : (
-                    nonEmptyRows.map((row) => (
+                    nonEmptyRows.map((row, rowIndex) => (
                       <tr key={row.id} className="border-b border-input hover:bg-muted/30 transition-colors">
                         {categories.map((cat) => {
                           const catVisibleFields = getOrderedFields(cat).filter((f) => f.visible);
@@ -1726,10 +1836,25 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                             const cellValue = val?.value ?? '';
                             const isEditing = editingCell?.rowId === row.id && editingCell?.fieldId === field.id;
 
+                            // Auto-ID fields show sequential numbers
+                            if (field.is_auto_id) {
+                              return (
+                                <td
+                                  key={field.id}
+                                  className="px-3 py-2 border-r border-input last:border-r-0 overflow-hidden"
+                                >
+                                  <span className="text-xs text-blue-400 font-medium">{rowIndex + 1}</span>
+                                </td>
+                              );
+                            }
+
                             return (
                               <td
                                 key={field.id}
-                                className="px-3 py-2 border-r border-input last:border-r-0 overflow-hidden"
+                                data-field-id={field.id}
+                                data-row-id={row.id}
+                                tabIndex={0}
+                                className="px-3 py-2 border-r border-input last:border-r-0 overflow-hidden focus:outline-none focus:ring-1 focus:ring-ring/50"
                               >
                                 {isEditing ? (
                                   <input

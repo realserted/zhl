@@ -87,7 +87,7 @@ export async function updateCategory(categoryId: string, name: string): Promise<
 
 export async function updateField(
   fieldId: string,
-  updates: { name?: string; tooltip?: string | null; is_file_link?: boolean; is_hyperlink?: boolean; show_sum?: boolean }
+  updates: { name?: string; tooltip?: string | null; is_file_link?: boolean; is_hyperlink?: boolean; is_auto_id?: boolean; show_sum?: boolean }
 ): Promise<boolean> {
   const { error } = await supabase
     .from('zhl_unit_data_fields')

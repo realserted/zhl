@@ -28,15 +28,21 @@ export async function POST(req: NextRequest) {
     transactions?: TxInput[];
     categories?: CatInput[];
     customPrompt?: string;
+    examples?: { description: string; categoryName: string }[];
   } | null;
 
   if (!body?.transactions?.length || !body?.categories?.length) {
     return NextResponse.json({ results: [] });
   }
 
-  const { transactions, categories, customPrompt } = body;
+  const { transactions, categories, customPrompt, examples } = body;
 
   const categoryList = categories.map((c) => `- ${c.id}: ${c.name}`).join('\n');
+
+  // Build examples section from user-assigned categories
+  const examplesSection = examples?.length
+    ? `\nHere are examples of how the user has previously categorized similar transactions — use these as training data to guide your categorization:\n${examples.slice(0, 30).map((e) => `- "${e.description}" → ${e.categoryName}`).join('\n')}\n`
+    : '';
 
   const allResults: CategorizeResult[] = [];
 
@@ -52,8 +58,8 @@ export async function POST(req: NextRequest) {
 
     const prompt = `You are a financial transaction categorizer. Given these categories:
 ${categoryList}
-${customInstructions}
-Categorize each transaction by its description. You MUST always pick the single best matching category_id — never leave it null. Even if the match is uncertain, pick the closest one.
+${customInstructions}${examplesSection}
+Categorize each transaction by its description. You MUST always pick the single best matching category_id — never leave it null. Even if the match is uncertain, pick the closest one. Pay close attention to the user's previous categorization examples — if a new transaction is similar to a previously categorized one, assign the same category.
 
 Also indicate your confidence: "high" if you are confident in the match, "low" if it is a guess or uncertain.
 
