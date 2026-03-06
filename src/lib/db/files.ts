@@ -451,10 +451,14 @@ export async function uploadFile(
   return data;
 }
 
-export async function downloadFileUrl(storagePath: string): Promise<string | null> {
+export async function downloadFileUrl(storagePath: string, inline = false): Promise<string | null> {
+  const options: { download?: boolean | string } = {};
+  if (!inline) {
+    options.download = true;
+  }
   const { data, error } = await supabase.storage
     .from(BUCKET)
-    .createSignedUrl(storagePath, 60);
+    .createSignedUrl(storagePath, 300, options);
 
   if (error) {
     console.error('Error creating signed URL:', error.message);

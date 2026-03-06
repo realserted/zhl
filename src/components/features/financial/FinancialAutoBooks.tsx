@@ -945,15 +945,11 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
     return /amount|debit|credit|balance|running bal|summary amt/i.test(colName);
   };
 
-  // Map display headers to raw_data keys (when headers are renamed, raw_data keys stay the same)
+  // Use the column display name directly as the raw_data key.
+  // At upload time, raw_data keys are set to match column_headers, so they are the same.
+  // NOTE: If a header was renamed after upload, the display name won't match the raw_data key.
+  // To handle renames, we also try the display name and fall back in the render cell.
   const rawKeyForColumn = (colIndex: number): string => {
-    if (!activeSheet) return dynamicColumns[colIndex] ?? '';
-    // The sheet's original raw_data keys come from the first upload — derive from any transaction
-    const anyTx = filteredTransactions.find((t) => t.raw_data);
-    if (anyTx?.raw_data) {
-      const rawKeys = Object.keys(anyTx.raw_data);
-      return rawKeys[colIndex] ?? dynamicColumns[colIndex] ?? '';
-    }
     return dynamicColumns[colIndex] ?? '';
   };
 

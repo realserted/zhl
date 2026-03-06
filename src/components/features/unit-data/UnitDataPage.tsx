@@ -198,6 +198,16 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
   const [importEndCol, setImportEndCol] = useState(0); // 0-indexed
   const [importColMapping, setImportColMapping] = useState<Record<number, string>>({}); // colIdx → fieldId or '__new__'
   const [importNewFieldNames, setImportNewFieldNames] = useState<Record<number, string>>({}); // colIdx → new field name
+
+  // File preview modal
+  const [filePreview, setFilePreview] = useState<{ url: string; name: string } | null>(null);
+  const [filePreviewLoading, setFilePreviewLoading] = useState(false);
+
+  // Cell selection for bulk operations (click + shift-click range, or click-drag)
+  const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set()); // "rowId-fieldId"
+  const [selAnchor, setSelAnchor] = useState<{ rowId: string; fieldId: string } | null>(null);
+  const [tableSelecting, setTableSelecting] = useState(false);
+
   const [importSelecting, setImportSelecting] = useState(false);
   const [importSelStart, setImportSelStart] = useState<{ r: number; c: number } | null>(null);
   const [importSelEnd, setImportSelEnd] = useState<{ r: number; c: number } | null>(null);
@@ -239,6 +249,19 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
       return;
     }
     loadData(selectedProjectId);
+  }, [selectedProjectId]);
+
+  // Refresh values when a file is added via AddFilesModal
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    const refreshValues = async () => {
+      const valData = await getValues(selectedProjectId);
+      const vMap = new Map<string, UnitDataValue>();
+      valData.forEach((v) => vMap.set(`${v.row_id}-${v.field_id}`, v));
+      setValueMap(vMap);
+    };
+    window.addEventListener('files-updated', refreshValues);
+    return () => window.removeEventListener('files-updated', refreshValues);
   }, [selectedProjectId]);
 
   const loadData = async (projectId: string) => {
@@ -364,6 +387,19 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
   // Get the unit label for a row (first non-empty cell value in field order)
   const getRowLabel = (rowId: string): string => {
     const allFields = categories.flatMap((c) => getOrderedFields(c));
+    // Check for auto-ID field — use sequential row index as ID
+    const autoIdField = allFields.find((f) => f.is_auto_id);
+    if (autoIdField) {
+      const rowIdx = rows.findIndex((r) => r.id === rowId);
+      const idNum = rowIdx >= 0 ? rowIdx + 1 : '?';
+      // Find a descriptive value from the first non-auto-ID field
+      for (const f of allFields) {
+        if (f.is_auto_id) continue;
+        const v = valueMap.get(`${rowId}-${f.id}`);
+        if (v?.value) return `${autoIdField.name} ${idNum} — ${v.value}`;
+      }
+      return `${autoIdField.name} ${idNum}`;
+    }
     for (const f of allFields) {
       const v = valueMap.get(`${rowId}-${f.id}`);
       if (v?.value) return v.value;
@@ -781,6 +817,124 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
     setEditingCell(null);
     log(`Pasted data into ${updates.length} cell(s)`);
   };
+
+  // ── Cell selection helpers ──────────────────────────────────────
+  const getCellsInRange = (anchor: { rowId: string; fieldId: string }, end: { rowId: string; fieldId: string }): Set<string> => {
+    const pasteableFields = visibleFields.filter((f) => !f.is_auto_id);
+    const r1 = nonEmptyRows.findIndex((r) => r.id === anchor.rowId);
+    const r2 = nonEmptyRows.findIndex((r) => r.id === end.rowId);
+    const c1 = pasteableFields.findIndex((f) => f.id === anchor.fieldId);
+    const c2 = pasteableFields.findIndex((f) => f.id === end.fieldId);
+    if (r1 === -1 || r2 === -1 || c1 === -1 || c2 === -1) return new Set();
+    const rMin = Math.min(r1, r2), rMax = Math.max(r1, r2);
+    const cMin = Math.min(c1, c2), cMax = Math.max(c1, c2);
+    const cells = new Set<string>();
+    for (let r = rMin; r <= rMax; r++) {
+      for (let c = cMin; c <= cMax; c++) {
+        cells.add(`${nonEmptyRows[r].id}-${pasteableFields[c].id}`);
+      }
+    }
+    return cells;
+  };
+
+  const handleCellMouseDown = (rowId: string, fieldId: string, e: React.MouseEvent) => {
+    if (!canEdit) return;
+    // Don't interfere with editing or right-click
+    if (editingCell) return;
+    if (e.button !== 0) return;
+
+    if (e.shiftKey && selAnchor) {
+      // Shift-click: select range from anchor to this cell
+      const range = getCellsInRange(selAnchor, { rowId, fieldId });
+      setSelectedCells(range);
+      e.preventDefault();
+    } else {
+      // Start new selection
+      setSelAnchor({ rowId, fieldId });
+      setSelectedCells(new Set([`${rowId}-${fieldId}`]));
+      setTableSelecting(true);
+    }
+  };
+
+  const handleCellMouseEnter = (rowId: string, fieldId: string) => {
+    if (!tableSelecting || !selAnchor) return;
+    const range = getCellsInRange(selAnchor, { rowId, fieldId });
+    setSelectedCells(range);
+  };
+
+  useEffect(() => {
+    if (!tableSelecting) return;
+    const onMouseUp = () => setTableSelecting(false);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => window.removeEventListener('mouseup', onMouseUp);
+  }, [tableSelecting]);
+
+  // Delete/Backspace clears selected cells
+  useEffect(() => {
+    if (selectedCells.size === 0 || !canEdit) return;
+    const handleKeyDown = async (e: KeyboardEvent) => {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        // Don't clear if user is editing an input
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        e.preventDefault();
+
+        const cellKeys = Array.from(selectedCells);
+        const promises = cellKeys.map((key) => {
+          // Keys are "rowId-fieldId" but UUIDs contain dashes, so split at the 36th char
+          const rowId = key.slice(0, 36);
+          const fieldId = key.slice(37);
+          return upsertValue(rowId, fieldId, null, null);
+        });
+        await Promise.all(promises);
+
+        // Update local valueMap
+        const updatedValueMap = new Map(valueMap);
+        for (const key of cellKeys) {
+          updatedValueMap.delete(key);
+        }
+        setValueMap(updatedValueMap);
+
+        // Find and delete rows that are now completely empty
+        const affectedRowIds = new Set(cellKeys.map((k) => k.slice(0, 36)));
+        const allFields = categories.flatMap((c) => c.fields);
+        const emptyRowIds: string[] = [];
+        for (const rowId of affectedRowIds) {
+          const hasData = allFields.some((f) => {
+            const val = updatedValueMap.get(`${rowId}-${f.id}`);
+            return val?.value != null && val.value.trim() !== '';
+          });
+          if (!hasData) emptyRowIds.push(rowId);
+        }
+        if (emptyRowIds.length > 0) {
+          await Promise.all(emptyRowIds.map((id) => deleteRow(id)));
+          setRows((prev) => prev.filter((r) => !emptyRowIds.includes(r.id)));
+        }
+
+        log(`Cleared ${cellKeys.length} cell(s)`);
+        setSelectedCells(new Set());
+      } else if (e.key === 'Escape') {
+        setSelectedCells(new Set());
+        setSelAnchor(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedCells, canEdit]);
+
+  // Clear selection when clicking outside the table
+  useEffect(() => {
+    if (selectedCells.size === 0) return;
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('table') && !target.closest('[data-cell-actions]')) {
+        setSelectedCells(new Set());
+        setSelAnchor(null);
+      }
+    };
+    window.addEventListener('mousedown', onClick);
+    return () => window.removeEventListener('mousedown', onClick);
+  }, [selectedCells]);
 
   // Add category
   const handleAddCategory = async () => {
@@ -1832,13 +1986,16 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                               );
                             }
 
+                            const isCellSelected = selectedCells.has(key);
                             return (
                               <td
                                 key={field.id}
                                 data-field-id={field.id}
                                 data-row-id={row.id}
                                 tabIndex={0}
-                                className="px-4 py-4 whitespace-nowrap border-r border-border/50 last:border-r-0 overflow-hidden group/td focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                onMouseDown={(e) => handleCellMouseDown(row.id, field.id, e)}
+                                onMouseEnter={() => handleCellMouseEnter(row.id, field.id)}
+                                className={`px-4 py-4 whitespace-nowrap border-r border-border/50 last:border-r-0 overflow-hidden group/td focus:outline-none focus:ring-1 focus:ring-primary/30 ${isCellSelected ? 'bg-primary/15 ring-1 ring-primary/40' : ''}`}
                               >
                                 {isEditing ? (
                                   <input
@@ -1855,12 +2012,13 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                   />
                                 ) : (
                                   <div
-                                    onClick={canEdit ? () => {
+                                    onDoubleClick={canEdit ? () => {
+                                      setSelectedCells(new Set());
                                       setEditingCell({ rowId: row.id, fieldId: field.id });
                                       setEditValue(cellValue);
                                     } : undefined}
                                     className={`${canEdit ? 'cursor-pointer hover:bg-primary/5' : ''} px-2 py-1 rounded-lg min-w-12 min-h-5 text-xs flex items-center gap-2 transition-all font-medium`}
-                                    title={canEdit ? 'Click to edit' : undefined}
+                                    title={canEdit ? 'Double-click to edit' : undefined}
                                   >
                                     {field.is_hyperlink && cellValue ? (
                                       <a
@@ -1878,17 +2036,44 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                       </span>
                                     )}
                                     {val?.file_url && (
-                                      <button
-                                        onClick={async (e) => {
-                                          e.stopPropagation();
-                                          const url = await downloadFileUrl(val.file_url!);
-                                          if (url) window.open(url, '_blank');
-                                        }}
-                                        className="shrink-0 p-1 text-blue-500 hover:text-blue-400 transition-colors bg-blue-500/5 rounded-md"
-                                        title={`Linked to: ${getRowLabel(row.id)} — Click to download`}
-                                      >
-                                        <Link className="h-3 w-3" />
-                                      </button>
+                                      <span className="inline-flex items-center gap-0.5 shrink-0">
+                                        <button
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            setFilePreviewLoading(true);
+                                            const url = await downloadFileUrl(val.file_url!, true);
+                                            setFilePreviewLoading(false);
+                                            if (url) {
+                                              const fileName = val.file_url!.split('/').pop() || 'File';
+                                              setFilePreview({ url, name: decodeURIComponent(fileName) });
+                                            }
+                                          }}
+                                          className="shrink-0 p-1 text-blue-500 hover:text-blue-400 transition-colors bg-blue-500/5 rounded-md"
+                                          title={`Linked to: ${getRowLabel(row.id)} — Click to preview`}
+                                          disabled={filePreviewLoading}
+                                        >
+                                          <Link className="h-3 w-3" />
+                                        </button>
+                                        {canEdit && (
+                                          <button
+                                            onClick={async (e) => {
+                                              e.stopPropagation();
+                                              const ok = await upsertValue(row.id, field.id, null, null);
+                                              if (ok) {
+                                                setValueMap((prev) => {
+                                                  const next = new Map(prev);
+                                                  next.delete(`${row.id}-${field.id}`);
+                                                  return next;
+                                                });
+                                              }
+                                            }}
+                                            className="shrink-0 p-1 text-red-500/60 hover:text-red-400 transition-colors rounded-md"
+                                            title="Remove linked file"
+                                          >
+                                            <X className="h-2.5 w-2.5" />
+                                          </button>
+                                        )}
+                                      </span>
                                     )}
                                   </div>
                                 )}
@@ -2371,6 +2556,75 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
           </div>
         </div>
       </Modal>
+
+      {/* File Preview Modal */}
+      {filePreview && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-background/60 backdrop-blur-md" onClick={() => setFilePreview(null)} />
+          <div className="relative bg-background/95 border border-white/10 rounded-xl shadow-2xl flex flex-col w-full max-w-5xl animate-in fade-in zoom-in duration-200" style={{ height: '85vh' }}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border/50 shrink-0">
+              <h3 className="text-sm font-bold tracking-tight truncate">{filePreview.name}</h3>
+              <div className="flex items-center gap-2">
+                <a
+                  href={filePreview.url}
+                  download={filePreview.name}
+                  className="px-3 py-1.5 text-[10px] font-bold tracking-wider uppercase text-muted-foreground hover:text-foreground border border-border/50 rounded-xl transition-all"
+                >
+                  Download
+                </a>
+                <button onClick={() => setFilePreview(null)} className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg transition-colors">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            {/* Preview content */}
+            <div className="flex-1 overflow-hidden p-1">
+              {/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(filePreview.name) ? (
+                <div className="w-full h-full flex items-center justify-center overflow-auto p-4">
+                  <img src={filePreview.url} alt={filePreview.name} className="max-w-full max-h-full object-contain rounded-lg" />
+                </div>
+              ) : /\.(mp4|webm|ogg|mov)$/i.test(filePreview.name) ? (
+                <video src={filePreview.url} controls className="w-full h-full object-contain rounded-lg" />
+              ) : /\.(mp3|wav|aac|flac|ogg)$/i.test(filePreview.name) ? (
+                <div className="w-full h-full flex items-center justify-center">
+                  <audio src={filePreview.url} controls className="w-full max-w-md" />
+                </div>
+              ) : /\.(docx?|xlsx?|pptx?|csv)$/i.test(filePreview.name) ? (
+                <iframe
+                  src={`https://docs.google.com/gview?url=${encodeURIComponent(filePreview.url)}&embedded=true`}
+                  className="w-full h-full rounded-lg border-0"
+                  title={filePreview.name}
+                />
+              ) : /\.pdf$/i.test(filePreview.name) ? (
+                <iframe
+                  src={`https://docs.google.com/gview?url=${encodeURIComponent(filePreview.url)}&embedded=true`}
+                  className="w-full h-full rounded-lg border-0"
+                  title={filePreview.name}
+                />
+              ) : /\.(txt|html?)$/i.test(filePreview.name) ? (
+                <iframe
+                  src={filePreview.url}
+                  className="w-full h-full rounded-lg border-0"
+                  title={filePreview.name}
+                />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-4 text-muted-foreground">
+                  <FileText className="h-16 w-16 opacity-30" />
+                  <p className="text-sm font-medium">Preview not available for this file type</p>
+                  <a
+                    href={filePreview.url}
+                    download={filePreview.name}
+                    className="px-4 py-2 text-xs font-bold tracking-wider uppercase bg-primary text-primary-foreground rounded-xl transition-all hover:opacity-90"
+                  >
+                    Download to view
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

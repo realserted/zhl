@@ -109,7 +109,17 @@ export default function AddFilesModal({ open, onClose }: AddFilesModalProps) {
     return categories.flatMap((cat) => cat.fields.map((f) => f.id));
   }, [categories]);
 
-  // Derived: row options — label each row by its first non-empty value in field order
+  // Derived: find the auto-ID field (if any)
+  const autoIdFieldId = useMemo(() => {
+    for (const cat of categories) {
+      for (const f of cat.fields) {
+        if (f.is_auto_id) return f.id;
+      }
+    }
+    return null;
+  }, [categories]);
+
+  // Derived: row options — label each row by its auto-ID (sequential number), falling back to first non-empty value
   const rowOptions = useMemo(() => {
     // Build lookup: rowId -> Map<fieldId, value>
     const rowValueMap = new Map<string, Map<string, string>>();
@@ -121,21 +131,28 @@ export default function AddFilesModal({ open, onClose }: AddFilesModalProps) {
 
     return rows.map((row, idx) => {
       const valMap = rowValueMap.get(row.id);
-      if (!valMap) return { id: row.id, label: `Row ${idx + 1}` };
+      const autoIdLabel = autoIdFieldId ? `ID ${idx + 1}` : null;
 
-      // Find the first non-empty value in field display order
-      for (const fId of orderedFieldIds) {
-        const v = valMap.get(fId);
-        if (v) return { id: row.id, label: v };
+      // Find descriptive label from first non-empty, non-auto-ID value
+      let descLabel = '';
+      if (valMap) {
+        for (const fId of orderedFieldIds) {
+          if (fId === autoIdFieldId) continue; // skip auto-ID field
+          const v = valMap.get(fId);
+          if (v) { descLabel = v; break; }
+        }
+        if (!descLabel) {
+          const firstVal = valMap.values().next().value;
+          if (firstVal) descLabel = firstVal as string;
+        }
       }
 
-      // Fallback: use any value we have (field might not be in categories anymore)
-      const firstVal = valMap.values().next().value;
-      if (firstVal) return { id: row.id, label: firstVal };
-
+      if (autoIdLabel && descLabel) return { id: row.id, label: `${autoIdLabel} — ${descLabel}` };
+      if (autoIdLabel) return { id: row.id, label: autoIdLabel };
+      if (descLabel) return { id: row.id, label: descLabel };
       return { id: row.id, label: `Row ${idx + 1}` };
     });
-  }, [orderedFieldIds, rows, values]);
+  }, [autoIdFieldId, orderedFieldIds, rows, values]);
 
   // Derived: field options (Category > Field)
   const fieldOptions = useMemo(() => {

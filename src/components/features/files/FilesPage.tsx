@@ -148,6 +148,8 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
   const [renameValue, setRenameValue] = useState('');
 
   const [confirmDeleteFolder, setConfirmDeleteFolder] = useState<string | null>(null);
+  const [showNewFolderInput, setShowNewFolderInput] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
 
   // Unit linking state
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -464,6 +466,19 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
       });
     }
     setSavingPermission(null);
+  };
+
+  const handleCreateEmptyFolder = async () => {
+    if (!selectedProjectId || !user || !newFolderName.trim()) return;
+    const sortOrder = folders.filter((f) => !f.parent_folder_id).length;
+    const created = await createFileFolder(selectedProjectId, newFolderName.trim(), null, sortOrder, user.id);
+    if (created) {
+      setFolders((prev) => [...prev, created]);
+      log(`Created folder "${newFolderName.trim()}"`);
+      setNotice(`Folder "${newFolderName.trim()}" created.`);
+    }
+    setNewFolderName('');
+    setShowNewFolderInput(false);
   };
 
   /** Upload a folder: preserves subfolder structure, creates nested folders, uploads files into correct locations.
@@ -871,13 +886,43 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => canEdit && folderInputRef.current?.click()}
+              onClick={() => { if (canEdit) setShowNewFolderInput((v) => !v); }}
               disabled={!canEdit || uploading}
               className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
               leftIcon={<Plus className="h-3.5 w-3.5" />}
             >
               Add New Folder
             </Button>
+            {showNewFolderInput && (
+              <div className="flex flex-col gap-2 px-1">
+                <input
+                  autoFocus
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleCreateEmptyFolder();
+                    if (e.key === 'Escape') { setShowNewFolderInput(false); setNewFolderName(''); }
+                  }}
+                  placeholder="Folder name..."
+                  className="w-full px-3 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCreateEmptyFolder}
+                    disabled={!newFolderName.trim()}
+                    className="flex-1 px-3 py-1.5 text-[10px] font-bold tracking-wider uppercase bg-primary text-primary-foreground rounded-xl disabled:opacity-50 transition-all"
+                  >
+                    Create
+                  </button>
+                  <button
+                    onClick={() => canEdit && folderInputRef.current?.click()}
+                    className="flex-1 px-3 py-1.5 text-[10px] font-bold tracking-wider uppercase border border-primary/20 text-primary rounded-xl hover:bg-primary/10 transition-all"
+                  >
+                    Upload Folder
+                  </button>
+                </div>
+              </div>
+            )}
 
             <Button
               variant="ghost"
