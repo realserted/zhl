@@ -285,6 +285,11 @@ export async function createTxCategory(projectId: string, name: string, icon: st
   return data;
 }
 
+export async function updateTxCategoryType(id: string, categoryType: 'expense' | 'income'): Promise<boolean> {
+  const { error } = await supabase.from('zhl_financial_tx_categories').update({ category_type: categoryType }).eq('id', id);
+  return !error;
+}
+
 export async function getTransactions(projectId: string): Promise<FinancialTransaction[]> {
   const { data } = await supabase.from('zhl_financial_transactions').select('*').eq('project_id', projectId).order('date', { ascending: false });
   return data ?? [];

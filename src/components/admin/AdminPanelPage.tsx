@@ -1,6 +1,6 @@
 'use client';
 
-import { Plus, Upload, Loader2, ShieldAlert, Check, Trash2, Save } from 'lucide-react';
+import { Plus, Upload, Loader2, ShieldAlert, Check, Trash2, Save, X } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase/client';
@@ -487,47 +487,110 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
           <div className="ml-6 space-y-4">
             {!selectedProjectId ? (
               <p className="text-sm text-muted-foreground py-4">Select a project above to manage report types.</p>
-            ) : bankTypes.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4">No bank types found for this project.</p>
             ) : (
-              <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-muted/30 border-b border-border/50">
-                      <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Type</th>
-                      <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">AI Prompt</th>
-                      <th className="px-4 py-4 w-16"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bankTypes.map((bt) => (
-                      <tr key={bt.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
-                        <td className="px-4 py-3">
+              <>
+                {/* Pending requests */}
+                {bankTypes.filter((b) => b.status === 'pending').length > 0 && (
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+                    <h4 className="text-xs font-bold tracking-wider uppercase text-amber-500 mb-3">Pending Requests</h4>
+                    <div className="space-y-2">
+                      {bankTypes.filter((b) => b.status === 'pending').map((bt) => (
+                        <div key={bt.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-background/50 border border-border/50">
                           <span className="text-xs font-medium">{bt.name}</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <input
-                            type="text"
-                            className="border border-input rounded px-2 py-1 bg-background text-foreground text-xs w-full"
-                            placeholder="Enter AI prompt..."
-                            value={bt.ai_prompt}
-                            onChange={(e) => handleBankTypePromptChange(bt.id, e.target.value)}
-                          />
-                        </td>
-                        <td className="px-4 py-3">
-                          <button
-                            onClick={() => handleSaveBankTypePrompt(bt.id)}
-                            title="Save prompt"
-                            className="p-1 text-muted-foreground hover:text-accent transition-colors"
-                          >
-                            <Save className="h-3.5 w-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleApproveBankType(bt.id)}
+                              title="Approve"
+                              className="p-1.5 text-muted-foreground hover:text-green-500 transition-colors"
+                            >
+                              <Check className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handleRejectBankType(bt.id)}
+                              title="Reject"
+                              className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Approved types table */}
+                {bankTypes.filter((b) => !b.status || b.status === 'approved').length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4">No bank types found for this project.</p>
+                ) : (
+                  <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-muted/30 border-b border-border/50">
+                          <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Type</th>
+                          <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">AI Prompt</th>
+                          <th className="px-4 py-4 w-20"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {bankTypes.filter((b) => !b.status || b.status === 'approved').map((bt) => (
+                          <tr key={bt.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
+                            <td className="px-4 py-3">
+                              <span className="text-xs font-medium">{bt.name}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <input
+                                type="text"
+                                className="border border-input rounded px-2 py-1 bg-background text-foreground text-xs w-full"
+                                placeholder="Enter AI prompt..."
+                                value={bt.ai_prompt}
+                                onChange={(e) => handleBankTypePromptChange(bt.id, e.target.value)}
+                              />
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => handleSaveBankTypePrompt(bt.id)}
+                                  title="Save prompt"
+                                  className="p-1 text-muted-foreground hover:text-accent transition-colors"
+                                >
+                                  <Save className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteBankType(bt.id)}
+                                  title="Delete type"
+                                  className="p-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Add new type */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newBankTypeName}
+                    onChange={(e) => setNewBankTypeName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddBankType(); }}
+                    placeholder="New report type name..."
+                    className="px-3 py-2 bg-background/50 border border-input rounded-lg text-xs w-64 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  />
+                  <button
+                    onClick={handleAddBankType}
+                    disabled={!newBankTypeName.trim()}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold tracking-wider uppercase bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-40 transition-all"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add Type
+                  </button>
+                </div>
+              </>
             )}
           </div>
         </section>

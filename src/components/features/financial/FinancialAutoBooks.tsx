@@ -8,7 +8,7 @@ import { FinancialBankType, FinancialTxCategory, FinancialTransaction, Financial
 import {
   createBankType,
   ensureDefaultBankTypes,
-  ensureDistinctTxCategories, createTxCategory,
+  ensureDistinctTxCategories, createTxCategory, updateTxCategoryType,
   getTransactions, updateTransaction, deleteTransaction, createTransaction, bulkCreateTransactions,
   getUploadSheets, createUploadSheet, deleteUploadSheet, updateSheetColumnHeaders,
 } from '@/lib/db/financial';
@@ -124,6 +124,9 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [newCatType, setNewCatType] = useState<'expense' | 'income'>('expense');
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
+  const [colWidths, setColWidths] = useState<Record<string, number>>({});
+  const resizingRef = useRef<{ col: string; startX: number; startW: number } | null>(null);
   const [editingHeader, setEditingHeader] = useState<{ sheetId: string; index: number } | null>(null);
   const [headerEditValue, setHeaderEditValue] = useState('');
   const [confirmDeleteSheet, setConfirmDeleteSheet] = useState<string | null>(null);
@@ -149,7 +152,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
 
   const permLevel = userPermission?.perm_reports ?? 'Admin';
   const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
-  const isAdmin = !userPermission || permLevel === 'Admin';
+
 
   useEffect(() => {
     if (!user) return;
@@ -187,17 +190,11 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
 
   const handleRequestBankType = async () => {
     if (!newTypeName.trim()) return;
-    const status = isAdmin ? 'approved' : 'pending';
-    const bt = await createBankType(selectedProjectId, newTypeName.trim(), status);
+    const bt = await createBankType(selectedProjectId, newTypeName.trim(), 'pending');
     if (bt) {
       setBankTypes((prev) => [...prev, bt]);
-      if (isAdmin) {
-        setNotice(`Added bank type "${newTypeName.trim()}".`);
-        log(`Added bank type "${newTypeName.trim()}"`);
-      } else {
-        setNotice(`Request for "${newTypeName.trim()}" sent to admin for approval.`);
-        log(`Requested bank type "${newTypeName.trim()}"`);
-      }
+      setNotice(`Request for "${newTypeName.trim()}" sent to admin for approval.`);
+      log(`Requested bank type "${newTypeName.trim()}"`);
     }
     setNewTypeName('');
     setShowAddType(false);
@@ -213,6 +210,39 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
     setNewCatName('');
     setNewCatType('expense');
     setShowAddCategory(false);
+  };
+
+  const handleResizeStart = (col: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = colWidths[col] ?? 150;
+    resizingRef.current = { col, startX, startW };
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const diff = ev.clientX - startX;
+      const newWidth = Math.max(60, startW + diff);
+      setColWidths((prev) => ({ ...prev, [col]: newWidth }));
+    };
+
+    const onMouseUp = () => {
+      resizingRef.current = null;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
+
+  const handleToggleCategoryType = async (catId: string) => {
+    const cat = txCategories.find((c) => c.id === catId);
+    if (!cat) return;
+    const newType = cat.category_type === 'income' ? 'expense' : 'income';
+    const ok = await updateTxCategoryType(catId, newType);
+    if (ok) {
+      setTxCategories((prev) => prev.map((c) => c.id === catId ? { ...c, category_type: newType } : c));
+    }
   };
 
   // ── Parsing helpers ──────────────────────────────────────────
@@ -1029,7 +1059,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                 className="px-2 py-1 bg-background border border-input rounded text-xs"
               />
               <button onClick={handleRequestBankType} className="text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all">
-                {isAdmin ? 'Add' : 'Request'}
+                Request
               </button>
             </div>
           ) : (
@@ -1141,26 +1171,60 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                 <button onClick={handleAddCategory} className="text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all">Add</button>
               </div>
             ) : (
-              <button onClick={() => setShowAddCategory(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold tracking-wider uppercase bg-primary/10 text-primary hover:bg-primary/20 transition-all">
-                Add Category
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setShowAddCategory(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold tracking-wider uppercase bg-primary/10 text-primary hover:bg-primary/20 transition-all">
+                  Add Category
+                </button>
+                <button
+                  onClick={() => setShowCategoryManager((v) => !v)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold tracking-wider uppercase transition-all ${showCategoryManager ? 'bg-primary text-primary-foreground' : 'bg-muted/50 text-muted-foreground hover:bg-muted'}`}
+                >
+                  Manage
+                </button>
+              </div>
             )}
           </div>
         )}
       </div>
 
+      {/* Category Manager */}
+      {showCategoryManager && canEdit && (
+        <div className="mb-4 p-4 glass-card rounded-2xl border border-border/50">
+          <h4 className="text-xs font-bold tracking-wider uppercase text-muted-foreground mb-3">Category Types</h4>
+          <div className="flex flex-wrap gap-2">
+            {txCategories.map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => handleToggleCategoryType(cat.id)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/50 hover:border-primary/30 transition-all text-xs"
+              >
+                <span>{cat.icon} {cat.name}</span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                  cat.category_type === 'income'
+                    ? 'bg-green-500/15 text-green-500'
+                    : 'bg-red-500/15 text-red-500'
+                }`}>
+                  {cat.category_type === 'income' ? 'Income' : 'Expense'}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Transactions table — dynamic columns */}
       <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
-        <table className="w-full text-xs sm:text-sm">
+        <table className="text-xs sm:text-sm" style={{ tableLayout: 'fixed', minWidth: '100%' }}>
           <thead>
             <tr className="bg-muted/30 border-b border-border/50">
               {hasRawData ? (
                 <>
                   {dynamicColumns.map((col, colIndex) => {
                     const isEditing = editingHeader?.sheetId === activeSheet?.id && editingHeader?.index === colIndex;
+                    const colKey = `dyn-${colIndex}`;
 
                     return (
-                      <th key={`${col}-${colIndex}`} className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">
+                      <th key={`${col}-${colIndex}`} className="relative px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap" style={{ width: colWidths[colKey] ?? 150, minWidth: 60 }}>
                         {isEditing ? (
                           <input
                             autoFocus
@@ -1187,23 +1251,28 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                             {activeSheet && canEdit && <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-50 transition-opacity" />}
                           </span>
                         )}
+                        <div onMouseDown={(e) => handleResizeStart(colKey, e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 transition-colors" />
                       </th>
                     );
                   })}
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[150px]">Category</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[100px]">Notes</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[100px]">Auto-Grouping</th>
-                  {canEdit && <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap w-8"></th>}
+                  <th className="relative px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap" style={{ width: colWidths['category'] ?? 150, minWidth: 60 }}>Category<div onMouseDown={(e) => handleResizeStart('category', e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 transition-colors" /></th>
+                  <th className="relative px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap" style={{ width: colWidths['notes'] ?? 100, minWidth: 60 }}>Notes<div onMouseDown={(e) => handleResizeStart('notes', e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 transition-colors" /></th>
+                  <th className="relative px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap" style={{ width: colWidths['auto-grouping'] ?? 100, minWidth: 60 }}>Auto-Grouping<div onMouseDown={(e) => handleResizeStart('auto-grouping', e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 transition-colors" /></th>
+                  {canEdit && <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap" style={{ width: 40 }}></th>}
                 </>
               ) : (
                 <>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[100px]">Date</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[90px]">Amount</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[200px]">Description</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[150px]">Category</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[100px]">Notes</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap min-w-[100px]">Auto-Grouping</th>
-                  {canEdit && <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap w-8"></th>}
+                  {['date', 'amount', 'description', 'category', 'notes', 'auto-grouping'].map((col) => {
+                    const defaults: Record<string, number> = { date: 100, amount: 90, description: 200, category: 150, notes: 100, 'auto-grouping': 100 };
+                    const labels: Record<string, string> = { date: 'Date', amount: 'Amount', description: 'Description', category: 'Category', notes: 'Notes', 'auto-grouping': 'Auto-Grouping' };
+                    return (
+                      <th key={col} className="relative px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap" style={{ width: colWidths[col] ?? defaults[col], minWidth: 60 }}>
+                        {labels[col]}
+                        <div onMouseDown={(e) => handleResizeStart(col, e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 transition-colors" />
+                      </th>
+                    );
+                  })}
+                  {canEdit && <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap" style={{ width: 40 }}></th>}
                 </>
               )}
             </tr>
@@ -1231,7 +1300,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                         return (
                           <td
                             key={`${col}-${colIndex}`}
-                            className={`px-4 py-4 text-xs whitespace-nowrap ${
+                            className={`px-4 py-4 text-xs whitespace-nowrap overflow-hidden text-ellipsis ${
                               isAmt && numVal < 0 ? 'text-red-500 font-medium' : isAmt && numVal > 0 ? 'text-green-500 font-medium' : ''
                             }`}
                           >
@@ -1343,11 +1412,18 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
                         className="w-full px-2 py-1 bg-background border border-input rounded text-xs"
                       >
                         <option value="">--</option>
-                        {txCategories.map((cat) => (
-                          <option key={cat.id} value={cat.id}>
-                            {cat.icon} {cat.name}
-                          </option>
-                        ))}
+                        {txCategories.some((c) => c.category_type === 'income') && (
+                          <optgroup label="Income">
+                            {txCategories.filter((c) => c.category_type === 'income').map((cat) => (
+                              <option key={cat.id} value={cat.id}>{cat.icon} {cat.name}</option>
+                            ))}
+                          </optgroup>
+                        )}
+                        <optgroup label="Expense">
+                          {txCategories.filter((c) => !c.category_type || c.category_type === 'expense').map((cat) => (
+                            <option key={cat.id} value={cat.id}>{cat.icon} {cat.name}</option>
+                          ))}
+                        </optgroup>
                       </select>
                     </div>
                   </td>
