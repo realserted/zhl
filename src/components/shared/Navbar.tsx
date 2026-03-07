@@ -204,10 +204,10 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
   const allTabs = [
     { id: 'overview',   label: 'OVERVIEW',              permKey: null },
     { id: 'taskers',    label: 'TASKERS',               permKey: 'perm_taskers',   badge: taskerBadge },
-    { id: 'unitdata',   label: 'UNIT DATA',             permKey: 'perm_unit_data', badge: '2 Issues' },
+    { id: 'unitdata',   label: 'UNIT DATA',             permKey: 'perm_unit_data' },
     { id: 'files',      label: 'FILES',                 permKey: 'perm_files' },
     ...(isAdmin || selectedProject?.owner_id === user?.id ? [{ id: 'accounts', label: 'ACCOUNTS', permKey: null }] : []),
-    { id: 'financial',  label: 'FINANCIAL',             permKey: 'perm_reports',   badge: '2 Issues' },
+    { id: 'financial',  label: 'FINANCIAL',             permKey: 'perm_reports' },
     { id: 'templates',  label: 'TEMPLATES',             permKey: 'perm_templates' },
     { id: 'meetings',   label: 'MEETINGS & AVAILABILITY', permKey: 'perm_meetings' },
     { id: 'issues',     label: 'TENANT ISSUES',         permKey: null },
