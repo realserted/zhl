@@ -48,6 +48,10 @@ const FilesPage = dynamic(
   () => import('@/components/features/files/FilesPage'),
   { ssr: false, loading: () => <TabSpinner /> }
 );
+const MeetingsPage = dynamic(
+  () => import('@/components/features/meetings/MeetingsPage'),
+  { ssr: false, loading: () => <TabSpinner /> }
+);
 
 // ── Page component ────────────────────────────────────────────────────────────
 
@@ -126,8 +130,15 @@ export default function TabPage({ params }: { params: Promise<{ tab: string }> }
     case 'logs':
       return <UserLogsPage />;
 
-    case 'templates':
     case 'meetings':
+      return (
+        <MeetingsPage
+          selectedProjectId={projectId}
+          userPermission={userPermission}
+        />
+      );
+
+    case 'templates':
     case 'issues':
       return (
         <main className="flex min-h-[60vh] items-center justify-center p-4">

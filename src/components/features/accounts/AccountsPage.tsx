@@ -1,14 +1,21 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { ProjectPermission } from '@/lib/types/project';
 import {
   Trash2, Lock, Hash, Eye, EyeOff, ShieldAlert,
-  PlusCircle, Upload, Loader2, X, Pencil
+  PlusCircle, Upload, Loader2, X, GripVertical
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Button } from '@/components/shared/Button';
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext, horizontalListSortingStrategy, useSortable, arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface ProjectAccount {
   id: string;
@@ -33,13 +40,15 @@ interface AccountsPageProps {
   userPermission?: ProjectPermission | null;
 }
 
-const COLUMNS: {
+interface ColumnDef {
   field: keyof ProjectAccount;
   label: string;
   icon?: 'lock' | 'hash';
   sensitive?: boolean;
-  minWidth?: number;
-}[] = [
+  minWidth: number;
+}
+
+const COLUMNS: ColumnDef[] = [
   { field: 'account_name',  label: 'Account',        minWidth: 130 },
   { field: 'descriptor',    label: 'Descriptor',      minWidth: 120 },
   { field: 'company_name',  label: 'Company Name',    minWidth: 130 },
@@ -68,6 +77,42 @@ const HEADER_MAP: Record<string, keyof ProjectAccount> = {
   notes: 'notes', note: 'notes', comments: 'notes',
 };
 
+// ── Sortable header cell ──────────────────────────────────────────────────────
+
+function SortableHeaderCell({
+  col, width, onResizeStart,
+}: {
+  col: ColumnDef;
+  width: number;
+  onResizeStart: (field: string, e: React.MouseEvent) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: col.field });
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    transition,
+    width,
+    minWidth: 60,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <th ref={setNodeRef} style={style} {...attributes} className="relative px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap group/th">
+      <div className="flex items-center gap-1.5">
+        <span {...listeners} className="cursor-grab opacity-0 group-hover/th:opacity-50 transition-opacity shrink-0">
+          <GripVertical className="h-3 w-3" />
+        </span>
+        {col.icon === 'lock' && <Lock className="h-3.5 w-3.5 text-amber-500" />}
+        {col.icon === 'hash' && <Hash className="h-3.5 w-3.5 text-blue-500" />}
+        {col.label}
+      </div>
+      <div
+        onMouseDown={(e) => onResizeStart(col.field, e)}
+        className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 transition-colors"
+      />
+    </th>
+  );
+}
+
 export default function AccountsPage({ selectedProjectId, userPermission }: AccountsPageProps) {
   const [accounts, setAccounts] = useState<ProjectAccount[]>([]);
   const [loading, setLoading] = useState(false);
@@ -79,8 +124,54 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
   const [importMessage, setImportMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Column ordering & resizing
+  const [columnOrder, setColumnOrder] = useState<string[]>(COLUMNS.map((c) => c.field));
+  const [colWidths, setColWidths] = useState<Record<string, number>>({});
+
+  const colMap = useMemo(() => {
+    const m = new Map<string, ColumnDef>();
+    for (const c of COLUMNS) m.set(c.field, c);
+    return m;
+  }, []);
+
+  const orderedColumns = useMemo(() => {
+    return columnOrder.map((f) => colMap.get(f)).filter(Boolean) as ColumnDef[];
+  }, [columnOrder, colMap]);
+
   const permLevel = userPermission?.perm_accounts ?? 'Admin';
   const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
+
+  // DnD sensors
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setColumnOrder((prev) => {
+      const oldIndex = prev.indexOf(String(active.id));
+      const newIndex = prev.indexOf(String(over.id));
+      return arrayMove(prev, oldIndex, newIndex);
+    });
+  };
+
+  // Column resizing
+  const handleResizeStart = useCallback((field: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = colWidths[field] ?? (colMap.get(field)?.minWidth ?? 130);
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const diff = ev.clientX - startX;
+      setColWidths((prev) => ({ ...prev, [field]: Math.max(60, startW + diff) }));
+    };
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [colWidths, colMap]);
 
   useEffect(() => {
     if (!selectedProjectId) { setAccounts([]); return; }
@@ -104,7 +195,6 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
     setAccounts((data ?? []) as ProjectAccount[]);
   };
 
-  // Add a blank row
   const handleAddRow = async () => {
     if (!selectedProjectId) return;
     setAddingRow(true);
@@ -120,21 +210,15 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
       setImportMessage({ text: `Failed to add row: ${error.message ?? error.code ?? 'RLS policy blocked the request'}`, ok: false });
       return;
     }
-    if (data) {
-      setAccounts((prev) => [...prev, data as ProjectAccount]);
-    }
+    if (data) setAccounts((prev) => [...prev, data as ProjectAccount]);
   };
 
-  // Delete a row
   const handleDelete = async (account: ProjectAccount) => {
     if (!confirm('Delete this account entry?')) return;
     const { error } = await supabase.from('zhl_project_accounts').delete().eq('id', account.id);
-    if (!error) {
-      setAccounts((prev) => prev.filter((a) => a.id !== account.id));
-    }
+    if (!error) setAccounts((prev) => prev.filter((a) => a.id !== account.id));
   };
 
-  // Inline edit save
   const saveEdit = async (accountId: string, field: string, value: string) => {
     setEditingCell(null);
     const account = accounts.find((a) => a.id === accountId);
@@ -162,7 +246,70 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
     });
   };
 
-  // Excel / CSV upload
+  // ── Paste handler ──────────────────────────────────────────────────────────
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    if (!canEdit || !selectedProjectId) return;
+    const text = e.clipboardData.getData('text/plain');
+    if (!text) return;
+
+    const rows = text.split('\n').map((line) => line.split('\t'));
+    if (rows.length === 0 || (rows.length === 1 && rows[0].length <= 1)) return;
+
+    // If editing a cell, use that as anchor; otherwise paste from first row + first column
+    const anchorRowIdx = editingCell ? accounts.findIndex((a) => a.id === editingCell.id) : 0;
+    const anchorColIdx = editingCell ? orderedColumns.findIndex((c) => c.field === editingCell.field) : 0;
+    if (anchorRowIdx < 0 || anchorColIdx < 0) return;
+
+    e.preventDefault();
+    setEditingCell(null);
+
+    const updates: PromiseLike<void>[] = [];
+    let newAccounts = [...accounts];
+
+    for (let r = 0; r < rows.length; r++) {
+      const rowIdx = anchorRowIdx + r;
+      // Skip empty trailing rows
+      if (rows[r].every((cell) => !cell.trim())) continue;
+
+      // Add new rows if needed
+      if (rowIdx >= newAccounts.length) {
+        const { data } = await supabase
+          .from('zhl_project_accounts')
+          .insert({ project_id: selectedProjectId })
+          .select()
+          .single();
+        if (data) newAccounts = [...newAccounts, data as ProjectAccount];
+        else continue;
+      }
+
+      const account = newAccounts[rowIdx];
+
+      for (let c = 0; c < rows[r].length; c++) {
+        const colIdx = anchorColIdx + c;
+        if (colIdx >= orderedColumns.length) break;
+        const field = orderedColumns[colIdx].field;
+        const val = rows[r][c].trim();
+
+        updates.push(
+          supabase
+            .from('zhl_project_accounts')
+            .update({ [field]: val || null })
+            .eq('id', account.id)
+            .then(() => {
+              newAccounts = newAccounts.map((a) =>
+                a.id === account.id ? { ...a, [field]: val || null } : a
+              );
+            })
+        );
+      }
+    }
+
+    await Promise.all(updates);
+    setAccounts(newAccounts);
+    setImportMessage({ text: `Pasted ${rows.filter((r) => r.some((c) => c.trim())).length} rows.`, ok: true });
+  }, [canEdit, selectedProjectId, editingCell, accounts, orderedColumns]);
+
+  // ── Excel / CSV upload ─────────────────────────────────────────────────────
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selectedProjectId) return;
@@ -182,7 +329,6 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
         return;
       }
 
-      // Map headers to fields
       const firstRow = rows[0];
       const headerToField: Record<string, keyof ProjectAccount> = {};
       for (const rawHeader of Object.keys(firstRow)) {
@@ -192,9 +338,7 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
       }
 
       const inserts = rows.map((row) => {
-        const entry: Record<string, string | null> = {
-          project_id: selectedProjectId,
-        };
+        const entry: Record<string, string | null> = { project_id: selectedProjectId };
         for (const [rawHeader, field] of Object.entries(headerToField)) {
           const val = String(row[rawHeader] ?? '').trim();
           entry[field as string] = val || null;
@@ -226,32 +370,29 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
 
   return (
     <div className="p-4 sm:p-6 max-w-[1800px] mx-auto">
-      {/* Security Notice */}
-      <div className="mb-6 flex items-start gap-2.5 p-3 rounded-xl bg-amber-500/5 border border-amber-500/20 text-amber-600 dark:text-amber-500 glass-card">
-        <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5" />
-        <span className="text-[11px] font-medium leading-relaxed">
-          This page is highly secure — only authorized project members can view these sensitive credentials.
-        </span>
-      </div>
-
       {/* Toolbar */}
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <h2 className="text-xl font-bold tracking-tight">Project Account Vault</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-xl font-bold tracking-tight">Project Account Vault</h2>
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/5 border border-amber-500/20 text-amber-600 dark:text-amber-500">
+            <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+            <span className="text-[10px] font-medium">Secure</span>
+          </div>
+        </div>
         {canEdit && (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button
               onClick={handleAddRow}
               disabled={addingRow}
-              className="inline-flex items-center gap-1.5 px-3 py-3 rounded-lg text-xs font-bold tracking-wider uppercase bg-primary/10 text-primary hover:bg-primary/20 transition-all disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold tracking-wider uppercase bg-primary/10 text-primary hover:bg-primary/20 transition-all disabled:opacity-50"
             >
               {addingRow ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
               Add Row
             </button>
-
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              className="inline-flex items-center gap-1.5 px-3 py-3 rounded-lg text-xs font-bold tracking-wider uppercase bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-90 transition-all disabled:opacity-50 active:scale-[0.98]"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold tracking-wider uppercase bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-90 transition-all disabled:opacity-50 active:scale-[0.98]"
               title="Upload an Excel (.xlsx) or CSV file. Columns are matched by header name."
             >
               {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
@@ -279,98 +420,97 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
       )}
 
       {/* Table */}
-      <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
-        <table className="w-full text-xs sm:text-sm">
-          <thead>
-            <tr className="bg-muted/30 border-b border-border/50">
-              {COLUMNS.map((col) => (
-                <th
-                  key={col.field}
-                  className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap"
-                  style={{ minWidth: col.minWidth }}
-                >
-                  <div className="flex items-center gap-1.5">
-                    {col.icon === 'lock' && <Lock className="h-3.5 w-3.5 text-amber-500" />}
-                    {col.icon === 'hash' && <Hash className="h-3.5 w-3.5 text-blue-500" />}
-                    {col.label}
-                  </div>
-                </th>
-              ))}
-              {canEdit && <th className="px-3 py-2 w-8" />}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={COLUMNS.length + (canEdit ? 1 : 0)} className="px-3 py-8 text-center">
-                  <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
-                </td>
-              </tr>
-            ) : accounts.length === 0 ? (
-              <tr>
-                <td colSpan={COLUMNS.length + (canEdit ? 1 : 0)} className="px-3 py-8 text-center text-muted-foreground text-sm">
-                  No entries yet. Click &quot;Add Row&quot; or upload a file to get started.
-                </td>
-              </tr>
-            ) : (
-              accounts.map((account) => (
-                <tr key={account.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
-                  {COLUMNS.map((col) => (
-                    <td key={col.field} className="px-4 py-4 whitespace-nowrap">
-                      {col.field === 'password' ? (
-                        <PasswordCell
-                          account={account}
-                          visible={visiblePasswords.has(account.id)}
-                          onToggle={() => togglePassword(account.id)}
-                          editing={editingCell?.id === account.id && editingCell?.field === 'password'}
-                          editValue={editValue}
-                          canEdit={canEdit}
-                          onStartEdit={() => { setEditingCell({ id: account.id, field: 'password' }); setEditValue(account.password ?? ''); }}
-                          onEditChange={setEditValue}
-                          onSave={(v) => saveEdit(account.id, 'password', v)}
-                          onCancel={() => setEditingCell(null)}
-                        />
-                      ) : (
-                        <EditableCell
-                          value={(account as unknown as Record<string, string | null>)[col.field] ?? ''}
-                          editing={editingCell?.id === account.id && editingCell?.field === col.field}
-                          editValue={editValue}
-                          canEdit={canEdit}
-                          onStartEdit={() => {
-                            const v = (account as unknown as Record<string, string | null>)[col.field] ?? '';
-                            setEditingCell({ id: account.id, field: col.field });
-                            setEditValue(v);
-                          }}
-                          onEditChange={setEditValue}
-                          onSave={(v) => saveEdit(account.id, col.field, v)}
-                          onCancel={() => setEditingCell(null)}
-                        />
-                      )}
-                    </td>
+      <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto" onPaste={handlePaste}>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <table className="text-xs sm:text-sm" style={{ tableLayout: 'fixed', minWidth: '100%' }}>
+            <thead>
+              <tr className="bg-muted/30 border-b border-border/50">
+                <SortableContext items={columnOrder} strategy={horizontalListSortingStrategy}>
+                  {orderedColumns.map((col) => (
+                    <SortableHeaderCell
+                      key={col.field}
+                      col={col}
+                      width={colWidths[col.field] ?? col.minWidth}
+                      onResizeStart={handleResizeStart}
+                    />
                   ))}
-                  {canEdit && (
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(account)}
-                        className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all h-8 w-8"
-                        title="Delete row"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </td>
-                  )}
+                </SortableContext>
+                {canEdit && <th className="px-3 py-2" style={{ width: 40 }} />}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={orderedColumns.length + (canEdit ? 1 : 0)} className="px-3 py-8 text-center">
+                    <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
+                  </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : accounts.length === 0 ? (
+                <tr>
+                  <td colSpan={orderedColumns.length + (canEdit ? 1 : 0)} className="px-3 py-8 text-center text-muted-foreground text-sm">
+                    No entries yet. Click &quot;Add Row&quot; or upload a file to get started.
+                  </td>
+                </tr>
+              ) : (
+                accounts.map((account) => (
+                  <tr key={account.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
+                    {orderedColumns.map((col) => (
+                      <td key={col.field} className="px-4 py-4 whitespace-nowrap overflow-hidden text-ellipsis">
+                        {col.field === 'password' ? (
+                          <PasswordCell
+                            account={account}
+                            visible={visiblePasswords.has(account.id)}
+                            onToggle={() => togglePassword(account.id)}
+                            editing={editingCell?.id === account.id && editingCell?.field === 'password'}
+                            editValue={editValue}
+                            canEdit={canEdit}
+                            onStartEdit={() => { setEditingCell({ id: account.id, field: 'password' }); setEditValue(account.password ?? ''); }}
+                            onEditChange={setEditValue}
+                            onSave={(v) => saveEdit(account.id, 'password', v)}
+                            onCancel={() => setEditingCell(null)}
+                          />
+                        ) : (
+                          <EditableCell
+                            value={(account as unknown as Record<string, string | null>)[col.field] ?? ''}
+                            editing={editingCell?.id === account.id && editingCell?.field === col.field}
+                            editValue={editValue}
+                            canEdit={canEdit}
+                            onStartEdit={() => {
+                              const v = (account as unknown as Record<string, string | null>)[col.field] ?? '';
+                              setEditingCell({ id: account.id, field: col.field });
+                              setEditValue(v);
+                            }}
+                            onEditChange={setEditValue}
+                            onSave={(v) => saveEdit(account.id, col.field, v)}
+                            onCancel={() => setEditingCell(null)}
+                          />
+                        )}
+                      </td>
+                    ))}
+                    {canEdit && (
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDelete(account)}
+                          className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all h-8 w-8"
+                          title="Delete row"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </td>
+                    )}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </DndContext>
       </div>
 
       {/* Column hint */}
       <p className="mt-2 text-[10px] text-muted-foreground/60">
-        Excel/CSV column headers recognised: Account, Descriptor, Company Name, Person Name, Phone, Email, Link, Username, Password, Account Number, Notes
+        Drag column headers to reorder. Paste from Google Sheets / Excel with Ctrl+V.
       </p>
     </div>
   );
@@ -469,11 +609,11 @@ function PasswordCell({
         </span>
       )}
       {stored && (
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          onClick={onToggle} 
-          className="text-muted-foreground hover:text-foreground shrink-0 h-6 w-6" 
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onToggle}
+          className="text-muted-foreground hover:text-foreground shrink-0 h-6 w-6"
           title={visible ? 'Hide' : 'Show'}
         >
           {visible ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}

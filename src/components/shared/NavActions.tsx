@@ -14,19 +14,21 @@ const STATUS_CONFIG: Record<string, { icon: typeof AlertCircle; colorClass: stri
 
 interface NavActionsProps {
   projectStatus?: string;
+  /** Stack items vertically (for sidebar) */
+  vertical?: boolean;
 }
 
-export default function NavActions({ projectStatus }: NavActionsProps) {
+export default function NavActions({ projectStatus, vertical }: NavActionsProps) {
   const [showAddFiles, setShowAddFiles] = useState(false);
   const status = projectStatus || 'Good';
   const config = STATUS_CONFIG[status] ?? STATUS_CONFIG['Good'];
   const Icon = config.icon;
 
   return (
-    <div className="flex gap-3 items-center">
+    <div className={vertical ? 'flex flex-col gap-2' : 'flex gap-3 items-center'}>
       {/* Status Display */}
       <div
-        className={`inline-flex items-center gap-2 border rounded-md px-4 py-2 text-sm font-semibold ${config.colorClass}`}
+        className={`inline-flex items-center gap-2 border rounded-md px-3 py-1.5 text-xs font-semibold ${config.colorClass} ${vertical ? 'w-full justify-center' : 'px-4 py-2 text-sm'}`}
       >
         <Icon className="h-4 w-4" />
         Status: {status.toUpperCase()}
@@ -35,7 +37,7 @@ export default function NavActions({ projectStatus }: NavActionsProps) {
       {/* Add Files Button */}
       <button
         onClick={() => setShowAddFiles(true)}
-        className="inline-flex items-center gap-2 border border-input rounded-md px-4 py-2 text-sm font-semibold bg-background hover:bg-primary hover:text-primary-foreground text-foreground transition-colors"
+        className={`inline-flex items-center gap-2 border border-input rounded-md text-xs font-semibold bg-background hover:bg-primary hover:text-primary-foreground text-foreground transition-colors ${vertical ? 'w-full justify-center px-3 py-1.5' : 'px-4 py-2 text-sm'}`}
       >
         <Plus className="h-4 w-4" />
         ADD FILES

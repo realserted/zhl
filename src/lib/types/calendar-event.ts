@@ -3,6 +3,17 @@ export interface CalendarEvent {
   project_id: string;
   title: string;
   event_date: string;
+  location: string | null;
   created_by: string;
+  created_at: string;
+}
+
+export interface OutOfOffice {
+  id: string;
+  project_id: string;
+  user_id: string;
+  user_name: string;
+  ooo_date: string;
+  note: string;
   created_at: string;
 }

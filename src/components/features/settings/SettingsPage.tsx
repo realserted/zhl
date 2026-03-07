@@ -1296,7 +1296,33 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
           {/* MEETINGS SECTION */}
           <div className="mb-8 ml-6">
             <h3 className="text-lg font-bold mb-4 bg-muted px-3 py-2 rounded text-orange-600 dark:text-orange-400">MEETINGS</h3>
-            <div className="ml-4 space-y-2">
+            <div className="ml-4 space-y-4">
+              {/* Google Calendar ID */}
+              <div>
+                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2">
+                  Google Calendar ID
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    defaultValue={projectSettings.google_calendar_id}
+                    key={`${selectedProjectId}-gcal-${projectSettings.google_calendar_id}`}
+                    onBlur={async (e) => {
+                      const val = e.target.value.trim();
+                      if (val !== projectSettings.google_calendar_id && selectedProjectId) {
+                        const ok = await saveProjectSettings(selectedProjectId, { google_calendar_id: val });
+                        if (ok) setProjectSettings((prev) => ({ ...prev, google_calendar_id: val }));
+                      }
+                    }}
+                    placeholder="e.g., abc123@group.calendar.google.com"
+                    className="flex-1 px-3 py-2 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-1.5 leading-relaxed">
+                  To sync meetings to Google Calendar, enter your Calendar ID. Find it in Google Calendar &rarr; Settings &rarr; your calendar &rarr; &quot;Integrate calendar&quot; section.
+                </p>
+              </div>
+
               <Button variant="ghost" className="w-full justify-start text-sm hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">Google Meet settings</Button>
               <Button variant="ghost" className="w-full justify-start text-sm underline hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">Edit Transcription to Summary Prompt (for YOU)</Button>
               <Button variant="ghost" className="w-full justify-start text-sm underline hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">Edit Transcription to Summary Prompt (for EVERYONE)</Button>

@@ -1,9 +1,11 @@
 'use client';
 
 import { useTheme } from 'next-themes';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Image from 'next/image';
 import { useAuth } from '@/lib/auth-context';
+import NavActions from './NavActions';
+import { ThemeToggle } from './ThemeToggle';
 import {
   LayoutDashboard,
   ListTodo,
@@ -20,6 +22,7 @@ import {
   LogOut,
   ChevronsLeft,
   ChevronsRight,
+  ArrowLeft,
 } from 'lucide-react';
 
 interface Tab {
@@ -34,6 +37,7 @@ interface AppSidebarProps {
   onTabChange: (tabId: string) => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  projectStatus?: string;
 }
 
 const TAB_ICONS: Record<string, typeof LayoutDashboard> = {
@@ -51,8 +55,10 @@ const TAB_ICONS: Record<string, typeof LayoutDashboard> = {
   settings: Settings,
 };
 
-const SIDEBAR_WIDTH_EXPANDED = 'w-60';
-const SIDEBAR_WIDTH_COLLAPSED = 'w-16';
+const SIDEBAR_MIN_WIDTH = 200;
+const SIDEBAR_MAX_WIDTH = 400;
+const SIDEBAR_DEFAULT_WIDTH = 240; // w-60 = 15rem = 240px
+const SIDEBAR_COLLAPSED_WIDTH = 64; // w-16 = 4rem = 64px
 
 export default function AppSidebar({
   tabs,
@@ -60,10 +66,13 @@ export default function AppSidebar({
   onTabChange,
   isCollapsed,
   onToggleCollapse,
+  projectStatus,
 }: AppSidebarProps) {
   const [mounted, setMounted] = useState(false);
   const { theme } = useTheme();
   const { user, signOut } = useAuth();
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
+  const isResizing = useRef(false);
 
   const displayName = user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'User';
   const initial = displayName.charAt(0).toUpperCase();
@@ -80,14 +89,56 @@ export default function AppSidebar({
     onTabChange(tabId);
   };
 
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizing.current = true;
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!isResizing.current) return;
+      const newWidth = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, startWidth + (ev.clientX - startX)));
+      setSidebarWidth(newWidth);
+    };
+
+    const onMouseUp = () => {
+      isResizing.current = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [sidebarWidth]);
+
+  const width = isCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth;
+
   return (
     <aside
-      className={`sticky top-0 h-screen bg-background border-r border-border z-40 flex flex-col transition-[width,padding] duration-300 ease-in-out flex-none shrink-0 ${
-        isCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED
-      }`}
+      className="sticky top-0 h-screen bg-background border-r border-border z-40 flex flex-col flex-none shrink-0 relative"
+      style={{ width, transition: isResizing.current ? 'none' : 'width 300ms ease-in-out' }}
     >
+      {/* Back to PRESAILING */}
+      {!isCollapsed && (
+        <div className="px-3 py-2 border-b border-border">
+          <a
+            href="https://presaling.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 text-xs font-semibold text-foreground hover:text-accent transition-colors"
+          >
+            <ArrowLeft className="h-3 w-3" />
+            <span>Back to PRESAILING</span>
+          </a>
+        </div>
+      )}
+
       {/* Header — Logo + Collapse toggle */}
-      <div className={`flex items-center border-b-2 border-border px-3 py-4 ${isCollapsed ? 'justify-center py-10' : 'justify-between'}`}>
+      <div className={`flex items-center border-b border-border px-3 py-4 ${isCollapsed ? 'justify-center py-10' : 'justify-between'}`}>
         {!isCollapsed && (
           <Image
             src={logoSrc}
@@ -111,6 +162,13 @@ export default function AppSidebar({
         </button>
       </div>
 
+      {/* Status + Add Files (below logo, above nav) */}
+      {!isCollapsed && (
+        <div className="px-3 py-3 border-b border-border">
+          <NavActions projectStatus={projectStatus} vertical />
+        </div>
+      )}
+
       {/* Nav items */}
       <nav className="flex-1 overflow-y-auto py-2 px-2">
         {tabs.map((tab) => {
@@ -133,7 +191,7 @@ export default function AppSidebar({
                 <>
                   <span className="flex-1 text-left truncate">{tab.label}</span>
                   {tab.badge && (
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
                       isActive
                         ? 'bg-primary/20 text-primary'
                         : 'bg-muted text-muted-foreground'
@@ -147,6 +205,11 @@ export default function AppSidebar({
           );
         })}
       </nav>
+
+      {/* Dark Mode Toggle */}
+      <div className={`border-t border-border px-3 py-3 ${isCollapsed ? 'flex justify-center' : ''}`}>
+        <ThemeToggle />
+      </div>
 
       {/* Footer — User Profile & Logout */}
       <div className="border-t border-border px-3 py-4 flex flex-col gap-4">
@@ -174,6 +237,14 @@ export default function AppSidebar({
           {!isCollapsed && <span>Sign Out</span>}
         </button>
       </div>
+
+      {/* Resize handle on right edge */}
+      {!isCollapsed && (
+        <div
+          onMouseDown={handleResizeStart}
+          className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-primary/30 transition-colors z-50"
+        />
+      )}
     </aside>
   );
 }

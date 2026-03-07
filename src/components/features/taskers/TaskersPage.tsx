@@ -60,6 +60,7 @@ interface TaskersPageProps {
 export default function TaskersPage({ selectedProjectId, selectedProjectName, userPermission }: TaskersPageProps) {
   const { user } = useAuth();
   const [viewFilter, setViewFilter] = useState('all');
+  const [selectedUserFilter, setSelectedUserFilter] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
   const [calendarDate, setCalendarDate] = useState(() => {
     const now = new Date();
@@ -300,6 +301,16 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
     // View-only users always limited to assigned tasks
     if (isViewOnly && !isAssignedTo(t)) return false;
 
+    // User filter from "Select" dropdown
+    if (viewFilter === 'select' && selectedUserFilter) {
+      return t.responsible === selectedUserFilter ||
+        t.cc === selectedUserFilter ||
+        t.got_the_ball === selectedUserFilter ||
+        t.responsible_name === selectedUserFilter ||
+        t.cc_name === selectedUserFilter ||
+        t.got_the_ball_name === selectedUserFilter;
+    }
+
     if (viewFilter === 'all') return true;
     if (viewFilter === 'relevant') return isAssignedTo(t);
     if (viewFilter === 'pm') {
@@ -391,7 +402,6 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
         priority: 0,
         issues: '',
       });
-      setShowCreate(false);
     }
     setCreating(false);
   };
@@ -683,31 +693,46 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
               ].map((f) => (
                 <button
                   key={f.key}
-                  onClick={() => setViewFilter(f.key)}
+                  onClick={() => { setViewFilter(f.key); setSelectedUserFilter(null); }}
                   className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                    viewFilter === f.key 
-                      ? 'bg-background text-foreground shadow-sm' 
+                    viewFilter === f.key
+                      ? 'bg-background text-foreground shadow-sm'
                       : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
                   {f.label}
                 </button>
               ))}
+              {/* Select user filter */}
+              <div className="relative">
+                <button
+                  onClick={() => setViewFilter(viewFilter === 'select' ? 'all' : 'select')}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    viewFilter === 'select'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Select
+                </button>
+              </div>
             </div>
           </div>
 
-          <div className="h-4 w-px bg-border hidden lg:block" />
-
-          {/* Create Tasker Button */}
-          {canEdit && (
-            <button
-              onClick={() => setShowCreate(true)}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-95 group"
+          {viewFilter === 'select' && (
+            <select
+              value={selectedUserFilter ?? ''}
+              onChange={(e) => setSelectedUserFilter(e.target.value || null)}
+              className="px-3 py-1.5 bg-background border border-input rounded-lg text-xs font-bold focus:ring-2 focus:ring-primary/20 outline-none"
             >
-              <Plus className="h-4 w-4 transition-transform group-hover:rotate-90" />
-              CREATE TASKER
-            </button>
+              <option value="">Choose user...</option>
+              {projectUserOptions.map((u) => (
+                <option key={u.user_id ?? u.user_name} value={u.user_name}>{u.user_name}</option>
+              ))}
+            </select>
           )}
+
+          <div className="h-4 w-px bg-border hidden lg:block" />
 
           {/* View Mode Toggle */}
           <div className="lg:ml-auto flex bg-muted/50 p-1 rounded-xl border border-input">
@@ -870,6 +895,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
             <table className="w-full text-xs sm:text-sm">
               <thead>
                 <tr className="bg-muted/30 border-b border-border/50">
+                  <th className="px-2 py-4 w-[1%]" />
                   <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Status</th>
                   <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Task Name</th>
                   <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Description</th>
@@ -887,10 +913,126 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                 </tr>
               </thead>
               <tbody>
+                {/* Inline create row — always visible for editors */}
+                {canEdit && (
+                  <tr className="border-b border-primary/20 bg-primary/[0.03]">
+                    {/* Create button */}
+                    <td className="px-2 py-2 whitespace-nowrap">
+                      <button
+                        onClick={handleCreate}
+                        disabled={creating || !newTasker.task_name.trim()}
+                        className="inline-flex items-center gap-1 px-2 py-1 bg-primary text-primary-foreground rounded text-[10px] font-bold disabled:opacity-40 hover:opacity-90 transition-all"
+                      >
+                        {creating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                        CREATE
+                      </button>
+                    </td>
+                    {/* Status */}
+                    <td className="px-2 py-2 whitespace-nowrap">
+                      <select
+                        value={newTasker.status}
+                        onChange={(e) => setNewTasker((p) => ({ ...p, status: e.target.value as Tasker['status'] }))}
+                        className={`${selectClass} text-[10px] w-full`}
+                      >
+                        {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </td>
+                    {/* Task Name */}
+                    <td className="px-2 py-2 whitespace-nowrap">
+                      <input
+                        value={newTasker.task_name}
+                        onChange={(e) => setNewTasker((p) => ({ ...p, task_name: e.target.value }))}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); }}
+                        placeholder="Task name..."
+                        className="w-full px-2 py-1 bg-background/50 border border-input rounded text-xs focus:outline-none focus:ring-1 focus:ring-primary/50"
+                      />
+                    </td>
+                    {/* Description */}
+                    <td className="px-2 py-2 whitespace-nowrap">
+                      <input
+                        value={newTasker.description}
+                        onChange={(e) => setNewTasker((p) => ({ ...p, description: e.target.value }))}
+                        placeholder="Description..."
+                        className="w-full px-2 py-1 bg-background/50 border border-input rounded text-xs focus:outline-none focus:ring-1 focus:ring-primary/50"
+                      />
+                    </td>
+                    {/* Update Status — empty for new */}
+                    <td className="px-2 py-2 whitespace-nowrap text-muted-foreground/30 text-xs">—</td>
+                    {/* Responsible */}
+                    <td className="px-2 py-2 whitespace-nowrap">
+                      <select
+                        value={newTasker.responsible_name}
+                        onChange={(e) => setNewTasker((p) => ({ ...p, responsible_name: e.target.value }))}
+                        className={`${selectClass} text-[10px] w-full`}
+                      >
+                        <option value="">—</option>
+                        {projectUserOptions.map((u) => <option key={u.user_id ?? u.user_name} value={u.user_name}>{u.user_name}</option>)}
+                      </select>
+                    </td>
+                    {/* CC */}
+                    <td className="px-2 py-2 whitespace-nowrap">
+                      <select
+                        value={newTasker.cc_name}
+                        onChange={(e) => setNewTasker((p) => ({ ...p, cc_name: e.target.value }))}
+                        className={`${selectClass} text-[10px] w-full`}
+                      >
+                        <option value="">—</option>
+                        {projectUserOptions.map((u) => <option key={u.user_id ?? u.user_name} value={u.user_name}>{u.user_name}</option>)}
+                      </select>
+                    </td>
+                    {/* Got the Ball */}
+                    <td className="px-2 py-2 whitespace-nowrap">
+                      <select
+                        value={newTasker.got_the_ball_name}
+                        onChange={(e) => setNewTasker((p) => ({ ...p, got_the_ball_name: e.target.value }))}
+                        className={`${selectClass} text-[10px] w-full`}
+                      >
+                        <option value="">—</option>
+                        {projectUserOptions.map((u) => <option key={u.user_id ?? u.user_name} value={u.user_name}>{u.user_name}</option>)}
+                      </select>
+                    </td>
+                    {/* Priority */}
+                    <td className="px-2 py-2 whitespace-nowrap">
+                      <select
+                        value={newTasker.priority}
+                        onChange={(e) => setNewTasker((p) => ({ ...p, priority: Number(e.target.value) }))}
+                        className={`${selectClass} text-[10px]`}
+                      >
+                        {Object.entries(PRIORITY_LABELS).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                      </select>
+                    </td>
+                    {/* Due Date */}
+                    <td className="px-2 py-2 whitespace-nowrap">
+                      <input
+                        type="date"
+                        value={newTasker.due_date}
+                        onChange={(e) => setNewTasker((p) => ({ ...p, due_date: e.target.value }))}
+                        className="px-1 py-1 bg-background/50 border border-input rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-primary/50"
+                      />
+                    </td>
+                    {/* Log — empty */}
+                    <td className="px-2 py-2" />
+                    {/* Help — empty */}
+                    <td className="px-2 py-2" />
+                    {/* Issues */}
+                    <td className="px-2 py-2 whitespace-nowrap">
+                      <input
+                        value={newTasker.issues}
+                        onChange={(e) => setNewTasker((p) => ({ ...p, issues: e.target.value }))}
+                        placeholder="Issues..."
+                        className="w-full px-2 py-1 bg-background/50 border border-input rounded text-xs focus:outline-none focus:ring-1 focus:ring-primary/50"
+                      />
+                    </td>
+                    {/* Original due — empty */}
+                    <td className="px-2 py-2" />
+                    {/* Actions — empty for create row */}
+                    <td className="px-2 py-2" />
+                  </tr>
+                )}
                 {filteredTaskers.length === 0 ? (
                   <tr>
-                    <td colSpan={14} className="px-3 py-8 text-center text-muted-foreground">
-                      No taskers yet. Click &quot;Create tasker&quot; to add one.
+                    <td colSpan={15} className="px-3 py-8 text-center text-muted-foreground">
+                      No taskers yet. Fill in the row above and click CREATE.
                     </td>
                   </tr>
                 ) : (
@@ -899,6 +1041,8 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                       key={tasker.id}
                       className="border-b border-border/50 hover:bg-muted/30 transition-colors group"
                     >
+                      {/* Empty action cell */}
+                      <td className="px-2 py-4" />
                       {/* Status dropdown */}
                       <td className="px-4 py-4 whitespace-nowrap">
                         <select

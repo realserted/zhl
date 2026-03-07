@@ -3,9 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import NavLogo from './NavLogo';
-import NavActions from './NavActions';
-import { ThemeToggle } from './ThemeToggle';
-import { ArrowLeft, ChevronDown, Bell, Loader2 } from 'lucide-react';
+import { ChevronDown, Bell, Loader2 } from 'lucide-react';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { Project } from '@/lib/types/project';
@@ -246,87 +244,59 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
 
   return (
     <nav className="sticky top-0 z-50 w-full bg-background border-b border-border dark:border-border">
-      {/* Back Button */}
-      <div className="px-3 sm:px-6 py-2 border-b border-border">
-        <a
-          href="https://presaling.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 text-xs sm:text-sm font-semibold text-foreground hover:text-accent transition-colors"
-        >
-          <ArrowLeft className="h-3 w-3 sm:h-4 sm:w-4" />
-          <span className="hidden sm:inline">Back to PRESALING</span>
-          <span className="sm:hidden">Back</span>
-        </a>
-      </div>
-
       {/* Top Navigation Bar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-border gap-3 sm:gap-0">
-        {/* <div className="flex items-center gap-2">
-          <NavLogo />
-        </div> */}
+      <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4">
+        {/* Project Dropdown */}
+        <div className="flex gap-4 sm:gap-8 items-center">
+          <span className="text-xs sm:text-sm font-semibold text-foreground whitespace-nowrap">Project</span>
 
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-8 w-full sm:w-auto">
-          {/* Project and Projects Dropdowns */}
-          <div className="flex gap-4 sm:gap-8 items-center">
-            {/* Project Label */}
-            <span className="text-xs sm:text-sm font-semibold text-foreground whitespace-nowrap">Project</span>
-
-            {/* Projects Dropdown */}
-            <div className="relative" ref={projectDropdownRef}>
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  setOpenDropdown(openDropdown === 'project' ? null : 'project')
-                }
-                className="text-xs sm:text-sm font-semibold text-foreground hover:text-accent transition-colors flex items-center gap-2 h-auto py-1 px-2 shadow-none"
-              >
-                {selectedProject?.name ?? 'Select Project'}
-                <ChevronDown
-                  className={`h-3 w-3 sm:h-4 sm:w-4 transition-transform ${
-                    openDropdown === 'project' ? 'rotate-180' : ''
-                  }`}
-                />
-              </Button>
-              {openDropdown === 'project' && (
-                <div className="absolute top-full left-0 mt-2 w-32 sm:w-48 bg-background border border-input rounded-lg shadow-lg z-50">
-                  {projects.length === 0 ? (
-                    <div className="px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-muted-foreground">
-                      No projects yet
-                    </div>
-                  ) : (
-                    projects.map((project) => (
-                      <Button
-                        key={project.id}
-                        variant="ghost"
-                        onClick={() => {
-                          onProjectChange(project);
-                          setOpenDropdown(null);
-                        }}
-                        className={`w-full justify-start rounded-none px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm hover:bg-muted transition-colors h-auto shadow-none ${
-                          selectedProject?.id === project.id
-                            ? 'bg-muted font-semibold text-accent'
-                            : ''
-                        }`}
-                      >
-                        {project.name}
-                      </Button>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Status and Actions */}
-          <div className="hidden sm:block">
-            <NavActions projectStatus={selectedProject?.status} />
+          <div className="relative" ref={projectDropdownRef}>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                setOpenDropdown(openDropdown === 'project' ? null : 'project')
+              }
+              className="text-xs sm:text-sm font-semibold text-foreground hover:text-accent transition-colors flex items-center gap-2 h-auto py-1 px-2 shadow-none"
+            >
+              {selectedProject?.name ?? 'Select Project'}
+              <ChevronDown
+                className={`h-3 w-3 sm:h-4 sm:w-4 transition-transform ${
+                  openDropdown === 'project' ? 'rotate-180' : ''
+                }`}
+              />
+            </Button>
+            {openDropdown === 'project' && (
+              <div className="absolute top-full left-0 mt-2 w-32 sm:w-48 bg-background border border-input rounded-lg shadow-lg z-50">
+                {projects.length === 0 ? (
+                  <div className="px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-muted-foreground">
+                    No projects yet
+                  </div>
+                ) : (
+                  projects.map((project) => (
+                    <Button
+                      key={project.id}
+                      variant="ghost"
+                      onClick={() => {
+                        onProjectChange(project);
+                        setOpenDropdown(null);
+                      }}
+                      className={`w-full justify-start rounded-none px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm hover:bg-muted transition-colors h-auto shadow-none ${
+                        selectedProject?.id === project.id
+                          ? 'bg-muted font-semibold text-accent'
+                          : ''
+                      }`}
+                    >
+                      {project.name}
+                    </Button>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Right Section: Notifications and Theme Toggle */}
-        <div className="flex items-center gap-2 sm:gap-4 ml-auto sm:ml-0">
-          {/* Notification Bell */}
+        {/* Right Section: Notifications */}
+        <div className="flex items-center gap-2 sm:gap-4">
           <div className="relative" ref={notifDropdownRef}>
             <Button
               variant="ghost"
@@ -402,8 +372,6 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
               </div>
             )}
           </div>
-
-          <ThemeToggle />
         </div>
       </div>
 
