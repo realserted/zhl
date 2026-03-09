@@ -88,6 +88,7 @@ export interface FinancialLoan {
   original_amount: number | null;
   payment: number | null;
   balloon_date: string | null;
+  notes: string | null;
   created_at: string;
   updated_at: string;
 }

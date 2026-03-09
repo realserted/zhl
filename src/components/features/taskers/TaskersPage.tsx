@@ -96,6 +96,7 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [newMessage, setNewMessage] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [hideSystemLogs, setHideSystemLogs] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
 
   // Help modal
@@ -1646,9 +1647,21 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
         }}
         title={`Log: ${logModal?.task_name}`}
         maxWidth="lg"
+        noScroll
       >
-        <div className="flex flex-col h-[60vh] -mx-8 -mb-8">
-          <div className="flex-1 overflow-y-auto px-8 py-4 space-y-4 bg-muted/10 custom-scrollbar">
+        <div className="flex flex-col h-[60vh]">
+          {/* Toggle: Hide system messages */}
+          <div className="px-8 py-2 border-b border-border/50 bg-muted/20 flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setHideSystemLogs(!hideSystemLogs)}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${hideSystemLogs ? 'bg-primary' : 'bg-border'}`}
+            >
+              <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${hideSystemLogs ? 'translate-x-[18px]' : 'translate-x-[3px]'}`} />
+            </button>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Hide system messages</span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 bg-muted/10 custom-scrollbar">
             {loadingLogs ? (
               <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
                 <Loader2 className="w-8 h-8 animate-spin text-accent" />
@@ -1661,42 +1674,50 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                 <p className="text-xs font-medium">Start the conversation below.</p>
               </div>
             ) : (
-              logs.map((log) => (
-                <div
-                  key={log.id}
-                  className={`flex flex-col gap-1 ${
-                    log.type === 'change'
-                      ? 'items-center py-2'
-                      : log.user_name === displayName 
-                        ? 'items-end' 
-                        : 'items-start'
-                  }`}
-                >
-                  {log.type === 'change' ? (
-                    <div className="px-4 py-1.5 bg-muted/50 rounded-full border border-border/50 text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                      <span className="w-1 h-1 rounded-full bg-current opacity-50" />
-                      {log.message}
-                      <span className="opacity-50">— {new Date(log.created_at).toLocaleDateString()}</span>
+              logs
+                .filter((log) => !hideSystemLogs || log.type !== 'change')
+                .map((log) => (
+                <div key={log.id} className="flex gap-4 items-start">
+                  {/* Date/Time column */}
+                  <div className="w-24 shrink-0 pt-1.5 text-right border-r border-border/30 pr-4">
+                    <div className="text-[10px] font-semibold text-muted-foreground/70">
+                      {new Date(log.created_at).toLocaleDateString([], { month: '2-digit', day: '2-digit', year: '2-digit' })}
                     </div>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2 px-1">
-                        <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-                          {log.user_name}
-                        </span>
-                        <span className="text-[9px] font-medium text-muted-foreground/50">
-                          {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                      <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm font-medium shadow-sm border ${
-                        log.user_name === displayName 
-                          ? 'bg-accent text-accent-foreground rounded-tr-none border-accent/20' 
-                          : 'bg-background border-border/50 rounded-tl-none'
-                      }`}>
+                    <div className="text-[10px] font-medium text-muted-foreground/50 mt-0.5">
+                      {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}
+                    </div>
+                  </div>
+
+                  {/* Message column */}
+                  <div className={`flex-1 flex flex-col gap-1.5 ${
+                    log.type === 'change'
+                      ? 'items-center py-1'
+                      : log.user_name === displayName
+                        ? 'items-end'
+                        : 'items-start'
+                  }`}>
+                    {log.type === 'change' ? (
+                      <div className="px-4 py-2 bg-muted/50 rounded-full border border-border/50 text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                        <span className="w-1 h-1 rounded-full bg-current opacity-50" />
                         {log.message}
                       </div>
-                    </>
-                  )}
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2 px-1">
+                          <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                            {log.user_name}
+                          </span>
+                        </div>
+                        <div className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm font-medium shadow-sm border ${
+                          log.user_name === displayName
+                            ? 'bg-accent text-accent-foreground rounded-tr-none border-accent/20'
+                            : 'bg-background border-border/50 rounded-tl-none'
+                        }`}>
+                          {log.message}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               ))
             )}

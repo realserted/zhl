@@ -391,6 +391,27 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
               </tbody>
             </table>
 
+            {/* Notes box */}
+            <div className="px-5 py-4 border-t border-border/50">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground block mb-2">
+                Notes
+              </label>
+              <textarea
+                value={selectedLoan.notes ?? ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setLoans((prev) =>
+                    prev.map((l) => (l.id === selectedLoan.id ? { ...l, notes: val } : l))
+                  );
+                }}
+                onBlur={(e) => saveField('notes', e.target.value)}
+                readOnly={!canEdit}
+                placeholder={canEdit ? 'Add notes (e.g. PPP, SBA, refinance details...)' : 'No notes'}
+                className="w-full px-3 py-2 bg-muted/30 border border-border/50 rounded-lg text-sm font-medium text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring resize-y min-h-[80px]"
+                rows={3}
+              />
+            </div>
+
             {/* Quick stats footer */}
             {schedule.length > 1 && (
               <div className="px-4 py-3 border-t border-border bg-muted/30 space-y-1 text-xs text-muted-foreground">

@@ -2047,12 +2047,16 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                         <button
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            // Open linked file in Google Drive
                                             const driveId = val.file_url!;
-                                            window.open(`https://drive.google.com/file/d/${driveId}/view`, '_blank', 'noopener,noreferrer');
+                                            const fileName = cellValue || 'File';
+                                            setFilePreview({
+                                              url: `https://drive.google.com/file/d/${driveId}/preview`,
+                                              name: fileName,
+                                              downloadUrl: `https://drive.google.com/uc?export=download&id=${driveId}`,
+                                            });
                                           }}
                                           className="shrink-0 p-1 text-blue-500 hover:text-blue-400 transition-colors bg-blue-500/5 rounded-md"
-                                          title={`Linked to: ${getRowLabel(row.id)} — Click to open in Drive`}
+                                          title={`Linked to: ${getRowLabel(row.id)} — Click to preview`}
                                         >
                                           <Link className="h-3 w-3" />
                                         </button>
@@ -2570,10 +2574,12 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
               <div className="flex items-center gap-2">
                 <a
                   href={filePreview.downloadUrl || filePreview.url}
-                  download={filePreview.name}
+                  download={filePreview.url.includes('drive.google.com') ? undefined : filePreview.name}
+                  target={filePreview.url.includes('drive.google.com') ? '_blank' : undefined}
+                  rel={filePreview.url.includes('drive.google.com') ? 'noopener noreferrer' : undefined}
                   className="px-3 py-1.5 text-[10px] font-bold tracking-wider uppercase text-muted-foreground hover:text-foreground border border-border/50 rounded-xl transition-all"
                 >
-                  Download
+                  {filePreview.url.includes('drive.google.com') ? 'Open in Drive' : 'Download'}
                 </a>
                 <button onClick={closeFilePreview} className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg transition-colors">
                   <X className="h-4 w-4" />
@@ -2582,7 +2588,15 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
             </div>
             {/* Preview content */}
             <div className="flex-1 overflow-hidden p-1">
-              {filePreview.htmlContent ? (
+              {filePreview.url.includes('drive.google.com') ? (
+                <iframe
+                  src={filePreview.url}
+                  className="w-full h-full rounded-lg border-0"
+                  title={filePreview.name}
+                  allow="autoplay"
+                  sandbox="allow-scripts allow-same-origin allow-popups"
+                />
+              ) : filePreview.htmlContent ? (
                 <div
                   className="w-full h-full overflow-auto bg-white rounded-lg p-8"
                   dangerouslySetInnerHTML={{ __html: filePreview.htmlContent }}

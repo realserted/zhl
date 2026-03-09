@@ -38,6 +38,7 @@ interface AppSidebarProps {
   isCollapsed: boolean;
   onToggleCollapse: () => void;
   projectStatus?: string;
+  selectedProjectId?: string | null;
 }
 
 const TAB_ICONS: Record<string, typeof LayoutDashboard> = {
@@ -67,6 +68,7 @@ export default function AppSidebar({
   isCollapsed,
   onToggleCollapse,
   projectStatus,
+  selectedProjectId,
 }: AppSidebarProps) {
   const [mounted, setMounted] = useState(false);
   const { theme } = useTheme();
@@ -165,7 +167,7 @@ export default function AppSidebar({
       {/* Status + Add Files (below logo, above nav) */}
       {!isCollapsed && (
         <div className="px-3 py-3 border-b border-border">
-          <NavActions projectStatus={projectStatus} vertical />
+          <NavActions projectStatus={projectStatus} vertical selectedProjectId={selectedProjectId} />
         </div>
       )}
 
