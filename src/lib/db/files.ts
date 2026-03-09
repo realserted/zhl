@@ -28,8 +28,6 @@ export async function upsertDriveConfig(config: {
   projectId: string;
   rootFolderId: string;
   rootFolderUrl: string;
-  appsScriptUrl: string;
-  appsScriptApiKey: string;
   archiveFolderId?: string | null;
   configuredBy: string | null;
 }): Promise<ProjectDriveConfig | null> {
@@ -40,8 +38,6 @@ export async function upsertDriveConfig(config: {
         project_id: config.projectId,
         root_folder_id: config.rootFolderId,
         root_folder_url: config.rootFolderUrl,
-        apps_script_url: config.appsScriptUrl,
-        apps_script_api_key: config.appsScriptApiKey,
         archive_folder_id: config.archiveFolderId ?? null,
         configured_by: config.configuredBy,
       },

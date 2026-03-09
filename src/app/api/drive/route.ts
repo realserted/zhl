@@ -9,18 +9,13 @@ function getBearerToken(req: NextRequest): string | null {
   return null;
 }
 
+const DRIVE_API = 'https://www.googleapis.com/drive/v3';
+
 /**
  * POST /api/drive
- * Central proxy that forwards Drive operations to the Apps Script web app.
+ * Calls Google Drive API directly using the user's OAuth token.
  *
  * Body: { projectId, action, params }
- *
- * Flow:
- * 1. Authenticates the Supabase user
- * 2. Looks up the project's Apps Script URL + API key
- * 3. Gets a fresh Google access token for the user
- * 4. Forwards to Apps Script with { apiKey, accessToken, action, params }
- * 5. Returns the response
  */
 export async function POST(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -55,7 +50,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
   }
 
-  const { projectId, action, params } = body;
+  const { projectId, action, params = {} } = body;
   if (!projectId || !action) {
     return NextResponse.json({ error: 'Missing projectId or action.' }, { status: 400 });
   }
@@ -72,16 +67,13 @@ export async function POST(req: NextRequest) {
     .eq('user_id', userData.user.id)
     .maybeSingle();
 
-  // Also check if user is the project owner
   const { data: project } = await adminClient
     .from('zhl_projects')
     .select('created_by')
     .eq('id', projectId)
     .maybeSingle();
 
-  const isOwner = project?.created_by === userData.user.id;
-
-  if (!permission && !isOwner) {
+  if (!permission && project?.created_by !== userData.user.id) {
     return NextResponse.json({ error: 'Access denied to this project.' }, { status: 403 });
   }
 
@@ -96,14 +88,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Google Drive not configured for this project.' }, { status: 404 });
   }
 
-  // 4. Get fresh Google access token for the user
-  const { data: tokenRow, error: tokenErr } = await adminClient
+  // 4. Get fresh Google access token
+  const { data: tokenRow } = await adminClient
     .from('zhl_google_tokens')
     .select('encrypted_refresh_token')
     .eq('user_id', userData.user.id)
     .maybeSingle();
 
-  if (tokenErr || !tokenRow) {
+  if (!tokenRow) {
     return NextResponse.json({ error: 'Google account not connected. Please connect your Google Drive.' }, { status: 401 });
   }
 
@@ -114,7 +106,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to decrypt stored token.' }, { status: 500 });
   }
 
-  // Exchange refresh token for access token
   const googleRes = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -127,7 +118,6 @@ export async function POST(req: NextRequest) {
   });
 
   if (!googleRes.ok) {
-    // Clean up if token is revoked
     if (googleRes.status === 400 || googleRes.status === 401) {
       await adminClient.from('zhl_google_tokens').delete().eq('user_id', userData.user.id);
       return NextResponse.json({ error: 'Google authorization expired. Please reconnect.' }, { status: 401 });
@@ -136,35 +126,202 @@ export async function POST(req: NextRequest) {
   }
 
   const googleTokens = await googleRes.json();
-  const accessToken = googleTokens.access_token;
+  const headers = { Authorization: `Bearer ${googleTokens.access_token}` };
 
-  // 5. Forward to Apps Script
+  // 5. Handle actions directly via Google Drive API
   try {
-    const appsScriptRes = await fetch(driveConfig.apps_script_url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        apiKey: driveConfig.apps_script_api_key,
-        accessToken,
-        action,
-        params: params || {},
-      }),
-    });
+    switch (action) {
+      case 'listFolder':
+        return await handleListFolder(headers, params);
+      case 'listFolderRecursive':
+        return await handleListFolderRecursive(headers, params);
+      case 'createFolder':
+        return await handleCreateFolder(headers, params);
+      case 'renameFile':
+        return await handleRenameFile(headers, params);
+      case 'moveFile':
+        return await handleMoveFile(headers, params);
+      case 'deleteFile':
+        return await handleDeleteFile(headers, params);
+      case 'restoreFile':
+        return await handleRestoreFile(headers, params);
+      case 'ensureArchive':
+        return await handleEnsureArchive(headers, params);
+      case 'getFileUrl':
+        return await handleGetFileUrl(headers, params);
+      case 'getFolderInfo':
+        return await handleGetFolderInfo(headers, params);
+      default:
+        return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
+    }
+  } catch (err) {
+    console.error('Drive API error:', err);
+    return NextResponse.json({ error: 'Drive API request failed.' }, { status: 502 });
+  }
+}
 
-    // Apps Script may redirect (302) on doPost — follow redirects
-    const responseText = await appsScriptRes.text();
-    let responseData;
-    try {
-      responseData = JSON.parse(responseText);
-    } catch {
-      return NextResponse.json({ error: 'Invalid response from Apps Script.', raw: responseText }, { status: 502 });
+// ── Handlers ─────────────────────────────────────────────────────────────────
+
+const FILE_FIELDS = 'id,name,mimeType,size,modifiedTime,webViewLink,webContentLink,iconLink,parents';
+
+async function driveList(headers: Record<string, string>, query: string): Promise<Array<Record<string, unknown>>> {
+  const allFiles: Array<Record<string, unknown>> = [];
+  let pageToken: string | null = null;
+
+  do {
+    const url = new URL(`${DRIVE_API}/files`);
+    url.searchParams.set('q', query);
+    url.searchParams.set('fields', `nextPageToken,files(${FILE_FIELDS})`);
+    url.searchParams.set('pageSize', '1000');
+    url.searchParams.set('orderBy', 'folder,name');
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+
+    const res = await fetch(url.toString(), { headers });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(JSON.stringify(err));
     }
 
-    // The Apps Script wraps responses in { status, data }
-    const status = responseData.status || 200;
-    return NextResponse.json(responseData.data || responseData, { status: status >= 400 ? status : 200 });
-  } catch (fetchError) {
-    console.error('Apps Script request failed:', fetchError);
-    return NextResponse.json({ error: 'Failed to reach Apps Script. Check the URL.' }, { status: 502 });
+    const data = await res.json();
+    allFiles.push(...(data.files || []));
+    pageToken = data.nextPageToken || null;
+  } while (pageToken);
+
+  return allFiles;
+}
+
+async function handleListFolder(headers: Record<string, string>, params: Record<string, unknown>) {
+  const folderId = params.folderId as string;
+  if (!folderId) return NextResponse.json({ error: 'Missing folderId.' }, { status: 400 });
+
+  const files = await driveList(headers, `'${folderId}' in parents and trashed=false`);
+  return NextResponse.json({ files });
+}
+
+async function handleListFolderRecursive(headers: Record<string, string>, params: Record<string, unknown>) {
+  const folderId = params.folderId as string;
+  if (!folderId) return NextResponse.json({ error: 'Missing folderId.' }, { status: 400 });
+
+  const allItems: Array<Record<string, unknown>> = [];
+  const queue = [folderId];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    const files = await driveList(headers, `'${currentId}' in parents and trashed=false`);
+
+    for (const file of files) {
+      (file as Record<string, unknown>).parentId = currentId;
+      allItems.push(file);
+      if (file.mimeType === 'application/vnd.google-apps.folder') {
+        queue.push(file.id as string);
+      }
+    }
   }
+
+  return NextResponse.json({ files: allItems });
+}
+
+async function handleCreateFolder(headers: Record<string, string>, params: Record<string, unknown>) {
+  const { name, parentId } = params as { name?: string; parentId?: string };
+  if (!name || !parentId) return NextResponse.json({ error: 'Missing name or parentId.' }, { status: 400 });
+
+  const res = await fetch(`${DRIVE_API}/files`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] }),
+  });
+
+  return NextResponse.json(await res.json(), { status: res.ok ? 200 : res.status });
+}
+
+async function handleRenameFile(headers: Record<string, string>, params: Record<string, unknown>) {
+  const { fileId, newName } = params as { fileId?: string; newName?: string };
+  if (!fileId || !newName) return NextResponse.json({ error: 'Missing fileId or newName.' }, { status: 400 });
+
+  const res = await fetch(`${DRIVE_API}/files/${fileId}`, {
+    method: 'PATCH',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: newName }),
+  });
+
+  return NextResponse.json(await res.json(), { status: res.ok ? 200 : res.status });
+}
+
+async function handleMoveFile(headers: Record<string, string>, params: Record<string, unknown>) {
+  const { fileId, fromFolderId, toFolderId } = params as { fileId?: string; fromFolderId?: string; toFolderId?: string };
+  if (!fileId || !fromFolderId || !toFolderId) {
+    return NextResponse.json({ error: 'Missing fileId, fromFolderId, or toFolderId.' }, { status: 400 });
+  }
+
+  const url = `${DRIVE_API}/files/${fileId}?addParents=${encodeURIComponent(toFolderId)}&removeParents=${encodeURIComponent(fromFolderId)}&fields=id,name,parents`;
+  const res = await fetch(url, { method: 'PATCH', headers });
+
+  return NextResponse.json(await res.json(), { status: res.ok ? 200 : res.status });
+}
+
+async function handleDeleteFile(headers: Record<string, string>, params: Record<string, unknown>) {
+  const { fileId, currentParentId, archiveFolderId } = params as { fileId?: string; currentParentId?: string; archiveFolderId?: string };
+  if (!fileId || !currentParentId || !archiveFolderId) {
+    return NextResponse.json({ error: 'Missing fileId, currentParentId, or archiveFolderId.' }, { status: 400 });
+  }
+
+  const url = `${DRIVE_API}/files/${fileId}?addParents=${encodeURIComponent(archiveFolderId)}&removeParents=${encodeURIComponent(currentParentId)}&fields=id,name,parents`;
+  const res = await fetch(url, { method: 'PATCH', headers });
+
+  return NextResponse.json(await res.json(), { status: res.ok ? 200 : res.status });
+}
+
+async function handleRestoreFile(headers: Record<string, string>, params: Record<string, unknown>) {
+  const { fileId, archiveFolderId, targetFolderId } = params as { fileId?: string; archiveFolderId?: string; targetFolderId?: string };
+  if (!fileId || !archiveFolderId || !targetFolderId) {
+    return NextResponse.json({ error: 'Missing fileId, archiveFolderId, or targetFolderId.' }, { status: 400 });
+  }
+
+  const url = `${DRIVE_API}/files/${fileId}?addParents=${encodeURIComponent(targetFolderId)}&removeParents=${encodeURIComponent(archiveFolderId)}&fields=id,name,parents`;
+  const res = await fetch(url, { method: 'PATCH', headers });
+
+  return NextResponse.json(await res.json(), { status: res.ok ? 200 : res.status });
+}
+
+async function handleEnsureArchive(headers: Record<string, string>, params: Record<string, unknown>) {
+  const rootFolderId = params.rootFolderId as string;
+  if (!rootFolderId) return NextResponse.json({ error: 'Missing rootFolderId.' }, { status: 400 });
+
+  // Search for existing ARCHIVE folder
+  const searchQuery = `'${rootFolderId}' in parents and name='ARCHIVE' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  const existing = await driveList(headers, searchQuery);
+
+  if (existing.length > 0) {
+    return NextResponse.json({ archiveFolderId: existing[0].id, created: false });
+  }
+
+  // Create ARCHIVE folder
+  const res = await fetch(`${DRIVE_API}/files`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'ARCHIVE', mimeType: 'application/vnd.google-apps.folder', parents: [rootFolderId] }),
+  });
+
+  if (!res.ok) {
+    return NextResponse.json({ error: 'Failed to create ARCHIVE folder.' }, { status: res.status });
+  }
+
+  const created = await res.json();
+  return NextResponse.json({ archiveFolderId: created.id, created: true });
+}
+
+async function handleGetFileUrl(headers: Record<string, string>, params: Record<string, unknown>) {
+  const fileId = params.fileId as string;
+  if (!fileId) return NextResponse.json({ error: 'Missing fileId.' }, { status: 400 });
+
+  const res = await fetch(`${DRIVE_API}/files/${fileId}?fields=id,name,webViewLink,webContentLink,mimeType`, { headers });
+  return NextResponse.json(await res.json(), { status: res.ok ? 200 : res.status });
+}
+
+async function handleGetFolderInfo(headers: Record<string, string>, params: Record<string, unknown>) {
+  const folderId = params.folderId as string;
+  if (!folderId) return NextResponse.json({ error: 'Missing folderId.' }, { status: 400 });
+
+  const res = await fetch(`${DRIVE_API}/files/${folderId}?fields=id,name,mimeType,owners,shared`, { headers });
+  return NextResponse.json(await res.json(), { status: res.ok ? 200 : res.status });
 }

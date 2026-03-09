@@ -29,10 +29,10 @@ export interface ProjectDriveConfig {
   root_folder_id: string;
   /** Original pasted Google Drive URL */
   root_folder_url: string;
-  /** Deployed Apps Script web app URL */
-  apps_script_url: string;
-  /** Shared secret for Apps Script validation */
-  apps_script_api_key: string;
+  /** @deprecated No longer needed — Drive API is called directly */
+  apps_script_url: string | null;
+  /** @deprecated No longer needed */
+  apps_script_api_key: string | null;
   /** Cached ARCHIVE folder ID in Drive */
   archive_folder_id: string | null;
   configured_by: string | null;
