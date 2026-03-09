@@ -1,28 +1,58 @@
-export interface ProjectFileFolder {
+// ─── Google Drive Item (replaces ProjectFileFolder + ProjectFileItem) ────────
+
+export interface DriveItem {
+  /** Google Drive file/folder ID */
   id: string;
-  project_id: string;
-  parent_folder_id: string | null;
+  /** Parent folder's Google Drive ID (null = root folder) */
+  parentId: string | null;
   name: string;
-  sort_order: number;
-  created_by: string | null;
-  created_at: string;
+  mimeType: string | null;
+  /** File size in bytes (null for folders) */
+  size: number | null;
+  isFolder: boolean;
+  /** Google Drive view link */
+  webViewLink: string | null;
+  /** Google Drive download link */
+  webContentLink: string | null;
+  /** Last modified time from Drive */
+  modifiedTime: string | null;
+  /** Drive icon URL */
+  iconLink: string | null;
 }
 
-export interface ProjectFileItem {
+// ─── Project Drive Configuration ────────────────────────────────────────────
+
+export interface ProjectDriveConfig {
   id: string;
   project_id: string;
-  folder_id: string | null;
-  name: string;
-  storage_path: string | null;
-  mime_type: string | null;
-  size_bytes: number | null;
-  uploaded_by: string | null;
+  /** Google Drive folder ID (extracted from URL) */
+  root_folder_id: string;
+  /** Original pasted Google Drive URL */
+  root_folder_url: string;
+  /** Deployed Apps Script web app URL */
+  apps_script_url: string;
+  /** Shared secret for Apps Script validation */
+  apps_script_api_key: string;
+  /** Cached ARCHIVE folder ID in Drive */
+  archive_folder_id: string | null;
+  configured_by: string | null;
   created_at: string;
+  updated_at: string;
 }
+
+// ─── Google Token Status ────────────────────────────────────────────────────
+
+export interface GoogleTokenStatus {
+  connected: boolean;
+  google_email: string | null;
+}
+
+// ─── Permissions (unchanged — these are ZHL UI-only visibility controls) ────
 
 export interface ProjectFileFolderPermissions {
   id: string;
   project_id: string;
+  /** References a Google Drive folder ID */
   folder_id: string;
   allow_all_users: boolean;
   allow_project_manager: boolean;
@@ -38,6 +68,7 @@ export interface ProjectFileFolderPermissions {
 export interface ProjectFileItemPermissions {
   id: string;
   project_id: string;
+  /** References a Google Drive file ID */
   file_id: string;
   allow_all_users: boolean;
   allow_project_manager: boolean;
@@ -49,6 +80,8 @@ export interface ProjectFileItemPermissions {
   created_at: string;
   updated_at: string;
 }
+
+// ─── Custom Fields (unchanged) ──────────────────────────────────────────────
 
 export interface ProjectFileCustomField {
   id: string;
@@ -69,35 +102,6 @@ export interface ProjectFileCustomFieldValue {
   file_id: string | null;
   value_text: string | null;
   ignored_until: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ProjectFileDownloadLog {
-  id: string;
-  project_id: string;
-  requested_by: string | null;
-  created_at: string;
-}
-
-export interface ProjectFileBackup {
-  id: string;
-  project_id: string;
-  backup_type: 'system' | 'manual';
-  note: string | null;
-  created_by: string | null;
-  created_at: string;
-}
-
-export interface ProjectFileBackupRequest {
-  id: string;
-  project_id: string;
-  requested_by: string | null;
-  reason: string | null;
-  status: 'pending' | 'approved' | 'rejected' | 'fulfilled';
-  response_note: string | null;
-  responded_by: string | null;
-  responded_at: string | null;
   created_at: string;
   updated_at: string;
 }

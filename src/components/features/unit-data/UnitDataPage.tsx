@@ -32,7 +32,7 @@ import {
   cleanupAndResortRows,
 } from '@/lib/db/unit-data';
 import { createRecoveryRequest } from '@/lib/db/unit-data-recovery';
-import { downloadFileUrl } from '@/lib/db/files';
+// File previews now open via Google Drive links (stored in file_url as Drive file IDs)
 
 const PdfViewer = lazy(() => import('@/components/shared/PdfViewer'));
 import { getView, getProjectViews, saveView, saveFieldOrder } from '@/lib/db/unit-data-views';
@@ -258,7 +258,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
     loadData(selectedProjectId);
   }, [selectedProjectId]);
 
-  // Refresh values when a file is added via AddFilesModal
+  // Refresh values when files are updated
   useEffect(() => {
     if (!selectedProjectId) return;
     const refreshValues = async () => {
@@ -2045,41 +2045,14 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                     {val?.file_url && (
                                       <span className="inline-flex items-center gap-0.5 shrink-0">
                                         <button
-                                          onClick={async (e) => {
+                                          onClick={(e) => {
                                             e.stopPropagation();
-                                            setFilePreviewLoading(true);
-                                            const url = await downloadFileUrl(val.file_url!, true);
-                                            if (!url) { setFilePreviewLoading(false); return; }
-                                            const fileName = decodeURIComponent(val.file_url!.split('/').pop() || 'File');
-
-                                            // For docx files, convert to HTML client-side using mammoth
-                                            if (/\.docx$/i.test(fileName)) {
-                                              try {
-                                                const mammoth = (await import('mammoth')).default;
-                                                const response = await fetch(url);
-                                                const arrayBuffer = await response.arrayBuffer();
-                                                const result = await mammoth.convertToHtml({ arrayBuffer });
-                                                setFilePreview({ url, name: fileName, htmlContent: result.value });
-                                              } catch {
-                                                setFilePreview({ url, name: fileName });
-                                              }
-                                            } else if (/\.pdf$/i.test(fileName)) {
-                                              // Download PDF as ArrayBuffer for client-side rendering with pdf.js
-                                              try {
-                                                const response = await fetch(url);
-                                                const arrayBuffer = await response.arrayBuffer();
-                                                setFilePreview({ url, name: fileName, pdfData: arrayBuffer });
-                                              } catch {
-                                                setFilePreview({ url, name: fileName });
-                                              }
-                                            } else {
-                                              setFilePreview({ url, name: fileName });
-                                            }
-                                            setFilePreviewLoading(false);
+                                            // Open linked file in Google Drive
+                                            const driveId = val.file_url!;
+                                            window.open(`https://drive.google.com/file/d/${driveId}/view`, '_blank', 'noopener,noreferrer');
                                           }}
                                           className="shrink-0 p-1 text-blue-500 hover:text-blue-400 transition-colors bg-blue-500/5 rounded-md"
-                                          title={`Linked to: ${getRowLabel(row.id)} — Click to preview`}
-                                          disabled={filePreviewLoading}
+                                          title={`Linked to: ${getRowLabel(row.id)} — Click to open in Drive`}
                                         >
                                           <Link className="h-3 w-3" />
                                         </button>
