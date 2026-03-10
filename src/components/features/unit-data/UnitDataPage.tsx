@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Loader2, Trash2, X, Link, Upload, Download, FileSpreadsheet, Pencil, FileText, ExternalLink, GripVertical } from 'lucide-react';
 import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
@@ -200,6 +200,13 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
   const [importEndCol, setImportEndCol] = useState(0); // 0-indexed
   const [importColMapping, setImportColMapping] = useState<Record<number, string>>({}); // colIdx → fieldId or '__new__'
   const [importNewFieldNames, setImportNewFieldNames] = useState<Record<number, string>>({}); // colIdx → new field name
+
+  // Undo stack for cell edits and paste operations
+  interface UndoEntry {
+    changes: { rowId: string; fieldId: string; oldValue: string | null }[];
+    createdRowIds?: string[];
+  }
+  const undoStack = useRef<UndoEntry[]>([]);
 
   // File preview modal
   const [filePreview, setFilePreview] = useState<{ url: string; name: string; htmlContent?: string; downloadUrl?: string; pdfData?: ArrayBuffer } | null>(null);
@@ -708,8 +715,12 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
       return;
     }
 
+    const oldValue = existing?.value ?? null;
     const ok = await upsertValue(rowId, fieldId, value || null);
     if (ok) {
+      // Push to undo stack
+      undoStack.current.push({ changes: [{ rowId, fieldId, oldValue }] });
+
       setValueMap((prev) => {
         const next = new Map(prev);
         next.set(key, {
@@ -772,12 +783,16 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
 
     // Expand rows if paste extends beyond existing rows
     let currentRows = [...nonEmptyRows];
+    const createdRowIds: string[] = [];
     const neededExtraRows = (startRowIdx + pastedRows.length) - currentRows.length;
     if (neededExtraRows > 0) {
       const newRows: UnitDataRow[] = [];
       for (let i = 0; i < neededExtraRows; i++) {
         const row = await createRow(selectedProjectId, rows.length + i);
-        if (row) newRows.push(row);
+        if (row) {
+          newRows.push(row);
+          createdRowIds.push(row.id);
+        }
       }
       if (newRows.length > 0) {
         setRows((prev) => [...prev, ...newRows]);
@@ -785,8 +800,9 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
       }
     }
 
-    // Upsert values for each pasted cell
+    // Collect old values for undo, then upsert
     const updates: { rowId: string; fieldId: string; value: string }[] = [];
+    const undoChanges: { rowId: string; fieldId: string; oldValue: string | null }[] = [];
     for (let r = 0; r < pastedRows.length; r++) {
       const targetRow = currentRows[startRowIdx + r];
       if (!targetRow) break;
@@ -794,6 +810,9 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
         const targetField = pasteableFields[startFieldIdx + c];
         if (!targetField) break;
         const val = pastedRows[r][c].trim();
+        const key = `${targetRow.id}-${targetField.id}`;
+        const oldValue = valueMap.get(key)?.value ?? null;
+        undoChanges.push({ rowId: targetRow.id, fieldId: targetField.id, oldValue });
         updates.push({ rowId: targetRow.id, fieldId: targetField.id, value: val });
       }
     }
@@ -801,6 +820,9 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
     // Batch upsert all values
     const promises = updates.map((u) => upsertValue(u.rowId, u.fieldId, u.value || null));
     await Promise.all(promises);
+
+    // Push to undo stack
+    undoStack.current.push({ changes: undoChanges, createdRowIds });
 
     // Update local valueMap
     setValueMap((prev) => {
@@ -822,8 +844,72 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
     });
 
     setEditingCell(null);
-    log(`Pasted data into ${updates.length} cell(s)`);
+    log(`Pasted data into ${updates.length} cell(s). Press Ctrl+Z to undo.`);
   };
+
+  // ── Undo handler (Ctrl+Z) ──────────────────────────────────────
+  const handleUndo = useCallback(async () => {
+    const entry = undoStack.current.pop();
+    if (!entry) return;
+
+    // Delete any rows that were created during a paste
+    if (entry.createdRowIds?.length) {
+      for (const rowId of entry.createdRowIds) {
+        await deleteRow(rowId);
+      }
+      setRows((prev) => prev.filter((r) => !entry.createdRowIds!.includes(r.id)));
+    }
+
+    // Revert changed cells (skip cells on deleted rows)
+    const deletedRowSet = new Set(entry.createdRowIds ?? []);
+    for (const change of entry.changes) {
+      if (deletedRowSet.has(change.rowId)) continue;
+      if (change.oldValue === null) {
+        // Row existed but had no value — delete the value row instead of upserting null
+        await supabase.from('zhl_unit_data_values').delete().eq('row_id', change.rowId).eq('field_id', change.fieldId);
+      } else {
+        await upsertValue(change.rowId, change.fieldId, change.oldValue);
+      }
+    }
+
+    setValueMap((prev) => {
+      const next = new Map(prev);
+      for (const change of entry.changes) {
+        const key = `${change.rowId}-${change.fieldId}`;
+        const existing = prev.get(key);
+        if (existing) {
+          next.set(key, { ...existing, value: change.oldValue, updated_at: new Date().toISOString() });
+        } else if (change.oldValue !== null) {
+          next.set(key, {
+            id: '',
+            row_id: change.rowId,
+            field_id: change.fieldId,
+            value: change.oldValue,
+            file_url: null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        } else {
+          next.delete(key);
+        }
+      }
+      return next;
+    });
+  }, []);
+
+  // Listen for Ctrl+Z globally
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        e.preventDefault();
+        handleUndo();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [handleUndo]);
 
   // ── Cell selection helpers ──────────────────────────────────────
   const getCellsInRange = (anchor: { rowId: string; fieldId: string }, end: { rowId: string; fieldId: string }): Set<string> => {
