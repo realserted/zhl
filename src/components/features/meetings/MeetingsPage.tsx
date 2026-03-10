@@ -10,7 +10,7 @@ import {
   getOutOfOffice, setOutOfOffice, removeOutOfOffice,
 } from '@/lib/db/calendar-events';
 import {
-  ChevronLeft, ChevronRight, Plus, Trash2, MapPin, X, Calendar, Users,
+  ChevronLeft, ChevronRight, Plus, Trash2, MapPin, X, Calendar,
 } from 'lucide-react';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
@@ -38,6 +38,7 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
   // ── OOO state ───────────────────────────────────────────────────────────────
   const [oooEntries, setOooEntries] = useState<OutOfOffice[]>([]);
   const [projectUsers, setProjectUsers] = useState<{ user_id: string; user_name: string }[]>([]);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   // Display name
   const [displayName, setDisplayName] = useState('');
@@ -159,31 +160,23 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
     setShowEventModal(false);
   };
 
-  // ── OOO helpers ─────────────────────────────────────────────────────────────
-  const oooWeeks = useMemo(() => {
-    const weeks: string[][] = [];
-    const start = new Date(oooWeekStart);
-    for (let w = 0; w < oooWeekCount; w++) {
-      const week: string[] = [];
-      for (let d = 0; d < 7; d++) {
-        const date = new Date(start);
-        date.setDate(start.getDate() + w * 7 + d);
-        week.push(date.toISOString().slice(0, 10));
-      }
-      weeks.push(week);
-    }
-    return weeks;
-  }, [oooWeekStart, oooWeekCount]);
-
   const oooMap = useMemo(() => {
     const m = new Map<string, OutOfOffice>();
     for (const e of oooEntries) m.set(`${e.user_id}-${e.ooo_date}`, e);
     return m;
   }, [oooEntries]);
 
-  const handleOooCellClick = async (userId: string, userName: string, date: string) => {
+  const formatDateShort = (dateStr: string) => {
+    const d = new Date(dateStr + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  };
+
+  const oooForDate = useCallback((dateStr: string) => {
+    return oooEntries.filter((e) => e.ooo_date === dateStr);
+  }, [oooEntries]);
+
+  const handleOooModalToggle = async (userId: string, userName: string, date: string) => {
     if (!selectedProjectId || !user) return;
-    // Users can edit their own row; editors/admins can edit anyone's
     const isOwnRow = userId === user.id;
     if (!isOwnRow && !canEdit) return;
 
@@ -200,11 +193,6 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
     }
   };
 
-  const formatDateShort = (dateStr: string) => {
-    const d = new Date(dateStr + 'T00:00:00');
-    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  };
-
   if (!selectedProjectId) {
     return (
       <div className="p-8 text-center text-muted-foreground">
@@ -218,112 +206,13 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
 
   return (
     <div className="p-4 sm:p-6 max-w-[1800px] mx-auto space-y-8">
-      {/* ═══════ OUT-OF-OFFICE TRACKER ═══════ */}
-      <section>
-        <div className="flex items-center gap-3 mb-4">
-          <Users className="h-5 w-5 text-primary" />
-          <h2 className="text-xl font-bold tracking-tight">Availability</h2>
-        </div>
-
-        <div className="glass-card rounded-2xl border border-border/50 shadow-sm overflow-x-auto">
-          {/* Month navigation — synced with meetings calendar */}
-          <div className="flex items-center justify-between p-3 border-b border-border/50">
-            <button onClick={handlePrevMonth} className="p-1.5 rounded-lg hover:bg-muted/50 transition-colors">
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <span className="text-sm font-bold tracking-tight">{monthName}</span>
-            <button onClick={handleNextMonth} className="p-1.5 rounded-lg hover:bg-muted/50 transition-colors">
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="bg-muted/30 border-b border-border/50">
-                <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap sticky left-0 bg-muted/30 z-10 min-w-[120px]">
-                  Name
-                </th>
-                {oooWeeks.flat().map((date) => {
-                  const d = new Date(date + 'T00:00:00');
-                  const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-                  const isToday2 = date === todayStr;
-                  const isCurrentMonth = d.getMonth() === month && d.getFullYear() === year;
-                  return (
-                    <th
-                      key={date}
-                      className={`px-1 py-2 text-center text-[9px] font-bold uppercase tracking-wider whitespace-nowrap min-w-[40px] ${
-                        isToday2 ? 'text-primary bg-primary/5' : !isCurrentMonth ? 'text-muted-foreground/30 bg-muted/5' : isWeekend ? 'text-muted-foreground/50 bg-muted/10' : 'text-muted-foreground'
-                      }`}
-                    >
-                      <div>{d.toLocaleDateString('en-US', { weekday: 'short' })}</div>
-                      <div className="text-[10px]">{d.getDate()}</div>
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {projectUsers.length === 0 ? (
-                <tr>
-                  <td colSpan={oooWeekCount * 7 + 1} className="px-3 py-6 text-center text-muted-foreground text-sm">
-                    No project members found.
-                  </td>
-                </tr>
-              ) : (
-                projectUsers.map((pu) => (
-                  <tr key={pu.user_id} className={`border-b border-border/30 hover:bg-muted/10 transition-colors ${pu.user_id === user?.id ? 'bg-primary/[0.03]' : ''}`}>
-                    <td className={`px-3 py-2 text-xs font-medium whitespace-nowrap sticky left-0 z-10 ${pu.user_id === user?.id ? 'bg-primary/5 text-primary font-semibold' : 'bg-background'}`}>
-                      {pu.user_name}{pu.user_id === user?.id ? ' (You)' : ''}
-                    </td>
-                    {oooWeeks.flat().map((date) => {
-                      const key = `${pu.user_id}-${date}`;
-                      const entry = oooMap.get(key);
-                      const d = new Date(date + 'T00:00:00');
-                      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-                      const canClickCell = canEdit || pu.user_id === user?.id;
-
-                      return (
-                        <td
-                          key={date}
-                          onClick={() => handleOooCellClick(pu.user_id, pu.user_name, date)}
-                          className={`px-1 py-2 text-center text-[10px] font-bold transition-colors ${
-                            canClickCell ? 'cursor-pointer' : ''
-                          } ${
-                            entry
-                              ? 'bg-yellow-400/80 text-yellow-900 dark:bg-yellow-500/30 dark:text-yellow-300'
-                              : isWeekend
-                                ? 'bg-muted/10'
-                                : ''
-                          } ${canClickCell && !entry ? 'hover:bg-muted/30' : ''}`}
-                          title={entry ? `${pu.user_name}: ${entry.note}` : canClickCell ? `Click to mark ${pu.user_name} as out` : ''}
-                        >
-                          {entry ? entry.note : ''}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* ═══════ MEETINGS CALENDAR ═══════ */}
+      {/* ═══════ UNIFIED CALENDAR ═══════ */}
       <section>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <Calendar className="h-5 w-5 text-primary" />
-            <h2 className="text-xl font-bold tracking-tight">Meetings</h2>
+            <h2 className="text-xl font-bold tracking-tight">Meetings & Availability</h2>
           </div>
-          {canEdit && (
-            <button
-              onClick={() => openCreateEvent()}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold tracking-wider uppercase bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-90 transition-all"
-            >
-              <Plus className="h-4 w-4" /> Add Meeting
-            </button>
-          )}
         </div>
 
         <div className="glass-card rounded-2xl border border-border/50 shadow-sm p-4">
@@ -347,26 +236,30 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
             ))}
           </div>
 
-          {/* Calendar grid */}
+          {/* Calendar grid — meetings + OOO combined */}
           <div className="grid grid-cols-7 gap-1">
             {calendarDays.map((day, i) => {
-              if (day === null) return <div key={`empty-${i}`} className="min-h-[80px]" />;
-              const dayEvents = eventsForDate(day);
+              if (day === null) return <div key={`empty-${i}`} className="min-h-[90px]" />;
               const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+              const dayEvents = eventsForDate(day);
+              const dayOoo = oooForDate(dateStr);
               const isToday = dateStr === todayStr;
+              const dd = new Date(dateStr + 'T00:00:00');
+              const isWeekend = dd.getDay() === 0 || dd.getDay() === 6;
 
               return (
                 <div
                   key={day}
-                  onClick={canEdit ? () => openCreateEvent(day) : undefined}
-                  className={`min-h-[80px] rounded-lg border p-1.5 transition-colors ${
-                    isToday ? 'border-primary/50 bg-primary/5' : 'border-border/30 hover:border-border/60'
-                  } ${canEdit ? 'cursor-pointer' : ''}`}
+                  onClick={() => setSelectedDay(dateStr)}
+                  className={`min-h-[90px] rounded-lg border p-1.5 transition-colors cursor-pointer ${
+                    isToday ? 'border-primary/50 bg-primary/5' : isWeekend ? 'border-border/20 bg-muted/5' : 'border-border/30 hover:border-border/60'
+                  }`}
                 >
                   <div className={`text-xs font-bold mb-1 ${isToday ? 'text-primary' : 'text-muted-foreground'}`}>
                     {day}
                   </div>
                   <div className="space-y-0.5">
+                    {/* Meetings */}
                     {dayEvents.map((ev) => (
                       <div
                         key={ev.id}
@@ -377,13 +270,152 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
                         {ev.title}
                       </div>
                     ))}
+                    {/* OOO entries */}
+                    {dayOoo.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="px-1.5 py-0.5 rounded bg-yellow-400/20 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-300 text-[10px] font-medium truncate"
+                        title={`${entry.user_name}: ${entry.note}`}
+                      >
+                        {entry.user_name.split(' ')[0]}{entry.note !== 'Out' ? ` · ${entry.note}` : ''}
+                      </div>
+                    ))}
                   </div>
                 </div>
               );
             })}
           </div>
+
+          {/* Legend */}
+          <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border/30">
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded bg-primary/10 border border-primary/20" />
+              <span className="text-[10px] text-muted-foreground font-medium">Meeting</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded bg-yellow-400/20 border border-yellow-400/30" />
+              <span className="text-[10px] text-muted-foreground font-medium">Out of Office</span>
+            </div>
+          </div>
         </div>
       </section>
+
+      {/* ═══════ DAY DETAIL MODAL ═══════ */}
+      <Modal
+        isOpen={!!selectedDay}
+        onClose={() => setSelectedDay(null)}
+        title={selectedDay ? formatDateShort(selectedDay) : ''}
+        maxWidth="sm"
+      >
+        {selectedDay && (() => {
+          const dayEvents = events.filter((e) => e.event_date === selectedDay);
+          const dayOoo = oooForDate(selectedDay);
+          return (
+            <div className="space-y-4">
+              {/* ── Meetings section ── */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">Meetings</p>
+                {dayEvents.length > 0 ? (
+                  dayEvents.map((ev) => (
+                    <div key={ev.id} className="flex items-center justify-between px-3 py-2 rounded-xl bg-primary/5 border border-primary/10">
+                      <div className="min-w-0 flex-1">
+                        <span className="text-sm font-semibold">{ev.title}</span>
+                        {ev.location && (
+                          <span className="text-xs text-muted-foreground ml-2">
+                            <MapPin className="h-3 w-3 inline -mt-0.5 mr-0.5" />{ev.location}
+                          </span>
+                        )}
+                      </div>
+                      {canEdit && (
+                        <button
+                          onClick={() => { setSelectedDay(null); openEditEvent(ev); }}
+                          className="text-[10px] font-bold text-primary hover:underline ml-2 shrink-0"
+                        >
+                          Edit
+                        </button>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-muted-foreground px-1">No meetings</p>
+                )}
+                {canEdit && (
+                  <button
+                    onClick={() => { setSelectedDay(null); openCreateEvent(parseInt(selectedDay.split('-')[2])); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-primary/5 transition-colors text-left border border-dashed border-primary/20"
+                  >
+                    <Plus className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium text-primary">Add Meeting</span>
+                  </button>
+                )}
+              </div>
+
+              {/* ── Out of Office section ── */}
+              <div className="space-y-2 pt-3 border-t border-border/50">
+                <p className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">Out of Office</p>
+                {dayOoo.length > 0 && dayOoo.map((entry) => (
+                  <div key={entry.id} className="flex items-center justify-between px-3 py-2 rounded-xl bg-yellow-400/10 border border-yellow-400/20">
+                    <div>
+                      <span className="text-sm font-semibold">{entry.user_name}</span>
+                      <span className="text-xs text-muted-foreground ml-2">{entry.note}</span>
+                    </div>
+                    {(canEdit || entry.user_id === user?.id) && (
+                      <button
+                        onClick={async () => {
+                          const ok = await removeOutOfOffice(entry.id);
+                          if (ok) setOooEntries((prev) => prev.filter((e) => e.id !== entry.id));
+                        }}
+                        className="p-1 hover:bg-destructive/10 rounded-lg transition-colors"
+                        title="Remove"
+                      >
+                        <X className="h-4 w-4 text-destructive" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {/* Add OOO for users not already out */}
+                {projectUsers
+                  .filter((pu) => !oooMap.get(`${pu.user_id}-${selectedDay}`))
+                  .filter((pu) => canEdit || pu.user_id === user?.id)
+                  .length > 0 && (
+                  <div className="space-y-1 mt-1">
+                    <p className="text-[10px] text-muted-foreground px-1">Mark as out:</p>
+                    {projectUsers
+                      .filter((pu) => !oooMap.get(`${pu.user_id}-${selectedDay}`))
+                      .filter((pu) => canEdit || pu.user_id === user?.id)
+                      .map((pu) => (
+                        <button
+                          key={pu.user_id}
+                          onClick={() => handleOooModalToggle(pu.user_id, pu.user_name, selectedDay)}
+                          className="w-full flex items-center gap-2 px-3 py-1.5 rounded-xl hover:bg-yellow-400/10 transition-colors text-left"
+                        >
+                          <Plus className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-400" />
+                          <span className="text-xs font-medium">{pu.user_name}{pu.user_id === user?.id ? ' (You)' : ''}</span>
+                        </button>
+                      ))}
+                  </div>
+                )}
+                {dayOoo.length === 0 && projectUsers
+                  .filter((pu) => !oooMap.get(`${pu.user_id}-${selectedDay}`))
+                  .filter((pu) => canEdit || pu.user_id === user?.id)
+                  .length === 0 && (
+                  <p className="text-xs text-muted-foreground px-1">No one is out</p>
+                )}
+              </div>
+
+              <div className="pt-3 border-t border-border/50">
+                <Button
+                  variant="outline"
+                  onClick={() => setSelectedDay(null)}
+                  className="w-full py-3 text-xs font-black tracking-widest"
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
 
       {/* ═══════ EVENT MODAL ═══════ */}
       <Modal

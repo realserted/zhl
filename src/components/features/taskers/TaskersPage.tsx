@@ -892,25 +892,22 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
           })()
         ) : (
           /* Taskers Table */
-          <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
-            <table className="w-full text-xs sm:text-sm">
+          <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm">
+            <table className="w-full text-xs sm:text-sm table-auto">
               <thead>
                 <tr className="bg-muted/30 border-b border-border/50">
-                  <th className="px-2 py-4 w-[1%]" />
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Status</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Task Name</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Description</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Update Status</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Responsible</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">CC</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">&quot;Got the Ball&quot;</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Priority</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Due</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Log</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Help</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Issues</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Original due vs now</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap"></th>
+                  <th className="px-1 py-3 w-[1%]" />
+                  <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Status</th>
+                  <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Priority</th>
+                  <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Due</th>
+                  <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Task Name</th>
+                  <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Description</th>
+                  <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Log</th>
+                  <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Responsible</th>
+                  <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">CC</th>
+                  <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">&quot;Got the Ball&quot;</th>
+                  <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Issues</th>
+                  <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap"></th>
                 </tr>
               </thead>
               <tbody>
@@ -918,14 +915,13 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                 {canEdit && (
                   <tr className="border-b border-primary/20 bg-primary/[0.03]">
                     {/* Create button */}
-                    <td className="px-2 py-2 whitespace-nowrap">
+                    <td className="px-1 py-2 whitespace-nowrap">
                       <button
                         onClick={handleCreate}
                         disabled={creating || !newTasker.task_name.trim()}
                         className="inline-flex items-center gap-1 px-2 py-1 bg-primary text-primary-foreground rounded text-[10px] font-bold disabled:opacity-40 hover:opacity-90 transition-all"
                       >
                         {creating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-                        CREATE
                       </button>
                     </td>
                     {/* Status */}
@@ -937,6 +933,25 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                       >
                         {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                       </select>
+                    </td>
+                    {/* Priority */}
+                    <td className="px-2 py-2 whitespace-nowrap">
+                      <select
+                        value={newTasker.priority}
+                        onChange={(e) => setNewTasker((p) => ({ ...p, priority: Number(e.target.value) }))}
+                        className={`${selectClass} text-[10px]`}
+                      >
+                        {Object.entries(PRIORITY_LABELS).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                      </select>
+                    </td>
+                    {/* Due Date */}
+                    <td className="px-2 py-2 whitespace-nowrap">
+                      <input
+                        type="date"
+                        value={newTasker.due_date}
+                        onChange={(e) => setNewTasker((p) => ({ ...p, due_date: e.target.value }))}
+                        className="px-1 py-1 bg-background/50 border border-input rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-primary/50"
+                      />
                     </td>
                     {/* Task Name */}
                     <td className="px-2 py-2 whitespace-nowrap">
@@ -957,8 +972,8 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                         className="w-full px-2 py-1 bg-background/50 border border-input rounded text-xs focus:outline-none focus:ring-1 focus:ring-primary/50"
                       />
                     </td>
-                    {/* Update Status — empty for new */}
-                    <td className="px-2 py-2 whitespace-nowrap text-muted-foreground/30 text-xs">—</td>
+                    {/* Log — empty */}
+                    <td className="px-2 py-2" />
                     {/* Responsible */}
                     <td className="px-2 py-2 whitespace-nowrap">
                       <select
@@ -992,29 +1007,6 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                         {projectUserOptions.map((u) => <option key={u.user_id ?? u.user_name} value={u.user_name}>{u.user_name}</option>)}
                       </select>
                     </td>
-                    {/* Priority */}
-                    <td className="px-2 py-2 whitespace-nowrap">
-                      <select
-                        value={newTasker.priority}
-                        onChange={(e) => setNewTasker((p) => ({ ...p, priority: Number(e.target.value) }))}
-                        className={`${selectClass} text-[10px]`}
-                      >
-                        {Object.entries(PRIORITY_LABELS).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-                      </select>
-                    </td>
-                    {/* Due Date */}
-                    <td className="px-2 py-2 whitespace-nowrap">
-                      <input
-                        type="date"
-                        value={newTasker.due_date}
-                        onChange={(e) => setNewTasker((p) => ({ ...p, due_date: e.target.value }))}
-                        className="px-1 py-1 bg-background/50 border border-input rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-primary/50"
-                      />
-                    </td>
-                    {/* Log — empty */}
-                    <td className="px-2 py-2" />
-                    {/* Help — empty */}
-                    <td className="px-2 py-2" />
                     {/* Issues */}
                     <td className="px-2 py-2 whitespace-nowrap">
                       <input
@@ -1024,15 +1016,13 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                         className="w-full px-2 py-1 bg-background/50 border border-input rounded text-xs focus:outline-none focus:ring-1 focus:ring-primary/50"
                       />
                     </td>
-                    {/* Original due — empty */}
-                    <td className="px-2 py-2" />
                     {/* Actions — empty for create row */}
                     <td className="px-2 py-2" />
                   </tr>
                 )}
                 {filteredTaskers.length === 0 ? (
                   <tr>
-                    <td colSpan={15} className="px-3 py-8 text-center text-muted-foreground">
+                    <td colSpan={12} className="px-3 py-8 text-center text-muted-foreground">
                       No taskers yet. Fill in the row above and click CREATE.
                     </td>
                   </tr>
@@ -1043,9 +1033,10 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                       className="border-b border-border/50 hover:bg-muted/30 transition-colors group"
                     >
                       {/* Empty action cell */}
-                      <td className="px-2 py-4" />
+                      <td className="px-1 py-3" />
+
                       {/* Status dropdown */}
-                      <td className="px-4 py-4 whitespace-nowrap">
+                      <td className="px-2 py-3 whitespace-nowrap">
                         <select
                           disabled={!canEdit}
                           className={`${selectClass} ${STATUS_COLORS[tasker.status] || ''} ${!canEdit ? 'opacity-75 cursor-default' : ''} border-none shadow-sm shadow-black/5`}
@@ -1075,139 +1066,15 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                           }}
                         >
                           {STATUS_OPTIONS.map((s) => (
-                            <option key={s} value={s}>
-                              {s}
-                            </option>
+                            <option key={s} value={s}>{s}</option>
                           ))}
                         </select>
                       </td>
 
-                      {/* Task Name */}
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        <div className="font-bold text-sm tracking-tight">
-                          <EditableCell
-                            tasker={tasker}
-                            field="task_name"
-                            displayValue={tasker.task_name}
-                          />
-                        </div>
-                      </td>
-
-                      {/* Description - clickable link to open modal */}
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        <button
-                          onClick={() => setDescriptionModal(tasker)}
-                          className="text-primary hover:underline text-xs font-bold leading-none max-w-[150px] truncate block"
-                          title={tasker.description || 'Add description'}
-                        >
-                          {tasker.description
-                            ? tasker.description.length > 30
-                              ? tasker.description.slice(0, 30) + '...'
-                              : tasker.description
-                            : '+ Description'}
-                        </button>
-                      </td>
-
-                      {/* Update Status (2nd status - user comments) */}
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 italic text-xs font-medium text-muted-foreground min-w-[120px]">
-                            <EditableCell
-                              tasker={tasker}
-                              field="update_status"
-                              displayValue={tasker.update_status ?? ''}
-                            />
-                          </div>
-                          {statusPrompt && canEdit && (
-                            <button
-                              onClick={async () => {
-                                const result = await handleGenerateStatus(tasker.task_name, tasker.update_status ?? '');
-                                if (result) {
-                                  await saveInlineEdit(tasker.id, 'update_status', result);
-                                  setTaskers((prev) => prev.map((t) => t.id === tasker.id ? { ...t, update_status: result } : t));
-                                }
-                              }}
-                              disabled={generatingStatus}
-                              title="Generate status with AI"
-                              className="p-1.5 hover:bg-muted rounded-lg transition-colors disabled:opacity-50 shrink-0 border border-border/50"
-                            >
-                              <Sparkles className="h-3 w-3 text-accent" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Responsible */}
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        {canEdit ? (
-                          <select
-                            value={tasker.responsible_name ?? ''}
-                            onChange={(e) => handleRoleUpdate(tasker, 'responsible', e.target.value)}
-                            className={selectClass}
-                          >
-                            <option value="">-</option>
-                            {projectUserOptions.map((u) => (
-                              <option key={`responsible-${u.user_name}`} value={u.user_name}>
-                                {u.user_name}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className="px-2 py-1 block text-xs font-bold text-muted-foreground bg-muted/30 rounded-lg min-w-8">
-                            {tasker.responsible_name || '-'}
-                          </span>
-                        )}
-                      </td>
-
-                      {/* CC */}
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        {canEdit ? (
-                          <select
-                            value={tasker.cc_name ?? ''}
-                            onChange={(e) => handleRoleUpdate(tasker, 'cc', e.target.value)}
-                            className={selectClass}
-                          >
-                            <option value="">-</option>
-                            {projectUserOptions.map((u) => (
-                              <option key={`cc-${u.user_name}`} value={u.user_name}>
-                                {u.user_name}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className="px-2 py-1 block text-xs font-bold text-muted-foreground bg-muted/30 rounded-lg min-w-8">
-                            {tasker.cc_name || '-'}
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Got the Ball */}
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        {canEdit ? (
-                          <select
-                            value={tasker.got_the_ball_name ?? ''}
-                            onChange={(e) => handleRoleUpdate(tasker, 'got_the_ball', e.target.value)}
-                            className={selectClass}
-                          >
-                            <option value="">-</option>
-                            {projectUserOptions.map((u) => (
-                              <option key={`gtb-${u.user_name}`} value={u.user_name}>
-                                {u.user_name}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className="px-2 py-1 block text-xs font-bold text-muted-foreground bg-muted/30 rounded-lg min-w-8">
-                            {tasker.got_the_ball_name || '-'}
-                          </span>
-                        )}
-                      </td>
-
-
                       {/* Priority */}
-                      <td className="px-4 py-4 whitespace-nowrap">
+                      <td className="px-2 py-3 whitespace-nowrap">
                         <select
-                          className={`${selectClass} min-w-[100px] border-none shadow-sm shadow-black/5`}
+                          className={`${selectClass} border-none shadow-sm shadow-black/5`}
                           value={tasker.priority}
                           onChange={async (e) => {
                             const newPriority = parseInt(e.target.value);
@@ -1236,15 +1103,13 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                           }}
                         >
                           {[0, 1, 2, 3, 4, 5].map((n) => (
-                            <option key={n} value={n}>
-                              {PRIORITY_LABELS[n]}
-                            </option>
+                            <option key={n} value={n}>{PRIORITY_LABELS[n]}</option>
                           ))}
                         </select>
                       </td>
 
-                      {/* Due Date */}
-                      <td className="px-4 py-4 whitespace-nowrap">
+                      {/* Due Date + original date diff underneath */}
+                      <td className="px-2 py-3 whitespace-nowrap">
                         <input
                           type="date"
                           value={tasker.due_date ?? ''}
@@ -1261,46 +1126,131 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                           }}
                           className={`${selectClass} border-none shadow-sm shadow-black/5`}
                         />
+                        {/* Show +/- days from original date if due date changed */}
+                        {(() => {
+                          const orig = tasker.original_due_date;
+                          const curr = tasker.due_date;
+                          if (!orig || !curr || orig === curr) return null;
+                          const origDate = new Date(orig + 'T00:00:00');
+                          const currDate = new Date(curr + 'T00:00:00');
+                          const diffDays = Math.round((currDate.getTime() - origDate.getTime()) / 86_400_000);
+                          if (diffDays === 0) return null;
+                          const sign = diffDays > 0 ? '+' : '';
+                          const color = diffDays > 0 ? 'text-red-500' : 'text-green-500';
+                          return (
+                            <div className={`text-[9px] font-semibold ${color} mt-0.5`}>
+                              ({sign}{diffDays}D from original date)
+                            </div>
+                          );
+                        })()}
+                      </td>
+
+                      {/* Task Name */}
+                      <td className="px-2 py-3 whitespace-nowrap">
+                        <div className="font-bold text-sm tracking-tight">
+                          <EditableCell
+                            tasker={tasker}
+                            field="task_name"
+                            displayValue={tasker.task_name}
+                          />
+                        </div>
+                      </td>
+
+                      {/* Description - clickable link to open modal */}
+                      <td className="px-2 py-3 whitespace-nowrap">
+                        <button
+                          onClick={() => setDescriptionModal(tasker)}
+                          className="text-primary hover:underline text-xs font-bold leading-none max-w-[150px] truncate block"
+                          title={tasker.description || 'Add description'}
+                        >
+                          {tasker.description
+                            ? tasker.description.length > 30
+                              ? tasker.description.slice(0, 30) + '...'
+                              : tasker.description
+                            : '+ Description'}
+                        </button>
                       </td>
 
                       {/* Log */}
-                      <td className="px-4 py-4 whitespace-nowrap text-center">
+                      <td className="px-2 py-3 whitespace-nowrap text-center">
                         <button
                           onClick={() => openLogModal(tasker)}
-                          className="p-2 hover:bg-blue-500/10 rounded-xl transition-all active:scale-95 border border-transparent hover:border-blue-500/20"
+                          className="p-1.5 hover:bg-blue-500/10 rounded-xl transition-all active:scale-95 border border-transparent hover:border-blue-500/20"
                           title="View logs & chat"
                         >
                           <MessageCircle className="h-4 w-4 text-blue-500" />
                         </button>
                       </td>
 
-                      {/* Help */}
-                      <td className="px-4 py-4 whitespace-nowrap text-center">
-                        <button
-                          onClick={() => {
-                            setHelpModal(tasker);
-                            setHelpUser(tasker.help_request_user_name ?? '');
-                          }}
-                          className="p-2 hover:bg-orange-500/10 rounded-xl transition-all active:scale-95 border border-transparent hover:border-orange-500/20"
-                          title={
-                            tasker.help_request_user_name
-                              ? `Help from: ${tasker.help_request_user_name}`
-                              : 'Request help'
-                          }
-                        >
-                          <HelpCircle
-                            className={`h-4 w-4 ${
-                              tasker.help_request_user_name
-                                ? 'text-orange-500'
-                                : 'text-muted-foreground'
-                            }`}
-                          />
-                        </button>
+                      {/* Responsible */}
+                      <td className="px-2 py-3 whitespace-nowrap">
+                        {canEdit ? (
+                          <select
+                            value={tasker.responsible_name ?? ''}
+                            onChange={(e) => handleRoleUpdate(tasker, 'responsible', e.target.value)}
+                            className={selectClass}
+                          >
+                            <option value="">-</option>
+                            {projectUserOptions.map((u) => (
+                              <option key={`responsible-${u.user_name}`} value={u.user_name}>
+                                {u.user_name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="px-2 py-1 block text-xs font-bold text-muted-foreground bg-muted/30 rounded-lg min-w-8">
+                            {tasker.responsible_name || '-'}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* CC */}
+                      <td className="px-2 py-3 whitespace-nowrap">
+                        {canEdit ? (
+                          <select
+                            value={tasker.cc_name ?? ''}
+                            onChange={(e) => handleRoleUpdate(tasker, 'cc', e.target.value)}
+                            className={selectClass}
+                          >
+                            <option value="">-</option>
+                            {projectUserOptions.map((u) => (
+                              <option key={`cc-${u.user_name}`} value={u.user_name}>
+                                {u.user_name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="px-2 py-1 block text-xs font-bold text-muted-foreground bg-muted/30 rounded-lg min-w-8">
+                            {tasker.cc_name || '-'}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Got the Ball */}
+                      <td className="px-2 py-3 whitespace-nowrap">
+                        {canEdit ? (
+                          <select
+                            value={tasker.got_the_ball_name ?? ''}
+                            onChange={(e) => handleRoleUpdate(tasker, 'got_the_ball', e.target.value)}
+                            className={selectClass}
+                          >
+                            <option value="">-</option>
+                            {projectUserOptions.map((u) => (
+                              <option key={`gtb-${u.user_name}`} value={u.user_name}>
+                                {u.user_name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="px-2 py-1 block text-xs font-bold text-muted-foreground bg-muted/30 rounded-lg min-w-8">
+                            {tasker.got_the_ball_name || '-'}
+                          </span>
+                        )}
                       </td>
 
                       {/* Issues */}
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        <div className="text-xs font-bold text-red-500/80 italic min-w-[100px]">
+                      <td className="px-2 py-3 whitespace-nowrap">
+                        <div className="text-xs font-bold text-red-500/80 italic">
                           <EditableCell
                             tasker={tasker}
                             field="issues"
@@ -1309,29 +1259,9 @@ export default function TaskersPage({ selectedProjectId, selectedProjectName, us
                         </div>
                       </td>
 
-                      {/* Progress/Due info */}
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        {(() => {
-                          const dueDateStr = tasker.due_date;
-                          if (!dueDateStr) return <span className="text-muted-foreground/40 font-bold text-[10px] uppercase tracking-wider">No Date</span>;
-                          const today = new Date();
-                          today.setHours(0, 0, 0, 0);
-                          const due = new Date(dueDateStr + 'T00:00:00');
-                          const diffDays = Math.round((due.getTime() - today.getTime()) / 86_400_000);
-                          if (diffDays < 0) {
-                            return <span className="px-2 py-1 bg-red-500/10 text-red-500 rounded-lg font-bold text-[10px] uppercase tracking-wider border border-red-500/20">{Math.abs(diffDays)}d Overdue</span>;
-                          }
-                          if (diffDays === 0) {
-                            return <span className="px-2 py-1 bg-yellow-500/10 text-yellow-500 rounded-lg font-bold text-[10px] uppercase tracking-wider border border-yellow-500/20">Today</span>;
-                          }
-                          return <span className="px-2 py-1 bg-green-500/10 text-green-500 rounded-lg font-bold text-[10px] uppercase tracking-wider border border-green-500/20">{diffDays}d Left</span>;
-                        })()}
-                      </td>
-
                       {/* Actions */}
-                      <td className="px-4 py-4 whitespace-nowrap">
+                      <td className="px-2 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-
                           {tasker.due_date && (
                             <a
                               href={(() => {

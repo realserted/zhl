@@ -404,7 +404,13 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
                     prev.map((l) => (l.id === selectedLoan.id ? { ...l, notes: val } : l))
                   );
                 }}
-                onBlur={(e) => saveField('notes', e.target.value)}
+                onBlur={async (e) => {
+                  // Save notes directly (bypass saveField which compares against already-updated local state)
+                  if (!selectedLoan || !canEdit) return;
+                  const val = e.target.value.trim() || null;
+                  const ok = await updateLoan(selectedLoan.id, 'notes', val);
+                  if (ok) log(`Updated loan notes`);
+                }}
                 readOnly={!canEdit}
                 placeholder={canEdit ? 'Add notes (e.g. PPP, SBA, refinance details...)' : 'No notes'}
                 className="w-full px-3 py-2 bg-muted/30 border border-border/50 rounded-lg text-sm font-medium text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring resize-y min-h-[80px]"

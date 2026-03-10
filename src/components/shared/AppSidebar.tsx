@@ -6,6 +6,8 @@ import Image from 'next/image';
 import { useAuth } from '@/lib/auth-context';
 import NavActions from './NavActions';
 import { ThemeToggle } from './ThemeToggle';
+import { Project } from '@/lib/types/project';
+import { Button } from '@/components/shared/Button';
 import {
   LayoutDashboard,
   ListTodo,
@@ -23,6 +25,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   ArrowLeft,
+  ChevronDown,
 } from 'lucide-react';
 
 interface Tab {
@@ -39,6 +42,9 @@ interface AppSidebarProps {
   onToggleCollapse: () => void;
   projectStatus?: string;
   selectedProjectId?: string | null;
+  projects: Project[];
+  selectedProject: Project | null;
+  onProjectChange: (project: Project) => void;
 }
 
 const TAB_ICONS: Record<string, typeof LayoutDashboard> = {
@@ -69,12 +75,17 @@ export default function AppSidebar({
   onToggleCollapse,
   projectStatus,
   selectedProjectId,
+  projects,
+  selectedProject,
+  onProjectChange,
 }: AppSidebarProps) {
   const [mounted, setMounted] = useState(false);
   const { theme } = useTheme();
   const { user, signOut } = useAuth();
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
   const isResizing = useRef(false);
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
+  const projectDropdownRef = useRef<HTMLDivElement>(null);
 
   const displayName = user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'User';
   const initial = displayName.charAt(0).toUpperCase();
@@ -82,6 +93,18 @@ export default function AppSidebar({
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Close project dropdown on outside click
+  useEffect(() => {
+    if (!projectDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (projectDropdownRef.current && !projectDropdownRef.current.contains(e.target as Node)) {
+        setProjectDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [projectDropdownOpen]);
 
   const logoSrc = mounted
     ? theme === 'dark' ? '/zhl-logo-light.png' : '/zhl-logo-dark.png'
@@ -164,7 +187,49 @@ export default function AppSidebar({
         </button>
       </div>
 
-      {/* Status + Add Files (below logo, above nav) */}
+      {/* Project Selector */}
+      {!isCollapsed && (
+        <div className="px-3 py-3 border-b border-border" ref={projectDropdownRef}>
+          <div className="relative">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Project</span>
+            <Button
+              variant="ghost"
+              onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
+              className="w-full justify-between text-sm font-semibold text-foreground hover:bg-muted transition-colors flex items-center gap-2 h-auto py-2 px-2 shadow-none"
+            >
+              <span className="truncate">{selectedProject?.name ?? 'Select Project'}</span>
+              <ChevronDown
+                className={`h-4 w-4 shrink-0 transition-transform ${projectDropdownOpen ? 'rotate-180' : ''}`}
+              />
+            </Button>
+            {projectDropdownOpen && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-background border border-input rounded-lg shadow-lg z-50">
+                {projects.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">No projects yet</div>
+                ) : (
+                  projects.map((project) => (
+                    <Button
+                      key={project.id}
+                      variant="ghost"
+                      onClick={() => {
+                        onProjectChange(project);
+                        setProjectDropdownOpen(false);
+                      }}
+                      className={`w-full justify-start rounded-none px-3 py-2 text-sm hover:bg-muted transition-colors h-auto shadow-none ${
+                        selectedProject?.id === project.id ? 'bg-muted font-semibold text-accent' : ''
+                      }`}
+                    >
+                      {project.name}
+                    </Button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Status + Add Files (below project selector, above nav) */}
       {!isCollapsed && (
         <div className="px-3 py-3 border-b border-border">
           <NavActions projectStatus={projectStatus} vertical selectedProjectId={selectedProjectId} />
@@ -208,36 +273,19 @@ export default function AppSidebar({
         })}
       </nav>
 
-      {/* Dark Mode Toggle */}
-      <div className={`border-t border-border px-3 py-3 ${isCollapsed ? 'flex justify-center' : ''}`}>
-        <ThemeToggle />
-      </div>
-
-      {/* Footer — User Profile & Logout */}
-      <div className="border-t border-border px-3 py-4 flex flex-col gap-4">
-        <div className={`flex items-center gap-3 ${isCollapsed ? 'justify-center' : ''}`}>
-          {/* Avatar */}
-          <div className="w-8 h-8 rounded-full bg-primary text-accent-foreground flex items-center justify-center text-sm font-semibold shrink-0">
-            {initial}
-          </div>
-          {!isCollapsed && (
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-foreground truncate">{displayName}</p>
-              <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
-            </div>
-          )}
-        </div>
-
+      {/* Footer — Dark Mode + Sign Out */}
+      <div className={`border-t border-border px-3 py-3 flex items-center ${isCollapsed ? 'flex-col gap-2' : 'gap-2'}`}>
         <button
           onClick={signOut}
           title={isCollapsed ? 'Sign Out' : undefined}
-          className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-primary hover:text-white transition-colors ${
-            isCollapsed ? 'justify-center' : ''
+          className={`flex items-center gap-2 px-2 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-primary hover:text-white transition-colors ${
+            isCollapsed ? 'justify-center' : 'flex-1'
           }`}
         >
           <LogOut className="h-4 w-4 shrink-0" />
           {!isCollapsed && <span>Sign Out</span>}
         </button>
+        <ThemeToggle />
       </div>
 
       {/* Resize handle on right edge */}

@@ -96,21 +96,35 @@ function SortableHeaderCell({
   };
 
   return (
-    <th ref={setNodeRef} style={style} {...attributes} className="relative px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap group/th">
-      <div className="flex items-center gap-1.5">
-        <span {...listeners} className="cursor-grab opacity-0 group-hover/th:opacity-50 transition-opacity shrink-0">
+    <th ref={setNodeRef} style={style} {...attributes} className="relative px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap group/th select-none">
+      <div className="flex items-center gap-1.5" {...listeners}>
+        <span className="cursor-grab opacity-0 group-hover/th:opacity-50 transition-opacity shrink-0">
           <GripVertical className="h-3 w-3" />
         </span>
         {col.icon === 'lock' && <Lock className="h-3.5 w-3.5 text-amber-500" />}
         {col.icon === 'hash' && <Hash className="h-3.5 w-3.5 text-blue-500" />}
         {col.label}
       </div>
+      {/* Resize handle - wide hit area, narrow visible line */}
       <div
-        onMouseDown={(e) => onResizeStart(col.field, e)}
-        className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 transition-colors"
-      />
+        onMouseDown={(e) => {
+          e.stopPropagation(); // prevent dnd-kit from capturing this
+          onResizeStart(col.field, e);
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        className="absolute right-[-4px] top-0 bottom-0 w-[9px] cursor-col-resize z-10 flex items-center justify-center group/resize"
+      >
+        <div className="w-[2px] h-full bg-transparent group-hover/resize:bg-primary/50 transition-colors" />
+      </div>
     </th>
   );
+}
+
+// Undo history entry: snapshot of changed cells before an edit/paste
+interface UndoEntry {
+  changes: { id: string; field: string; oldValue: string | null }[];
+  /** Row IDs that were created during paste (to delete on undo) */
+  createdRowIds?: string[];
 }
 
 export default function AccountsPage({ selectedProjectId, userPermission }: AccountsPageProps) {
@@ -123,6 +137,7 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
   const [uploading, setUploading] = useState(false);
   const [importMessage, setImportMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const undoStack = useRef<UndoEntry[]>([]);
 
   // Column ordering & resizing
   const [columnOrder, setColumnOrder] = useState<string[]>(COLUMNS.map((c) => c.field));
@@ -232,11 +247,65 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
       .eq('id', accountId);
 
     if (!error) {
+      // Push to undo stack
+      undoStack.current.push({
+        changes: [{ id: accountId, field, oldValue: (account as unknown as Record<string, string | null>)[field] ?? null }],
+      });
       setAccounts((prev) =>
         prev.map((a) => (a.id === accountId ? { ...a, [field]: value || null } : a))
       );
     }
   };
+
+  // ── Undo handler (Ctrl+Z) ────────────────────────────────────────────────
+  const handleUndo = useCallback(async () => {
+    const entry = undoStack.current.pop();
+    if (!entry) return;
+
+    // Delete any rows that were created during a paste
+    if (entry.createdRowIds?.length) {
+      for (const rowId of entry.createdRowIds) {
+        await supabase.from('zhl_project_accounts').delete().eq('id', rowId);
+      }
+      setAccounts((prev) => prev.filter((a) => !entry.createdRowIds!.includes(a.id)));
+    }
+
+    // Revert changed cells
+    for (const change of entry.changes) {
+      await supabase
+        .from('zhl_project_accounts')
+        .update({ [change.field]: change.oldValue })
+        .eq('id', change.id);
+    }
+
+    setAccounts((prev) =>
+      prev.map((a) => {
+        const relevant = entry.changes.filter((c) => c.id === a.id);
+        if (relevant.length === 0) return a;
+        const patched = { ...a };
+        for (const c of relevant) {
+          (patched as unknown as Record<string, string | null>)[c.field] = c.oldValue;
+        }
+        return patched;
+      })
+    );
+    setImportMessage({ text: 'Undo successful.', ok: true });
+  }, []);
+
+  // Listen for Ctrl+Z globally on the table
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        // Don't intercept if user is typing in an input
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        e.preventDefault();
+        handleUndo();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [handleUndo]);
 
   const togglePassword = (id: string) => {
     setVisiblePasswords((prev) => {
@@ -265,6 +334,8 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
 
     const updates: PromiseLike<void>[] = [];
     let newAccounts = [...accounts];
+    const undoChanges: { id: string; field: string; oldValue: string | null }[] = [];
+    const createdRowIds: string[] = [];
 
     for (let r = 0; r < rows.length; r++) {
       const rowIdx = anchorRowIdx + r;
@@ -278,8 +349,10 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
           .insert({ project_id: selectedProjectId })
           .select()
           .single();
-        if (data) newAccounts = [...newAccounts, data as ProjectAccount];
-        else continue;
+        if (data) {
+          newAccounts = [...newAccounts, data as ProjectAccount];
+          createdRowIds.push((data as ProjectAccount).id);
+        } else continue;
       }
 
       const account = newAccounts[rowIdx];
@@ -289,6 +362,10 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
         if (colIdx >= orderedColumns.length) break;
         const field = orderedColumns[colIdx].field;
         const val = rows[r][c].trim();
+        const oldValue = (account as unknown as Record<string, string | null>)[field] ?? null;
+
+        // Track for undo
+        undoChanges.push({ id: account.id, field, oldValue });
 
         updates.push(
           supabase
@@ -306,7 +383,11 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
 
     await Promise.all(updates);
     setAccounts(newAccounts);
-    setImportMessage({ text: `Pasted ${rows.filter((r) => r.some((c) => c.trim())).length} rows.`, ok: true });
+
+    // Push to undo stack
+    undoStack.current.push({ changes: undoChanges, createdRowIds });
+
+    setImportMessage({ text: `Pasted ${rows.filter((r) => r.some((c) => c.trim())).length} rows. Press Ctrl+Z to undo.`, ok: true });
   }, [canEdit, selectedProjectId, editingCell, accounts, orderedColumns]);
 
   // ── Excel / CSV upload ─────────────────────────────────────────────────────
@@ -420,7 +501,7 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
       )}
 
       {/* Table */}
-      <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto" onPaste={handlePaste}>
+      <div className="glass-card rounded-2xl border border-border/50 shadow-sm overflow-x-auto" onPaste={handlePaste}>
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <table className="text-xs sm:text-sm" style={{ tableLayout: 'fixed', minWidth: '100%' }}>
             <thead>
@@ -510,7 +591,7 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
 
       {/* Column hint */}
       <p className="mt-2 text-[10px] text-muted-foreground/60">
-        Drag column headers to reorder. Paste from Google Sheets / Excel with Ctrl+V.
+        Drag column headers to reorder &middot; Resize by dragging column edges &middot; Paste from Google Sheets / Excel with Ctrl+V &middot; Undo with Ctrl+Z
       </p>
     </div>
   );
