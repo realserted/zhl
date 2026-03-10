@@ -59,14 +59,14 @@ function SortableFieldItem({ id, children }: { id: string; children: React.React
     opacity: isDragging ? 0.5 : 1,
   };
   return (
-    <div ref={setNodeRef} style={style} className="flex items-center gap-1 group/field">
+    <div ref={setNodeRef} style={style} className="flex items-center gap-1.5 w-full group/field py-0.5 hover:bg-accent/5 rounded px-1 transition-colors">
       <button
         {...attributes}
         {...listeners}
-        className="p-0.5 text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing shrink-0 touch-none"
+        className="p-0.5 text-muted-foreground/40 hover:text-primary cursor-grab active:cursor-grabbing shrink-0 touch-none flex items-center justify-center transition-colors"
         title="Drag to reorder"
       >
-        <GripVertical className="h-3 w-3" />
+        <GripVertical className="h-3.5 w-3.5" />
       </button>
       {children}
     </div>
@@ -1357,6 +1357,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
     );
   }
 
+
   return (
     <main className="bg-background text-foreground min-h-screen">
       {/* Hidden file inputs for Excel upload */}
@@ -1443,48 +1444,44 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
 
             {/* Add Category / Add Custom Field / Upload Excel — hidden for View-only */}
             {canEdit && (
-              <div className="flex flex-col gap-2 mb-6">
+              <div className="flex flex-col gap-3 mb-6 px-1">
                 <button
                   onClick={() => setShowAddCategory(true)}
-                  className="flex items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all px-1"
+                  className="flex items-center gap-3 text-xs font-bold tracking-wide uppercase text-foreground/80 hover:text-primary transition-all group"
                 >
-                  <Plus className="h-3.5 w-3.5" /> ADD CATEGORY
+                  <Plus className="h-4 w-4 text-muted-foreground group-hover:text-primary" /> ADD CATEGORY
                 </button>
                 <button
                   onClick={() => {
                     if (categories.length > 0) setNewFieldCategory(categories[0].id);
                     setShowAddField(true);
                   }}
-                  className="flex items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all px-1"
+                  className="flex items-center gap-3 text-xs font-bold tracking-wide uppercase text-foreground/80 hover:text-primary transition-all group"
                 >
-                  <Plus className="h-3.5 w-3.5" /> ADD CUSTOM FIELD
+                  <Plus className="h-4 w-4 text-muted-foreground group-hover:text-primary" /> ADD CUSTOM FIELD
                 </button>
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading}
-                  className="flex items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all disabled:opacity-50 px-1"
+                  className="flex items-center gap-3 text-xs font-bold tracking-wide uppercase text-foreground/80 hover:text-primary transition-all disabled:opacity-50 group"
                 >
-                  {uploading ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <FileSpreadsheet className="h-3.5 w-3.5" />
-                  )}
+                  <FileSpreadsheet className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
                   {uploading ? 'IMPORTING...' : 'UPLOAD EXCEL'}
                 </button>
                 <button
                   onClick={() => quickFileInputRef.current?.click()}
                   disabled={uploading}
-                  className="flex items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary/80 transition-all disabled:opacity-50 px-1"
+                  className="flex items-center gap-3 text-xs font-bold tracking-wide uppercase text-foreground/80 hover:text-primary transition-all disabled:opacity-50 group"
                 >
-                  <Upload className="h-3.5 w-3.5" />
+                  <Upload className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
                   QUICK UPLOAD
                 </button>
                 <button
                   onClick={() => importFileInputRef.current?.click()}
                   disabled={uploading}
-                  className="flex items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-emerald-500 hover:text-emerald-400 transition-all disabled:opacity-50 px-1"
+                  className="flex items-center gap-3 text-xs font-bold tracking-wide uppercase text-emerald-600 hover:text-emerald-500 transition-all disabled:opacity-50 group"
                 >
-                  <Download className="h-3.5 w-3.5" />
+                  <Download className="h-4 w-4 text-emerald-600/70 group-hover:text-emerald-500" />
                   IMPORT TO CATEGORY
                 </button>
               </div>
@@ -1498,48 +1495,58 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                 const color = categoryColors[ci % categoryColors.length];
 
                 return (
-                  <div key={cat.id} className={`border-l-2 border-dotted ${color} pl-3`}>
+                  <div key={cat.id} className={`border-l-2 border-dotted ${color} pl-4 pb-2 relative transition-all`}>
                     {/* Category checkbox + rename + delete */}
-                    <div className="flex items-center gap-2 mb-1 group/cat">
-                      <label className={`flex items-center gap-2 flex-1 min-w-0 ${canToggleFields ? 'cursor-pointer' : 'cursor-default'}`}>
+                    <div className="flex items-center gap-2 mb-2 group/cat">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
                         <input
                           type="checkbox"
                           checked={allVisible}
                           ref={(el) => { if (el) el.indeterminate = someVisible && !allVisible; }}
                           onChange={() => toggleCategory(cat.id)}
                           disabled={!canToggleFields}
-                          className="rounded border-input shrink-0"
+                          className="h-4 w-4 rounded border-input bg-background checked:bg-purple-600 checked:border-purple-600 transition-all cursor-pointer accent-purple-600 shrink-0"
                         />
-                        {editingCategoryId === cat.id ? (
-                          <input
-                            autoFocus
-                            type="text"
-                            value={editingCategoryName}
-                            onChange={(e) => setEditingCategoryName(e.target.value)}
-                            onBlur={() => handleRenameCategory(cat.id, editingCategoryName)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleRenameCategory(cat.id, editingCategoryName);
-                              if (e.key === 'Escape') setEditingCategoryId(null);
-                            }}
-                            onClick={(e) => e.preventDefault()}
-                            className="text-xs font-bold text-primary bg-background/50 border border-primary/20 rounded-lg px-2 py-1 w-full focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-                          />
-                        ) : (
-                          <span className="text-[11px] font-bold tracking-wide text-primary truncate flex items-center gap-1 uppercase">
-                            {cat.name}
-                            {cat.linked_file_name && (
-                              <a
-                                href={`/files?highlight=${encodeURIComponent(cat.linked_file_path ?? '')}`}
-                                onClick={(e) => e.stopPropagation()}
-                                className="shrink-0"
-                                title={`Linked: ${cat.linked_file_name} — Click to view in Files`}
-                              >
-                                <ExternalLink className="h-3 w-3 text-blue-500" />
-                              </a>
-                            )}
-                          </span>
-                        )}
-                      </label>
+                        <button
+                          onClick={() => toggleCategoryCollapse(cat.id)}
+                          className="flex items-center gap-1 flex-1 min-w-0 text-left hover:text-primary transition-colors"
+                        >
+                          {editingCategoryId === cat.id ? (
+                            <input
+                              autoFocus
+                              type="text"
+                              value={editingCategoryName}
+                              onChange={(e) => setEditingCategoryName(e.target.value)}
+                              onBlur={() => handleRenameCategory(cat.id, editingCategoryName)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleRenameCategory(cat.id, editingCategoryName);
+                                if (e.key === 'Escape') setEditingCategoryId(null);
+                              }}
+                              onClick={(e) => e.preventDefault()}
+                              className="text-xs font-bold text-foreground bg-background border border-primary/20 rounded px-2 py-1 w-full focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                            />
+                          ) : (
+                            <span className="text-xs font-bold tracking-wide text-foreground uppercase truncate flex items-center gap-1">
+                              {cat.name}
+                              {collapsedCategories.has(cat.id) ? (
+                                <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                              ) : (
+                                <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                              )}
+                            </span>
+                          )}
+                        </button>
+                      </div>
+                      {cat.linked_file_name && (
+                        <a
+                          href={`/files?highlight=${encodeURIComponent(cat.linked_file_path ?? '')}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="shrink-0"
+                          title={`Linked: ${cat.linked_file_name} — Click to view in Files`}
+                        >
+                          <ExternalLink className="h-3 w-3 text-blue-500" />
+                        </a>
+                      )}
                       {canEdit && editingCategoryId !== cat.id && (
                         <button
                           onClick={() => { setEditingCategoryId(cat.id); setEditingCategoryName(cat.name); }}
@@ -1560,156 +1567,162 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                       )}
                     </div>
 
-                    {/* Field checkboxes with drag-and-drop reordering */}
-                    {canReorderFields ? (
-                    <DndContext
-                      sensors={dndSensors}
-                      collisionDetection={closestCenter}
-                      onDragEnd={(event: DragEndEvent) => {
-                        const { active, over } = event;
-                        if (over && active.id !== over.id) {
-                          handleFieldReorder(cat.id, String(active.id), String(over.id));
-                        }
-                      }}
-                    >
-                      <SortableContext items={getOrderedFields(cat).map((f) => f.id)} strategy={verticalListSortingStrategy}>
-                        <div className="ml-2 space-y-0.5">
-                          {getOrderedFields(cat).map((field) => (
-                            <SortableFieldItem key={field.id} id={field.id}>
-                              <label className={`flex items-center gap-2 flex-1 min-w-0 ${canToggleFields ? 'cursor-pointer' : 'cursor-default'}`}>
-                                <input
-                                  type="checkbox"
-                                  checked={field.visible}
-                                  onChange={() => toggleField(field.id)}
-                                  disabled={!canToggleFields}
-                                  className="rounded border-input shrink-0"
-                                />
-                                {editingFieldId === field.id ? (
-                                  <input
-                                    autoFocus
-                                    type="text"
-                                    value={editingFieldName}
-                                    onChange={(e) => setEditingFieldName(e.target.value)}
-                                    onBlur={() => handleRenameField(field.id, editingFieldName)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') handleRenameField(field.id, editingFieldName);
-                                      if (e.key === 'Escape') setEditingFieldId(null);
-                                    }}
-                                    onClick={(e) => e.preventDefault()}
-                                    className="text-xs bg-background border border-input rounded px-1 py-0.5 w-full focus:outline-none focus:ring-1 focus:ring-ring"
-                                  />
-                                ) : (
-                                  <span className={`text-xs flex items-center gap-1 ${field.visible ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
-                                    {field.name}
-                                    {field.is_file_link && (
-                                      <span title="File link field" className="shrink-0">
-                                        <Upload className="h-3 w-3 text-muted-foreground" />
-                                      </span>
-                                    )}
-                                    {field.linked_file_name && (
-                                      <a
-                                        href={`/files?highlight=${encodeURIComponent(field.linked_file_path ?? '')}`}
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="shrink-0"
-                                        title={`Linked: ${field.linked_file_name} — Click to view in Files`}
-                                      >
-                                        <ExternalLink className="h-3 w-3 text-blue-500" />
-                                      </a>
-                                    )}
-                                    {field.is_hyperlink && (
-                                      <span title="Shows to indicate a linked file column" className="shrink-0">
-                                        <Link className="h-3 w-3 text-muted-foreground" />
-                                      </span>
-                                    )}
-                                  </span>
-                                )}
-                              </label>
-                              {canEdit && editingFieldId !== field.id && (
-                                <>
-                                  <button
-                                    onClick={async () => {
-                                      const newVal = !field.is_auto_id;
-                                      const ok = await updateField(field.id, { is_auto_id: newVal });
-                                      if (ok) {
-                                        setCategories((prev) => prev.map((c) => c.id === cat.id
-                                          ? { ...c, fields: c.fields.map((f) => f.id === field.id ? { ...f, is_auto_id: newVal } : f) }
-                                          : c
-                                        ));
-                                      }
-                                    }}
-                                    className={`px-1 py-0.5 rounded text-[9px] font-bold flex-shrink-0 transition-colors ${
-                                      field.is_auto_id
-                                        ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40'
-                                        : 'text-muted-foreground/50 hover:text-blue-400 opacity-0 group-hover/field:opacity-100 border border-transparent'
-                                    }`}
-                                    title={field.is_auto_id ? 'Disable auto ID' : 'Set as auto ID column'}
-                                  >
-                                    ID
-                                  </button>
-                                  <button
-                                    onClick={() => { setEditingFieldId(field.id); setEditingFieldName(field.name); }}
-                                    className="p-0.5 text-muted-foreground hover:text-accent transition-colors shrink-0 opacity-0 group-hover/field:opacity-100"
-                                    title={`Rename "${field.name}"`}
-                                  >
-                                    <Pencil className="h-3 w-3" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteField(field.id)}
-                                    className="p-0.5 text-muted-foreground hover:text-destructive transition-colors shrink-0 opacity-0 group-hover/field:opacity-100"
-                                    title={`Delete "${field.name}"`}
-                                  >
-                                    <Trash2 className="h-3 w-3" />
-                                  </button>
-                                </>
-                              )}
-                            </SortableFieldItem>
-                          ))}
+                    <div className={`grid transition-all duration-300 ease-in-out ${collapsedCategories.has(cat.id) ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'}`}>
+                      <div className="overflow-hidden min-h-0">
+                        <div className="mt-1">
+                          {canReorderFields ? (
+                            <DndContext
+                              sensors={dndSensors}
+                              collisionDetection={closestCenter}
+                              onDragEnd={(event: DragEndEvent) => {
+                                const { active, over } = event;
+                                if (over && active.id !== over.id) {
+                                  handleFieldReorder(cat.id, String(active.id), String(over.id));
+                                }
+                              }}
+                            >
+                              <SortableContext items={getOrderedFields(cat).map((f) => f.id)} strategy={verticalListSortingStrategy}>
+                                <div className="ml-1 space-y-0.5">
+                                  {getOrderedFields(cat).map((field) => (
+                                    <SortableFieldItem key={field.id} id={field.id}>
+                                      <label className={`flex items-center gap-2 flex-1 min-w-0 ${canToggleFields ? 'cursor-pointer' : 'cursor-default'}`}>
+                                        <input
+                                          type="checkbox"
+                                          checked={field.visible}
+                                          onChange={() => toggleField(field.id)}
+                                          disabled={!canToggleFields}
+                                          className="h-3.5 w-3.5 rounded border-input bg-background checked:bg-purple-600 checked:border-purple-600 transition-all cursor-pointer accent-purple-600 shrink-0"
+                                        />
+                                        {editingFieldId === field.id ? (
+                                          <input
+                                            autoFocus
+                                            type="text"
+                                            value={editingFieldName}
+                                            onChange={(e) => setEditingFieldName(e.target.value)}
+                                            onBlur={() => handleRenameField(field.id, editingFieldName)}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter') handleRenameField(field.id, editingFieldName);
+                                              if (e.key === 'Escape') setEditingFieldId(null);
+                                            }}
+                                            onClick={(e) => e.preventDefault()}
+                                            className="text-xs bg-background border border-input rounded px-1 py-0.5 w-full focus:outline-none focus:ring-1 focus:ring-ring"
+                                          />
+                                        ) : (
+                                          <span className={`text-[12px] flex items-center gap-1.5 ${field.visible ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+                                            {field.name}
+                                            {field.is_file_link && (
+                                              <span title="File link field" className="shrink-0">
+                                                <Upload className="h-3 w-3 text-muted-foreground" />
+                                              </span>
+                                            )}
+                                            {field.linked_file_name && (
+                                              <a
+                                                href={`/files?highlight=${encodeURIComponent(field.linked_file_path ?? '')}`}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="shrink-0"
+                                                title={`Linked: ${field.linked_file_name} — Click to view in Files`}
+                                              >
+                                                <ExternalLink className="h-3 w-3 text-blue-500" />
+                                              </a>
+                                            )}
+                                            {field.is_hyperlink && (
+                                              <span title="Shows to indicate a linked file column" className="shrink-0">
+                                                <Link className="h-3 w-3 text-muted-foreground" />
+                                              </span>
+                                            )}
+                                          </span>
+                                        )}
+                                      </label>
+                                      {canEdit && editingFieldId !== field.id && (
+                                        <>
+                                          <button
+                                            onClick={async () => {
+                                              const newVal = !field.is_auto_id;
+                                              const ok = await updateField(field.id, { is_auto_id: newVal });
+                                              if (ok) {
+                                                setCategories((prev) => prev.map((c) => c.id === cat.id
+                                                  ? { ...c, fields: c.fields.map((f) => f.id === field.id ? { ...f, is_auto_id: newVal } : f) }
+                                                  : c
+                                                ));
+                                              }
+                                            }}
+                                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 transition-all ${
+                                              field.is_auto_id
+                                                ? 'bg-blue-100 text-blue-600 border border-blue-200 shadow-sm'
+                                                : 'text-muted-foreground/30 hover:text-blue-500 opacity-0 group-hover/field:opacity-100 border border-transparent'
+                                            }`}
+                                            title={field.is_auto_id ? 'Disable auto ID' : 'Set as auto ID column'}
+                                          >
+                                            ID
+                                          </button>
+                                          <button
+                                            onClick={() => { setEditingFieldId(field.id); setEditingFieldName(field.name); }}
+                                            className="p-0.5 text-muted-foreground hover:text-accent transition-colors shrink-0 opacity-0 group-hover/field:opacity-100"
+                                            title={`Rename "${field.name}"`}
+                                          >
+                                            <Pencil className="h-3 w-3" />
+                                          </button>
+                                          <button
+                                            onClick={() => handleDeleteField(field.id)}
+                                            className="p-0.5 text-muted-foreground hover:text-destructive transition-colors shrink-0 opacity-0 group-hover/field:opacity-100"
+                                            title={`Delete "${field.name}"`}
+                                          >
+                                            <Trash2 className="h-3 w-3" />
+                                          </button>
+                                        </>
+                                      )}
+                                    </SortableFieldItem>
+                                  ))}
+                                </div>
+                              </SortableContext>
+                            </DndContext>
+                          ) : (
+                            <div className="ml-1 space-y-0.5">
+                              {getOrderedFields(cat).map((field) => (
+                                <div key={field.id} className="flex items-center gap-1.5 w-full group/field py-0.5 hover:bg-accent/5 rounded px-1 transition-colors">
+                                  <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
+                                  <label className={`flex items-center gap-2 flex-1 min-w-0 ${canToggleFields ? 'cursor-pointer' : 'cursor-default'}`}>
+                                    <input
+                                      type="checkbox"
+                                      checked={field.visible}
+                                      onChange={() => toggleField(field.id)}
+                                      disabled={!canToggleFields}
+                                      className="h-3.5 w-3.5 rounded border-input bg-background checked:bg-purple-600 checked:border-purple-600 transition-all cursor-pointer accent-purple-600 shrink-0"
+                                    />
+                                    <span className={`text-[12px] flex items-center gap-1.5 ${field.visible ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+                                      {field.name}
+                                      {field.is_file_link && (
+                                        <span title="File link field" className="shrink-0">
+                                          <Upload className="h-3 w-3 text-muted-foreground" />
+                                        </span>
+                                      )}
+                                      {field.linked_file_name && (
+                                        <a
+                                          href={`/files?highlight=${encodeURIComponent(field.linked_file_path ?? '')}`}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="shrink-0"
+                                          title={`Linked: ${field.linked_file_name} — Click to view in Files`}
+                                        >
+                                          <ExternalLink className="h-3 w-3 text-blue-500" />
+                                        </a>
+                                      )}
+                                      {field.is_hyperlink && (
+                                        <span title="Shows to indicate a linked file column" className="shrink-0">
+                                          <Link className="h-3 w-3 text-muted-foreground" />
+                                        </span>
+                                      )}
+                                      {field.is_auto_id && (
+                                        <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/40 shrink-0">ID</span>
+                                      )}
+                                    </span>
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      </SortableContext>
-                    </DndContext>
-                    ) : (
-                    <div className="ml-4 space-y-0.5">
-                      {getOrderedFields(cat).map((field) => (
-                        <div key={field.id} className="flex items-center gap-1 group/field">
-                          <label className={`flex items-center gap-2 flex-1 min-w-0 ${canToggleFields ? 'cursor-pointer' : 'cursor-default'}`}>
-                            <input
-                              type="checkbox"
-                              checked={field.visible}
-                              onChange={() => toggleField(field.id)}
-                              disabled={!canToggleFields}
-                              className="rounded border-input shrink-0"
-                            />
-                            <span className={`text-xs flex items-center gap-1 ${field.visible ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
-                              {field.name}
-                              {field.is_file_link && (
-                                <span title="File link field" className="shrink-0">
-                                  <Upload className="h-3 w-3 text-muted-foreground" />
-                                </span>
-                              )}
-                              {field.linked_file_name && (
-                                <a
-                                  href={`/files?highlight=${encodeURIComponent(field.linked_file_path ?? '')}`}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="shrink-0"
-                                  title={`Linked: ${field.linked_file_name} — Click to view in Files`}
-                                >
-                                  <ExternalLink className="h-3 w-3 text-blue-500" />
-                                </a>
-                              )}
-                              {field.is_hyperlink && (
-                                <span title="Shows to indicate a linked file column" className="shrink-0">
-                                  <Link className="h-3 w-3 text-muted-foreground" />
-                                </span>
-                              )}
-                              {field.is_auto_id && (
-                                <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/40 flex-shrink-0">ID</span>
-                              )}
-                            </span>
-                          </label>
-                        </div>
-                      ))}
+                      </div>
                     </div>
-                    )}
                   </div>
                 );
               })}
@@ -2335,7 +2348,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                       }`}
                     >
                       <div
-                        className={`w-10 flex-shrink-0 text-xs text-center py-1.5 cursor-pointer hover:text-primary font-mono transition-colors ${
+                        className={`w-10 shrink-0 text-xs text-center py-1.5 cursor-pointer hover:text-primary font-mono transition-colors ${
                           isHeaderRow ? 'text-blue-500 font-bold' : isStartRow ? 'text-primary font-bold' : 'text-muted-foreground/60'
                         }`}
                         onClick={() => { setUdDataStartRow(actualRowIdx + 1); if (actualRowIdx >= 1) setUdHeaderRow(actualRowIdx); setUdPreviewPage(0); }}
@@ -2350,7 +2363,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                         return (
                           <div
                             key={cIdx}
-                            className={`w-28 flex-shrink-0 px-2 py-1.5 text-xs truncate border-r border-border/20 cursor-cell font-medium transition-all ${
+                            className={`w-28 shrink-0 px-2 py-1.5 text-xs truncate border-r border-border/20 cursor-cell font-medium transition-all ${
                               inSelection ? 'bg-primary/20 ring-1 ring-primary/40 rounded' : inRange ? 'text-foreground/80' : 'opacity-20'
                             }`}
                             title={val != null ? String(val) : ''}
@@ -2452,14 +2465,14 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
           {importTargetCat && (
             <div className="px-5 py-3 border-b border-border/50 overflow-x-auto bg-muted/10">
               <div className="flex items-end gap-1 min-w-max">
-                <div className="w-10 flex-shrink-0" />
+                <div className="w-10 shrink-0" />
                 {Array.from({ length: Math.min(Math.max(...importRows.map((r) => r.length), 0), importEndCol + 1) }, (_, colIdx) => {
                   if (colIdx < importStartCol) return null;
                   const cat = categories.find((c) => c.id === importTargetCat);
                   const mappedVal = importColMapping[colIdx] ?? '';
                   const isNew = mappedVal === '__new__';
                   return (
-                    <div key={colIdx} className="w-28 flex-shrink-0 space-y-1">
+                    <div key={colIdx} className="w-28 shrink-0 space-y-1">
                       <select value={mappedVal} onChange={(e) => setImportColMapping((prev) => ({ ...prev, [colIdx]: e.target.value }))}
                         className={`w-full px-1.5 py-1 border rounded-lg text-[10px] font-medium transition-all ${mappedVal ? 'border-primary/40 bg-primary/10 text-primary font-bold' : 'border-border/50 bg-background/50 text-muted-foreground'}`}>
                         <option value="">— Skip —</option>
@@ -2498,14 +2511,14 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                   const inDataRange = actualRowIdx >= importDataStartRow - 1 && (importDataEndRow === 0 || actualRowIdx < importDataEndRow);
                   return (
                     <div key={actualRowIdx} className={`flex items-center gap-1 rounded-lg transition-all ${inDataRange ? 'hover:bg-muted/30' : 'opacity-30'}`}>
-                      <div className="w-10 flex-shrink-0 text-xs text-center py-1.5 text-muted-foreground/60 font-mono">{actualRowIdx + 1}</div>
+                      <div className="w-10 shrink-0 text-xs text-center py-1.5 text-muted-foreground/60 font-mono">{actualRowIdx + 1}</div>
                       {Array.from({ length: maxCols }, (_, cIdx) => {
                         const val = row[cIdx];
                         const inColRange = cIdx >= importStartCol && cIdx <= importEndCol;
                         const inSelection = selR1 !== null && selC1 !== null && actualRowIdx >= selR1 && actualRowIdx <= selR2! && cIdx >= selC1 && cIdx <= selC2!;
                         return (
                           <div key={cIdx}
-                            className={`w-28 flex-shrink-0 px-2 py-1.5 text-xs truncate border-r border-border/20 cursor-cell font-medium transition-all ${
+                            className={`w-28 shrink-0 px-2 py-1.5 text-xs truncate border-r border-border/20 cursor-cell font-medium transition-all ${
                               inSelection ? 'bg-primary/20 ring-1 ring-primary/40 rounded' : inColRange ? 'text-foreground/80' : 'opacity-20'
                             }`}
                             title={val != null ? String(val) : ''}
@@ -2565,7 +2578,7 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
 
       {/* File Preview Modal */}
       {filePreview && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-200 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-background/60 backdrop-blur-md" onClick={closeFilePreview} />
           <div className="relative bg-background/95 border border-white/10 rounded-xl shadow-2xl flex flex-col w-full max-w-5xl animate-in fade-in zoom-in duration-200" style={{ height: '85vh' }}>
             {/* Header */}
