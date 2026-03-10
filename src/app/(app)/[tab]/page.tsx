@@ -128,7 +128,7 @@ export default function TabPage({ params }: { params: Promise<{ tab: string }> }
       return <AdminPanelPage onProjectStatusChange={handleProjectStatusChange} />;
 
     case 'logs':
-      return <UserLogsPage />;
+      return <UserLogsPage selectedProjectId={projectId} />;
 
     case 'meetings':
       return (

@@ -193,7 +193,7 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
     { id: 'templates',  label: 'TEMPLATES',             permKey: 'perm_templates' },
     { id: 'meetings',   label: 'MEETINGS & AVAILABILITY', permKey: 'perm_meetings' },
     { id: 'issues',     label: 'TENANT ISSUES',         permKey: null },
-    { id: 'logs',       label: 'USER LOGS',             permKey: 'perm_user_logs' },
+    ...(isAdmin || selectedProject?.owner_id === user?.id ? [{ id: 'logs', label: 'USER LOGS', permKey: null }] : []),
     ...(isAdmin ? [{ id: 'admin', label: 'ADMIN PANEL', permKey: null }] : []),
     { id: 'settings',   label: 'SETTINGS',              permKey: null },
   ];
