@@ -1318,8 +1318,50 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                     className="flex-1 px-3 py-2 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
                   />
                 </div>
-                <p className="text-[10px] text-muted-foreground mt-1.5 leading-relaxed">
-                  To sync meetings to Google Calendar, enter your Calendar ID. Find it in Google Calendar &rarr; Settings &rarr; your calendar &rarr; &quot;Integrate calendar&quot; section.
+                {projectSettings.google_calendar_id ? (
+                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1.5 font-medium">
+                    Connected &mdash; meetings will sync to this Google Calendar automatically.
+                  </p>
+                ) : (
+                  <div className="mt-2 p-3 rounded-lg bg-muted/50 border border-border/50">
+                    <p className="text-[10px] font-bold text-muted-foreground mb-1.5">HOW TO SET UP:</p>
+                    <ol className="text-[10px] text-muted-foreground space-y-1 list-decimal list-inside leading-relaxed">
+                      <li>Open <strong>Google Calendar</strong> (calendar.google.com)</li>
+                      <li>On the left sidebar, hover over the calendar you want to use and click the <strong>three dots</strong> menu</li>
+                      <li>Click <strong>&quot;Settings and sharing&quot;</strong></li>
+                      <li>Scroll down to the <strong>&quot;Integrate calendar&quot;</strong> section</li>
+                      <li>Copy the <strong>Calendar ID</strong> (looks like <code className="text-[9px] bg-background/80 px-1 py-0.5 rounded">abc123@group.calendar.google.com</code>)</li>
+                      <li>Paste it in the field above</li>
+                      <li>Make sure your Google account is <strong>connected</strong> in your account settings (above) so ZHL can write events</li>
+                    </ol>
+                    <p className="text-[10px] text-muted-foreground mt-2">
+                      For your primary calendar, the ID is usually your Gmail address.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Default meeting location */}
+              <div>
+                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2">
+                  Default Meeting Location
+                </label>
+                <input
+                  type="text"
+                  defaultValue={projectSettings.default_meeting_location ?? ''}
+                  key={`${selectedProjectId}-mtg-loc-${projectSettings.default_meeting_location ?? ''}`}
+                  onBlur={async (e) => {
+                    const val = e.target.value.trim();
+                    if (val !== (projectSettings.default_meeting_location ?? '') && selectedProjectId) {
+                      const ok = await saveProjectSettings(selectedProjectId, { default_meeting_location: val });
+                      if (ok) setProjectSettings((prev) => ({ ...prev, default_meeting_location: val }));
+                    }
+                  }}
+                  placeholder="e.g., Conference Room A, Zoom, Google Meet link..."
+                  className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+                />
+                <p className="text-[10px] text-muted-foreground mt-1.5">
+                  Pre-fills the location field when creating new meetings.
                 </p>
               </div>
 

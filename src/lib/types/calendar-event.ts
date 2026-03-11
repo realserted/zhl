@@ -6,6 +6,7 @@ export interface CalendarEvent {
   location: string | null;
   created_by: string;
   created_at: string;
+  google_event_id?: string | null;
 }
 
 export interface OutOfOffice {

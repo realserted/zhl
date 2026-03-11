@@ -39,7 +39,7 @@ export async function createCalendarEvent(
 
 export async function updateCalendarEvent(
   eventId: string,
-  updates: { title?: string; event_date?: string; location?: string | null }
+  updates: { title?: string; event_date?: string; location?: string | null; google_event_id?: string | null }
 ): Promise<boolean> {
   const { error } = await supabase
     .from('zhl_calendar_events')

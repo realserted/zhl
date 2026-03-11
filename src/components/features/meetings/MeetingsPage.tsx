@@ -9,8 +9,9 @@ import {
   getCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent,
   getOutOfOffice, setOutOfOffice, removeOutOfOffice,
 } from '@/lib/db/calendar-events';
+import { getProjectSettings } from '@/lib/db/project-settings';
 import {
-  ChevronLeft, ChevronRight, Plus, Trash2, MapPin, X, Calendar,
+  ChevronLeft, ChevronRight, Plus, Trash2, MapPin, X, Calendar, Loader2,
 } from 'lucide-react';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
@@ -18,6 +19,40 @@ import { Button } from '@/components/shared/Button';
 interface MeetingsPageProps {
   selectedProjectId: string | null;
   userPermission?: ProjectPermission | null;
+}
+
+/** Fire-and-forget Google Calendar sync. Returns the google_event_id on create. */
+async function syncToGoogleCalendar(params: {
+  action: 'create' | 'update' | 'delete';
+  calendarId: string;
+  googleEventId?: string | null;
+  event?: { title: string; date: string; location?: string };
+}): Promise<string | null> {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (!accessToken) return null;
+
+    const res = await fetch('/api/calendar', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        action: params.action,
+        calendarId: params.calendarId,
+        googleEventId: params.googleEventId,
+        event: params.event,
+      }),
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.googleEventId ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export default function MeetingsPage({ selectedProjectId, userPermission }: MeetingsPageProps) {
@@ -34,11 +69,16 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
   const [showEventModal, setShowEventModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [eventForm, setEventForm] = useState({ title: '', date: '', location: '' });
+  const [saving, setSaving] = useState(false);
 
   // ── OOO state ───────────────────────────────────────────────────────────────
   const [oooEntries, setOooEntries] = useState<OutOfOffice[]>([]);
   const [projectUsers, setProjectUsers] = useState<{ user_id: string; user_name: string }[]>([]);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+
+  // ── Google Calendar config ────────────────────────────────────────────────
+  const [googleCalendarId, setGoogleCalendarId] = useState('');
+  const [defaultLocation, setDefaultLocation] = useState('');
 
   // Display name
   const [displayName, setDisplayName] = useState('');
@@ -47,6 +87,15 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
     supabase.from('zhl_accounts').select('display_name').eq('user_id', user.id).maybeSingle()
       .then(({ data }) => setDisplayName(data?.display_name || user.email || ''));
   }, [user]);
+
+  // Load project settings (for Google Calendar ID)
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    getProjectSettings(selectedProjectId).then((s) => {
+      setGoogleCalendarId(s.google_calendar_id || '');
+      setDefaultLocation(s.default_meeting_location || '');
+    });
+  }, [selectedProjectId]);
 
   // Load project users
   useEffect(() => {
@@ -123,7 +172,7 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
       ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
       : '';
     setEditingEvent(null);
-    setEventForm({ title: '', date: dateStr, location: '' });
+    setEventForm({ title: '', date: dateStr, location: defaultLocation });
     setShowEventModal(true);
   };
 
@@ -135,28 +184,70 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
 
   const handleSaveEvent = async () => {
     if (!eventForm.title.trim() || !eventForm.date || !selectedProjectId || !user) return;
-    if (editingEvent) {
-      const ok = await updateCalendarEvent(editingEvent.id, {
-        title: eventForm.title.trim(),
-        event_date: eventForm.date,
-        location: eventForm.location.trim() || null,
-      });
-      if (ok) {
-        setEvents((prev) => prev.map((e) => e.id === editingEvent.id
-          ? { ...e, title: eventForm.title.trim(), event_date: eventForm.date, location: eventForm.location.trim() || null }
-          : e
-        ));
+    setSaving(true);
+
+    try {
+      if (editingEvent) {
+        const ok = await updateCalendarEvent(editingEvent.id, {
+          title: eventForm.title.trim(),
+          event_date: eventForm.date,
+          location: eventForm.location.trim() || null,
+        });
+        if (ok) {
+          // Sync to Google Calendar (fire-and-forget for update)
+          if (googleCalendarId && editingEvent.google_event_id) {
+            syncToGoogleCalendar({
+              action: 'update',
+              calendarId: googleCalendarId,
+              googleEventId: editingEvent.google_event_id,
+              event: { title: eventForm.title.trim(), date: eventForm.date, location: eventForm.location.trim() },
+            });
+          }
+
+          setEvents((prev) => prev.map((e) => e.id === editingEvent.id
+            ? { ...e, title: eventForm.title.trim(), event_date: eventForm.date, location: eventForm.location.trim() || null }
+            : e
+          ));
+        }
+      } else {
+        const ev = await createCalendarEvent(selectedProjectId, eventForm.title.trim(), eventForm.date, user.id, eventForm.location.trim() || null);
+        if (ev) {
+          // Sync to Google Calendar
+          if (googleCalendarId) {
+            const gEventId = await syncToGoogleCalendar({
+              action: 'create',
+              calendarId: googleCalendarId,
+              event: { title: eventForm.title.trim(), date: eventForm.date, location: eventForm.location.trim() },
+            });
+            if (gEventId) {
+              // Store the Google event ID
+              await updateCalendarEvent(ev.id, { google_event_id: gEventId });
+              ev.google_event_id = gEventId;
+            }
+          }
+          setEvents((prev) => [...prev, ev]);
+        }
       }
-    } else {
-      const ev = await createCalendarEvent(selectedProjectId, eventForm.title.trim(), eventForm.date, user.id, eventForm.location.trim() || null);
-      if (ev) setEvents((prev) => [...prev, ev]);
+    } finally {
+      setSaving(false);
     }
     setShowEventModal(false);
   };
 
   const handleDeleteEvent = async (id: string) => {
+    const eventToDelete = events.find((e) => e.id === id);
     const ok = await deleteCalendarEvent(id);
-    if (ok) setEvents((prev) => prev.filter((e) => e.id !== id));
+    if (ok) {
+      // Sync delete to Google Calendar
+      if (googleCalendarId && eventToDelete?.google_event_id) {
+        syncToGoogleCalendar({
+          action: 'delete',
+          calendarId: googleCalendarId,
+          googleEventId: eventToDelete.google_event_id,
+        });
+      }
+      setEvents((prev) => prev.filter((e) => e.id !== id));
+    }
     setShowEventModal(false);
   };
 
@@ -213,6 +304,12 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
             <Calendar className="h-5 w-5 text-primary" />
             <h2 className="text-xl font-bold tracking-tight">Meetings & Availability</h2>
           </div>
+          {googleCalendarId && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold uppercase tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Google Calendar Synced
+            </span>
+          )}
         </div>
 
         <div className="glass-card rounded-2xl border border-border/50 shadow-sm p-4">
@@ -325,6 +422,11 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
                             <MapPin className="h-3 w-3 inline -mt-0.5 mr-0.5" />{ev.location}
                           </span>
                         )}
+                        {ev.google_event_id && (
+                          <span className="text-[9px] text-emerald-600 dark:text-emerald-400 ml-2" title="Synced to Google Calendar">
+                            GCal
+                          </span>
+                        )}
                       </div>
                       {canEdit && (
                         <button
@@ -433,7 +535,7 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
               autoFocus
               value={eventForm.title}
               onChange={(e) => setEventForm((p) => ({ ...p, title: e.target.value }))}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleSaveEvent(); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !saving) handleSaveEvent(); }}
               placeholder="Meeting title..."
               className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
             />
@@ -463,15 +565,32 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
               />
             </div>
           </div>
+
+          {/* Google Calendar sync indicator */}
+          {googleCalendarId && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                This meeting will sync to Google Calendar
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-3 mt-6 pt-6 border-t border-border/50">
           <Button
             onClick={handleSaveEvent}
-            disabled={!eventForm.title.trim() || !eventForm.date}
+            disabled={!eventForm.title.trim() || !eventForm.date || saving}
             className="w-full py-4 text-xs font-black tracking-widest shadow-xl shadow-primary/20"
           >
-            {editingEvent ? 'Update' : 'Create'}
+            {saving ? (
+              <span className="inline-flex items-center gap-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {googleCalendarId ? 'Syncing...' : 'Saving...'}
+              </span>
+            ) : (
+              editingEvent ? 'Update' : 'Create'
+            )}
           </Button>
           {editingEvent && (
             <Button
