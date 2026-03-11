@@ -22,11 +22,12 @@ export async function createCalendarEvent(
   title: string,
   eventDate: string,
   createdBy: string,
-  location?: string | null
+  location?: string | null,
+  meetLink?: string | null
 ): Promise<CalendarEvent | null> {
   const { data, error } = await supabase
     .from('zhl_calendar_events')
-    .insert({ project_id: projectId, title, event_date: eventDate, created_by: createdBy, location: location ?? null })
+    .insert({ project_id: projectId, title, event_date: eventDate, created_by: createdBy, location: location ?? null, meet_link: meetLink ?? null })
     .select()
     .single();
 
@@ -39,7 +40,7 @@ export async function createCalendarEvent(
 
 export async function updateCalendarEvent(
   eventId: string,
-  updates: { title?: string; event_date?: string; location?: string | null; google_event_id?: string | null }
+  updates: { title?: string; event_date?: string; location?: string | null; meet_link?: string | null; google_event_id?: string | null }
 ): Promise<boolean> {
   const { error } = await supabase
     .from('zhl_calendar_events')

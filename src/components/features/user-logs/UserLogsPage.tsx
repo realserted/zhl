@@ -255,9 +255,9 @@ export default function UserLogsPage({ selectedProjectId }: UserLogsPageProps) {
         </button>
 
         {showHeatmap && (
-          <div className="px-4 pb-4">
+          <div className="px-4 pb-3">
             {/* Timezone toggle */}
-            <div className="flex justify-end mb-3">
+            <div className="flex justify-end mb-2">
               <div className="inline-flex rounded-md border border-border/50 overflow-hidden text-[10px] font-bold uppercase tracking-wider">
                 <button
                   onClick={() => setHeatmapTimezone('utc')}
@@ -276,21 +276,24 @@ export default function UserLogsPage({ selectedProjectId }: UserLogsPageProps) {
 
             {/* Heatmap grid */}
             <div className="overflow-x-auto">
-              <div className="min-w-[640px]">
-                {/* Hour labels */}
-                <div className="flex ml-10 mb-1">
-                  {HOUR_LABELS.map((label, i) => (
-                    <div key={i} className="flex-1 text-center text-[9px] text-muted-foreground">
-                      {i % 3 === 0 ? label : ''}
-                    </div>
+              <div className="flex items-center gap-1">
+                <div className="shrink-0 space-y-[3px] pt-[16px]">
+                  {DAY_LABELS.map((day) => (
+                    <div key={day} className="h-[28px] flex items-center justify-end pr-1.5 text-[10px] text-muted-foreground font-medium">{day}</div>
                   ))}
                 </div>
-
-                {/* Grid rows */}
-                {DAY_LABELS.map((day, dayIdx) => (
-                  <div key={day} className="flex items-center gap-1 mb-0.5">
-                    <span className="w-9 text-right text-[10px] text-muted-foreground font-medium shrink-0">{day}</span>
-                    <div className="flex flex-1 gap-0.5">
+                <div className="flex-1 min-w-0">
+                  {/* Hour labels */}
+                  <div className="flex mb-[2px]">
+                    {HOUR_LABELS.map((label, i) => (
+                      <div key={i} className="flex-1 text-center text-[9px] text-muted-foreground">
+                        {i % 3 === 0 ? label : ''}
+                      </div>
+                    ))}
+                  </div>
+                  {/* Grid rows */}
+                  {DAY_LABELS.map((day, dayIdx) => (
+                    <div key={day} className="flex gap-[3px] mb-[3px]">
                       {Array.from({ length: 24 }, (_, hourIdx) => {
                         const count = heatmapData.grid[dayIdx][hourIdx];
                         const userCount = heatmapData.usersGrid[dayIdx][hourIdx].size;
@@ -298,12 +301,12 @@ export default function UserLogsPage({ selectedProjectId }: UserLogsPageProps) {
                         return (
                           <div
                             key={hourIdx}
-                            className={`relative flex-1 aspect-square rounded-sm ${getHeatmapColor(count, heatmapData.max)} transition-all duration-150 cursor-default ${isHovered ? 'ring-1 ring-primary scale-110 z-10' : ''}`}
+                            className={`relative flex-1 h-[28px] rounded-sm ${getHeatmapColor(count, heatmapData.max)} transition-all duration-100 cursor-default ${isHovered ? 'ring-1 ring-primary z-10' : ''}`}
                             onMouseEnter={() => setHoveredCell({ day: dayIdx, hour: hourIdx })}
                             onMouseLeave={() => setHoveredCell(null)}
                           >
                             {isHovered && count > 0 && (
-                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 bg-popover border border-border rounded-md shadow-lg whitespace-nowrap z-50 pointer-events-none">
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 bg-popover border border-border rounded-md shadow-lg whitespace-nowrap z-50 pointer-events-none">
                                 <div className="text-[10px] font-semibold text-foreground">
                                   {day} {HOUR_LABELS[hourIdx]} {heatmapTimezone === 'utc' ? 'UTC' : localTzAbbr}
                                 </div>
@@ -316,19 +319,18 @@ export default function UserLogsPage({ selectedProjectId }: UserLogsPageProps) {
                         );
                       })}
                     </div>
-                  </div>
-                ))}
-
-                {/* Legend */}
-                <div className="flex items-center justify-end gap-1.5 mt-2">
-                  <span className="text-[9px] text-muted-foreground">Less</span>
-                  <div className="w-3 h-3 rounded-sm bg-muted/30" />
-                  <div className="w-3 h-3 rounded-sm bg-emerald-900/60" />
-                  <div className="w-3 h-3 rounded-sm bg-emerald-700/70" />
-                  <div className="w-3 h-3 rounded-sm bg-emerald-500/80" />
-                  <div className="w-3 h-3 rounded-sm bg-emerald-400" />
-                  <span className="text-[9px] text-muted-foreground">More</span>
+                  ))}
                 </div>
+              </div>
+              {/* Legend */}
+              <div className="flex items-center justify-end gap-1.5 mt-1.5">
+                <span className="text-[9px] text-muted-foreground">Less</span>
+                <div className="w-2.5 h-2.5 rounded-sm bg-muted/30" />
+                <div className="w-2.5 h-2.5 rounded-sm bg-emerald-900/60" />
+                <div className="w-2.5 h-2.5 rounded-sm bg-emerald-700/70" />
+                <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500/80" />
+                <div className="w-2.5 h-2.5 rounded-sm bg-emerald-400" />
+                <span className="text-[9px] text-muted-foreground">More</span>
               </div>
             </div>
           </div>

@@ -11,7 +11,7 @@ import {
 } from '@/lib/db/calendar-events';
 import { getProjectSettings } from '@/lib/db/project-settings';
 import {
-  ChevronLeft, ChevronRight, Plus, Trash2, MapPin, X, Calendar, Loader2,
+  ChevronLeft, ChevronRight, Plus, Trash2, MapPin, X, Calendar, ExternalLink, Video,
 } from 'lucide-react';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
@@ -21,38 +21,23 @@ interface MeetingsPageProps {
   userPermission?: ProjectPermission | null;
 }
 
-/** Fire-and-forget Google Calendar sync. Returns the google_event_id on create. */
-async function syncToGoogleCalendar(params: {
-  action: 'create' | 'update' | 'delete';
-  calendarId: string;
-  googleEventId?: string | null;
-  event?: { title: string; date: string; location?: string };
-}): Promise<string | null> {
-  try {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData?.session?.access_token;
-    if (!accessToken) return null;
+/** Build a Google Calendar "Add event" URL that opens in a new tab. */
+function getGoogleCalendarUrl(event: { title: string; date: string; location?: string | null }): string {
+  // Google Calendar expects dates in YYYYMMDD format for all-day events
+  const dateStr = event.date.replace(/-/g, '');
+  // End date is next day for all-day events
+  const endDate = new Date(event.date + 'T00:00:00');
+  endDate.setDate(endDate.getDate() + 1);
+  const endStr = `${endDate.getFullYear()}${String(endDate.getMonth() + 1).padStart(2, '0')}${String(endDate.getDate()).padStart(2, '0')}`;
 
-    const res = await fetch('/api/calendar', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        action: params.action,
-        calendarId: params.calendarId,
-        googleEventId: params.googleEventId,
-        event: params.event,
-      }),
-    });
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: event.title,
+    dates: `${dateStr}/${endStr}`,
+  });
+  if (event.location) params.set('location', event.location);
 
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.googleEventId ?? null;
-  } catch {
-    return null;
-  }
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
 export default function MeetingsPage({ selectedProjectId, userPermission }: MeetingsPageProps) {
@@ -68,16 +53,14 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [showEventModal, setShowEventModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
-  const [eventForm, setEventForm] = useState({ title: '', date: '', location: '' });
-  const [saving, setSaving] = useState(false);
+  const [eventForm, setEventForm] = useState({ title: '', date: '', location: '', meetLink: '' });
 
   // ── OOO state ───────────────────────────────────────────────────────────────
   const [oooEntries, setOooEntries] = useState<OutOfOffice[]>([]);
   const [projectUsers, setProjectUsers] = useState<{ user_id: string; user_name: string }[]>([]);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
-  // ── Google Calendar config ────────────────────────────────────────────────
-  const [googleCalendarId, setGoogleCalendarId] = useState('');
+  // ── Default location from project settings ──────────────────────────────────
   const [defaultLocation, setDefaultLocation] = useState('');
 
   // Display name
@@ -88,11 +71,10 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
       .then(({ data }) => setDisplayName(data?.display_name || user.email || ''));
   }, [user]);
 
-  // Load project settings (for Google Calendar ID)
+  // Load project settings (for default location)
   useEffect(() => {
     if (!selectedProjectId) return;
     getProjectSettings(selectedProjectId).then((s) => {
-      setGoogleCalendarId(s.google_calendar_id || '');
       setDefaultLocation(s.default_meeting_location || '');
     });
   }, [selectedProjectId]);
@@ -172,80 +154,44 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
       ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
       : '';
     setEditingEvent(null);
-    setEventForm({ title: '', date: dateStr, location: defaultLocation });
+    setEventForm({ title: '', date: dateStr, location: defaultLocation, meetLink: '' });
     setShowEventModal(true);
   };
 
   const openEditEvent = (ev: CalendarEvent) => {
     setEditingEvent(ev);
-    setEventForm({ title: ev.title, date: ev.event_date, location: ev.location ?? '' });
+    setEventForm({ title: ev.title, date: ev.event_date, location: ev.location ?? '', meetLink: ev.meet_link ?? '' });
     setShowEventModal(true);
   };
 
   const handleSaveEvent = async () => {
     if (!eventForm.title.trim() || !eventForm.date || !selectedProjectId || !user) return;
-    setSaving(true);
 
-    try {
-      if (editingEvent) {
-        const ok = await updateCalendarEvent(editingEvent.id, {
-          title: eventForm.title.trim(),
-          event_date: eventForm.date,
-          location: eventForm.location.trim() || null,
-        });
-        if (ok) {
-          // Sync to Google Calendar (fire-and-forget for update)
-          if (googleCalendarId && editingEvent.google_event_id) {
-            syncToGoogleCalendar({
-              action: 'update',
-              calendarId: googleCalendarId,
-              googleEventId: editingEvent.google_event_id,
-              event: { title: eventForm.title.trim(), date: eventForm.date, location: eventForm.location.trim() },
-            });
-          }
-
-          setEvents((prev) => prev.map((e) => e.id === editingEvent.id
-            ? { ...e, title: eventForm.title.trim(), event_date: eventForm.date, location: eventForm.location.trim() || null }
-            : e
-          ));
-        }
-      } else {
-        const ev = await createCalendarEvent(selectedProjectId, eventForm.title.trim(), eventForm.date, user.id, eventForm.location.trim() || null);
-        if (ev) {
-          // Sync to Google Calendar
-          if (googleCalendarId) {
-            const gEventId = await syncToGoogleCalendar({
-              action: 'create',
-              calendarId: googleCalendarId,
-              event: { title: eventForm.title.trim(), date: eventForm.date, location: eventForm.location.trim() },
-            });
-            if (gEventId) {
-              // Store the Google event ID
-              await updateCalendarEvent(ev.id, { google_event_id: gEventId });
-              ev.google_event_id = gEventId;
-            }
-          }
-          setEvents((prev) => [...prev, ev]);
-        }
+    if (editingEvent) {
+      const ok = await updateCalendarEvent(editingEvent.id, {
+        title: eventForm.title.trim(),
+        event_date: eventForm.date,
+        location: eventForm.location.trim() || null,
+        meet_link: eventForm.meetLink.trim() || null,
+      });
+      if (ok) {
+        setEvents((prev) => prev.map((e) => e.id === editingEvent.id
+          ? { ...e, title: eventForm.title.trim(), event_date: eventForm.date, location: eventForm.location.trim() || null, meet_link: eventForm.meetLink.trim() || null }
+          : e
+        ));
       }
-    } finally {
-      setSaving(false);
+    } else {
+      const ev = await createCalendarEvent(selectedProjectId, eventForm.title.trim(), eventForm.date, user.id, eventForm.location.trim() || null, eventForm.meetLink.trim() || null);
+      if (ev) {
+        setEvents((prev) => [...prev, ev]);
+      }
     }
     setShowEventModal(false);
   };
 
   const handleDeleteEvent = async (id: string) => {
-    const eventToDelete = events.find((e) => e.id === id);
     const ok = await deleteCalendarEvent(id);
     if (ok) {
-      // Sync delete to Google Calendar
-      if (googleCalendarId && eventToDelete?.google_event_id) {
-        syncToGoogleCalendar({
-          action: 'delete',
-          calendarId: googleCalendarId,
-          googleEventId: eventToDelete.google_event_id,
-        });
-      }
       setEvents((prev) => prev.filter((e) => e.id !== id));
     }
     setShowEventModal(false);
@@ -304,12 +250,6 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
             <Calendar className="h-5 w-5 text-primary" />
             <h2 className="text-xl font-bold tracking-tight">Meetings & Availability</h2>
           </div>
-          {googleCalendarId && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold uppercase tracking-wider">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Google Calendar Synced
-            </span>
-          )}
         </div>
 
         <div className="glass-card rounded-2xl border border-border/50 shadow-sm p-4">
@@ -361,10 +301,11 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
                       <div
                         key={ev.id}
                         onClick={(e) => { e.stopPropagation(); openEditEvent(ev); }}
-                        className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium truncate cursor-pointer hover:bg-primary/20 transition-colors"
+                        className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium truncate cursor-pointer hover:bg-primary/20 transition-colors"
                         title={ev.location ? `${ev.title} @ ${ev.location}` : ev.title}
                       >
-                        {ev.title}
+                        {ev.meet_link && <Video className="h-2.5 w-2.5 shrink-0 text-blue-500" />}
+                        <span className="truncate">{ev.title}</span>
                       </div>
                     ))}
                     {/* OOO entries */}
@@ -414,27 +355,49 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
                 <p className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">Meetings</p>
                 {dayEvents.length > 0 ? (
                   dayEvents.map((ev) => (
-                    <div key={ev.id} className="flex items-center justify-between px-3 py-2 rounded-xl bg-primary/5 border border-primary/10">
-                      <div className="min-w-0 flex-1">
-                        <span className="text-sm font-semibold">{ev.title}</span>
-                        {ev.location && (
-                          <span className="text-xs text-muted-foreground ml-2">
-                            <MapPin className="h-3 w-3 inline -mt-0.5 mr-0.5" />{ev.location}
-                          </span>
-                        )}
-                        {ev.google_event_id && (
-                          <span className="text-[9px] text-emerald-600 dark:text-emerald-400 ml-2" title="Synced to Google Calendar">
+                    <div key={ev.id} className="px-3 py-2 rounded-xl bg-primary/5 border border-primary/10 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <div className="min-w-0 flex-1">
+                          <span className="text-sm font-semibold">{ev.title}</span>
+                          {ev.location && (
+                            <span className="text-xs text-muted-foreground ml-2">
+                              <MapPin className="h-3 w-3 inline -mt-0.5 mr-0.5" />{ev.location}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 ml-2 shrink-0">
+                          <a
+                            href={getGoogleCalendarUrl({ title: ev.title, date: ev.event_date, location: ev.location })}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
+                            title="Add to Google Calendar"
+                          >
                             GCal
-                          </span>
-                        )}
+                          </a>
+                          {canEdit && (
+                            <button
+                              onClick={() => { setSelectedDay(null); openEditEvent(ev); }}
+                              className="text-[10px] font-bold text-primary hover:underline"
+                            >
+                              Edit
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      {canEdit && (
-                        <button
-                          onClick={() => { setSelectedDay(null); openEditEvent(ev); }}
-                          className="text-[10px] font-bold text-primary hover:underline ml-2 shrink-0"
+                      {ev.meet_link && (
+                        <a
+                          href={ev.meet_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 transition-colors"
                         >
-                          Edit
-                        </button>
+                          <Video className="h-3 w-3" />
+                          Join Meeting
+                          <ExternalLink className="h-2.5 w-2.5 opacity-50" />
+                        </a>
                       )}
                     </div>
                   ))
@@ -535,7 +498,7 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
               autoFocus
               value={eventForm.title}
               onChange={(e) => setEventForm((p) => ({ ...p, title: e.target.value }))}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !saving) handleSaveEvent(); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSaveEvent(); }}
               placeholder="Meeting title..."
               className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
             />
@@ -560,38 +523,62 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
               <input
                 value={eventForm.location}
                 onChange={(e) => setEventForm((p) => ({ ...p, location: e.target.value }))}
-                placeholder="Location (optional)"
+                placeholder="Conference Room A, Office, etc."
                 className="w-full pl-9 pr-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
               />
             </div>
           </div>
-
-          {/* Google Calendar sync indicator */}
-          {googleCalendarId && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
-                This meeting will sync to Google Calendar
-              </span>
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">
+              Meeting Link
+            </label>
+            <div className="relative">
+              <Video className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
+              <input
+                value={eventForm.meetLink}
+                onChange={(e) => setEventForm((p) => ({ ...p, meetLink: e.target.value }))}
+                placeholder="Google Meet, Zoom, or Teams link..."
+                className="w-full pl-9 pr-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
+              />
             </div>
-          )}
+            <a
+              href="https://meet.google.com/new"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 mt-2 ml-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              <Video className="h-3.5 w-3.5" />
+              Create a new Google Meet
+              <ExternalLink className="h-3 w-3 opacity-50" />
+            </a>
+          </div>
+
         </div>
 
         <div className="flex flex-col gap-3 mt-6 pt-6 border-t border-border/50">
           <Button
             onClick={handleSaveEvent}
-            disabled={!eventForm.title.trim() || !eventForm.date || saving}
+            disabled={!eventForm.title.trim() || !eventForm.date}
             className="w-full py-4 text-xs font-black tracking-widest shadow-xl shadow-primary/20"
           >
-            {saving ? (
-              <span className="inline-flex items-center gap-2">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                {googleCalendarId ? 'Syncing...' : 'Saving...'}
-              </span>
-            ) : (
-              editingEvent ? 'Update' : 'Create'
-            )}
+            {editingEvent ? 'Update' : 'Create'}
           </Button>
+          {eventForm.title.trim() && eventForm.date && (
+            <a
+              href={getGoogleCalendarUrl({ title: eventForm.title.trim(), date: eventForm.date, location: eventForm.location.trim() || null })}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full block"
+            >
+              <Button
+                variant="outline"
+                className="w-full py-4 text-xs font-black tracking-widest text-emerald-600 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
+              >
+                <ExternalLink className="h-3.5 w-3.5 mr-2" />
+                Add to Google Calendar
+              </Button>
+            </a>
+          )}
           {editingEvent && (
             <Button
               variant="outline"

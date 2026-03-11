@@ -4,6 +4,7 @@ export interface CalendarEvent {
   title: string;
   event_date: string;
   location: string | null;
+  meet_link: string | null;
   created_by: string;
   created_at: string;
   google_event_id?: string | null;
