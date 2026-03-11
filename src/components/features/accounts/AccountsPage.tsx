@@ -503,7 +503,13 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
       {/* Table */}
       <div className="glass-card rounded-2xl border border-border/50 shadow-sm overflow-x-auto" onPaste={handlePaste}>
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <table className="text-xs sm:text-sm" style={{ tableLayout: 'fixed', minWidth: '100%' }}>
+          <table className="text-xs sm:text-sm" style={{ tableLayout: 'fixed', width: orderedColumns.reduce((sum, col) => sum + (colWidths[col.field] ?? col.minWidth), 0) + (canEdit ? 50 : 0) }}>
+            <colgroup>
+              {orderedColumns.map((col) => (
+                <col key={col.field} style={{ width: colWidths[col.field] ?? col.minWidth }} />
+              ))}
+              {canEdit && <col style={{ width: 50 }} />}
+            </colgroup>
             <thead>
               <tr className="bg-muted/30 border-b border-border/50">
                 <SortableContext items={columnOrder} strategy={horizontalListSortingStrategy}>
@@ -516,7 +522,7 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
                     />
                   ))}
                 </SortableContext>
-                {canEdit && <th className="px-3 py-2" style={{ width: 40 }} />}
+                {canEdit && <th className="px-3 py-2" style={{ width: 50 }} />}
               </tr>
             </thead>
             <tbody>
