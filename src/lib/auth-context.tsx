@@ -60,34 +60,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (error) return { error: error.message };
 
-    // Create the account record in our accounts table
+    // Create the account record via server-side API (bypasses RLS since user has no session yet)
     if (data.user) {
-      const { error: accountError } = await supabase
-        .from('zhl_accounts')
-        .upsert(
-          [
-            {
-              user_id: data.user.id,
-              display_name: displayName,
-              email,
-              phone: phone || null,
-              password_hash: 'managed_by_supabase_auth',
-              descriptor: extra?.descriptor || null,
-              company_name: extra?.companyName || null,
-              person_name: extra?.personName || null,
-              username: extra?.username || null,
-              account_number: extra?.accountNumber || null,
-              notes: extra?.notes || null,
-            },
-          ],
-          { onConflict: 'user_id' }
-        );
-      if (accountError) {
-        const details = [accountError.code, accountError.message, accountError.details, accountError.hint]
-          .filter(Boolean)
-          .map((v) => String(v))
-          .join(' | ');
-        console.warn('Account profile sync skipped:', details || 'Unknown error');
+      try {
+        const res = await fetch('/api/auth/create-account', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: data.user.id,
+            display_name: displayName,
+            email,
+            phone: phone || null,
+            descriptor: extra?.descriptor || null,
+            company_name: extra?.companyName || null,
+            person_name: extra?.personName || null,
+            username: extra?.username || null,
+            account_number: extra?.accountNumber || null,
+            notes: extra?.notes || null,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          console.warn('Account profile sync failed:', body.error || res.statusText);
+        }
+      } catch (err) {
+        console.warn('Account profile sync failed:', err);
       }
     }
 
