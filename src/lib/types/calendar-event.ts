@@ -3,6 +3,7 @@ export interface CalendarEvent {
   project_id: string;
   title: string;
   event_date: string;
+  event_time: string | null;
   location: string | null;
   meet_link: string | null;
   created_by: string;

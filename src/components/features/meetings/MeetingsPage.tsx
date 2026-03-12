@@ -11,7 +11,7 @@ import {
 } from '@/lib/db/calendar-events';
 import { getProjectSettings } from '@/lib/db/project-settings';
 import {
-  ChevronLeft, ChevronRight, Plus, Trash2, MapPin, X, Calendar, ExternalLink, Video,
+  ChevronLeft, ChevronRight, Plus, Trash2, MapPin, X, Calendar, ExternalLink, Video, Clock,
 } from 'lucide-react';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
@@ -22,18 +22,31 @@ interface MeetingsPageProps {
 }
 
 /** Build a Google Calendar "Add event" URL that opens in a new tab. */
-function getGoogleCalendarUrl(event: { title: string; date: string; location?: string | null }): string {
-  // Google Calendar expects dates in YYYYMMDD format for all-day events
-  const dateStr = event.date.replace(/-/g, '');
-  // End date is next day for all-day events
-  const endDate = new Date(event.date + 'T00:00:00');
-  endDate.setDate(endDate.getDate() + 1);
-  const endStr = `${endDate.getFullYear()}${String(endDate.getMonth() + 1).padStart(2, '0')}${String(endDate.getDate()).padStart(2, '0')}`;
+function getGoogleCalendarUrl(event: { title: string; date: string; time?: string | null; location?: string | null }): string {
+  const dateOnly = event.date.replace(/-/g, '');
+
+  let dates: string;
+  if (event.time) {
+    // Timed event: YYYYMMDDTHHmmss format, 1-hour default duration
+    const timeStr = event.time.replace(/:/g, '') + '00'; // HHmm -> HHmmss
+    const start = `${dateOnly}T${timeStr}`;
+    const endDt = new Date(`${event.date}T${event.time}:00`);
+    endDt.setHours(endDt.getHours() + 1);
+    const endDateStr = `${endDt.getFullYear()}${String(endDt.getMonth() + 1).padStart(2, '0')}${String(endDt.getDate()).padStart(2, '0')}`;
+    const endTimeStr = `${String(endDt.getHours()).padStart(2, '0')}${String(endDt.getMinutes()).padStart(2, '0')}00`;
+    dates = `${start}/${endDateStr}T${endTimeStr}`;
+  } else {
+    // All-day event
+    const endDate = new Date(event.date + 'T00:00:00');
+    endDate.setDate(endDate.getDate() + 1);
+    const endStr = `${endDate.getFullYear()}${String(endDate.getMonth() + 1).padStart(2, '0')}${String(endDate.getDate()).padStart(2, '0')}`;
+    dates = `${dateOnly}/${endStr}`;
+  }
 
   const params = new URLSearchParams({
     action: 'TEMPLATE',
     text: event.title,
-    dates: `${dateStr}/${endStr}`,
+    dates,
   });
   if (event.location) params.set('location', event.location);
 
@@ -53,7 +66,7 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [showEventModal, setShowEventModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
-  const [eventForm, setEventForm] = useState({ title: '', date: '', location: '', meetLink: '' });
+  const [eventForm, setEventForm] = useState({ title: '', date: '', time: '', location: '', meetLink: '' });
 
   // ── OOO state ───────────────────────────────────────────────────────────────
   const [oooEntries, setOooEntries] = useState<OutOfOffice[]>([]);
@@ -154,13 +167,13 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
       ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
       : '';
     setEditingEvent(null);
-    setEventForm({ title: '', date: dateStr, location: defaultLocation, meetLink: '' });
+    setEventForm({ title: '', date: dateStr, time: '', location: defaultLocation, meetLink: '' });
     setShowEventModal(true);
   };
 
   const openEditEvent = (ev: CalendarEvent) => {
     setEditingEvent(ev);
-    setEventForm({ title: ev.title, date: ev.event_date, location: ev.location ?? '', meetLink: ev.meet_link ?? '' });
+    setEventForm({ title: ev.title, date: ev.event_date, time: ev.event_time ?? '', location: ev.location ?? '', meetLink: ev.meet_link ?? '' });
     setShowEventModal(true);
   };
 
@@ -171,17 +184,18 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
       const ok = await updateCalendarEvent(editingEvent.id, {
         title: eventForm.title.trim(),
         event_date: eventForm.date,
+        event_time: eventForm.time.trim() || null,
         location: eventForm.location.trim() || null,
         meet_link: eventForm.meetLink.trim() || null,
       });
       if (ok) {
         setEvents((prev) => prev.map((e) => e.id === editingEvent.id
-          ? { ...e, title: eventForm.title.trim(), event_date: eventForm.date, location: eventForm.location.trim() || null, meet_link: eventForm.meetLink.trim() || null }
+          ? { ...e, title: eventForm.title.trim(), event_date: eventForm.date, event_time: eventForm.time.trim() || null, location: eventForm.location.trim() || null, meet_link: eventForm.meetLink.trim() || null }
           : e
         ));
       }
     } else {
-      const ev = await createCalendarEvent(selectedProjectId, eventForm.title.trim(), eventForm.date, user.id, eventForm.location.trim() || null, eventForm.meetLink.trim() || null);
+      const ev = await createCalendarEvent(selectedProjectId, eventForm.title.trim(), eventForm.date, user.id, eventForm.location.trim() || null, eventForm.meetLink.trim() || null, eventForm.time.trim() || null);
       if (ev) {
         setEvents((prev) => [...prev, ev]);
       }
@@ -300,11 +314,12 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
                     {dayEvents.map((ev) => (
                       <div
                         key={ev.id}
-                        onClick={(e) => { e.stopPropagation(); openEditEvent(ev); }}
+                        onClick={(e) => { e.stopPropagation(); canEdit ? openEditEvent(ev) : setSelectedDay(dateStr); }}
                         className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium truncate cursor-pointer hover:bg-primary/20 transition-colors"
-                        title={ev.location ? `${ev.title} @ ${ev.location}` : ev.title}
+                        title={`${ev.title}${ev.event_time ? ' @ ' + new Date(`2000-01-01T${ev.event_time}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : ''}${ev.location ? ' — ' + ev.location : ''}`}
                       >
                         {ev.meet_link && <Video className="h-2.5 w-2.5 shrink-0 text-blue-500" />}
+                        {ev.event_time && <span className="shrink-0 text-[9px] opacity-70">{new Date(`2000-01-01T${ev.event_time}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</span>}
                         <span className="truncate">{ev.title}</span>
                       </div>
                     ))}
@@ -359,6 +374,12 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
                       <div className="flex items-center justify-between">
                         <div className="min-w-0 flex-1">
                           <span className="text-sm font-semibold">{ev.title}</span>
+                          {ev.event_time && (
+                            <span className="text-xs text-muted-foreground ml-2">
+                              <Clock className="h-3 w-3 inline -mt-0.5 mr-0.5" />
+                              {new Date(`2000-01-01T${ev.event_time}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                            </span>
+                          )}
                           {ev.location && (
                             <span className="text-xs text-muted-foreground ml-2">
                               <MapPin className="h-3 w-3 inline -mt-0.5 mr-0.5" />{ev.location}
@@ -367,7 +388,7 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
                         </div>
                         <div className="flex items-center gap-1.5 ml-2 shrink-0">
                           <a
-                            href={getGoogleCalendarUrl({ title: ev.title, date: ev.event_date, location: ev.location })}
+                            href={getGoogleCalendarUrl({ title: ev.title, date: ev.event_date, time: ev.event_time, location: ev.location })}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
@@ -516,6 +537,20 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
           </div>
           <div>
             <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">
+              Time
+            </label>
+            <div className="relative">
+              <Clock className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
+              <input
+                type="time"
+                value={eventForm.time}
+                onChange={(e) => setEventForm((p) => ({ ...p, time: e.target.value }))}
+                className="w-full pl-9 pr-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">
               Location
             </label>
             <div className="relative">
@@ -565,7 +600,7 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
           </Button>
           {eventForm.title.trim() && eventForm.date && (
             <a
-              href={getGoogleCalendarUrl({ title: eventForm.title.trim(), date: eventForm.date, location: eventForm.location.trim() || null })}
+              href={getGoogleCalendarUrl({ title: eventForm.title.trim(), date: eventForm.date, time: eventForm.time.trim() || null, location: eventForm.location.trim() || null })}
               target="_blank"
               rel="noopener noreferrer"
               className="w-full block"
