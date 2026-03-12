@@ -485,7 +485,7 @@ export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
                       setForgotStatus('idle');
                       setForgotError(null);
                     }}
-                    className="text-xs text-muted-foreground hover:text-green-400 hover:underline font-medium"
+                    className="text-xs text-green-400 hover:underline font-medium"
                   >
                     Forgot password?
                   </button>
