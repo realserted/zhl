@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useTheme } from 'next-themes';
 import Image from 'next/image';
 import { ThemeToggle } from '@/components/shared/ThemeToggle';
-import { Eye, EyeOff, ShieldCheck, Mail, ArrowLeft } from 'lucide-react';
+import { Eye, EyeOff, ShieldCheck, Mail } from 'lucide-react';
 
 // Password must have: 8+ chars, 1 uppercase, 1 lowercase, 1 number, 1 special char
 const PASSWORD_RULES = [
@@ -26,7 +26,7 @@ interface LoginPageProps {
 }
 
 export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
-  const { signIn, signUp, resendVerification, resetPassword } = useAuth();
+  const { signIn, signUp, resendVerification } = useAuth();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const { theme } = useTheme();
@@ -44,11 +44,6 @@ export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [resendStatus, setResendStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [resendError, setResendError] = useState<string | null>(null);
-  const [showForgotPassword, setShowForgotPassword] = useState(false);
-  const [forgotEmail, setForgotEmail] = useState('');
-  const [forgotStatus, setForgotStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
-  const [forgotError, setForgotError] = useState<string | null>(null);
-
   // Rate limiting
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
@@ -265,108 +260,6 @@ export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
     );
   }
 
-  if (showForgotPassword) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-background p-4">
-        <div className="absolute top-4 right-4">
-          <ThemeToggle />
-        </div>
-        <div className="w-full max-w-md">
-          <div className="bg-card border border-border rounded-xl p-8 shadow-sm">
-            {forgotStatus === 'sent' ? (
-              <>
-                <div className="w-12 h-12 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Mail className="h-6 w-6 text-green-600 dark:text-green-400" />
-                </div>
-                <h2 className="text-xl font-bold text-foreground mb-2 text-center">Check your email</h2>
-                <p className="text-muted-foreground text-sm mb-6 text-center">
-                  We sent a password reset link to <strong>{forgotEmail}</strong>. Click the link in the email to set a new password.
-                </p>
-                <button
-                  onClick={() => {
-                    setShowForgotPassword(false);
-                    setForgotStatus('idle');
-                  }}
-                  className="w-full text-sm text-green-400 hover:underline font-medium text-center"
-                >
-                  Back to sign in
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => setShowForgotPassword(false)}
-                  className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                  Back
-                </button>
-                <h2 className="text-lg font-semibold text-foreground mb-2">Reset your password</h2>
-                <p className="text-sm text-muted-foreground mb-6">
-                  Enter your email address and we&apos;ll send you a link to reset your password.
-                </p>
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    const trimmed = forgotEmail.trim().toLowerCase();
-                    if (!validateEmail(trimmed)) {
-                      setForgotError('Please enter a valid email address.');
-                      setForgotStatus('error');
-                      return;
-                    }
-                    setForgotStatus('sending');
-                    setForgotError(null);
-                    const { error } = await resetPassword(trimmed);
-                    if (error) {
-                      setForgotError(error);
-                      setForgotStatus('error');
-                    } else {
-                      setForgotStatus('sent');
-                    }
-                  }}
-                  className="space-y-4"
-                >
-                  <div>
-                    <label htmlFor="forgotEmail" className="block text-sm font-medium text-foreground mb-1.5">
-                      Email
-                    </label>
-                    <input
-                      id="forgotEmail"
-                      type="email"
-                      value={forgotEmail}
-                      onChange={(e) => setForgotEmail(e.target.value)}
-                      placeholder="you@example.com"
-                      required
-                      maxLength={255}
-                      className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    />
-                  </div>
-                  {forgotError && (
-                    <div className="bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2.5">
-                      <p className="text-sm text-destructive">{forgotError}</p>
-                    </div>
-                  )}
-                  <button
-                    type="submit"
-                    disabled={forgotStatus === 'sending'}
-                    className="w-full py-2.5 bg-black text-green-400 rounded-lg text-sm font-semibold hover:bg-gray-900 transition-colors disabled:opacity-50 border border-green-400"
-                  >
-                    {forgotStatus === 'sending' ? 'Sending...' : 'Send Reset Link'}
-                  </button>
-                </form>
-              </>
-            )}
-          </div>
-
-          <div className="flex items-center justify-center gap-1.5 mt-4 text-muted-foreground">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            <span className="text-xs">Secured with end-to-end encryption</span>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
   return (
     <main className="flex min-h-screen items-center justify-center bg-background p-4">
       {/* Theme Toggle */}
@@ -479,12 +372,7 @@ export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
                 <div className="mt-1.5 text-right">
                   <button
                     type="button"
-                    onClick={() => {
-                      setShowForgotPassword(true);
-                      setForgotEmail(email);
-                      setForgotStatus('idle');
-                      setForgotError(null);
-                    }}
+                    onClick={() => router.push('/forgot-password')}
                     className="text-xs text-green-400 hover:underline font-medium"
                   >
                     Forgot password?
