@@ -97,6 +97,49 @@ export async function POST(req: NextRequest) {
   };
 
   try {
+    if (action === 'create-meet') {
+      // Create a Google Calendar event with conferenceData to generate a Meet link
+      const startDateTime = event.time
+        ? `${event.date}T${event.time}:00`
+        : `${event.date}T09:00:00`;
+      const endDt = new Date(startDateTime);
+      endDt.setMinutes(endDt.getMinutes() + (event.duration || 60));
+      const endDateTime = endDt.toISOString().replace('Z', '');
+
+      const gcalEvent = {
+        summary: event.title || 'Meeting',
+        location: event.location || undefined,
+        start: event.time
+          ? { dateTime: startDateTime, timeZone: event.timeZone || 'America/New_York' }
+          : { date: event.date },
+        end: event.time
+          ? { dateTime: endDateTime, timeZone: event.timeZone || 'America/New_York' }
+          : { date: event.date },
+        conferenceData: {
+          createRequest: {
+            requestId: `zhl-meet-${Date.now()}`,
+            conferenceSolutionKey: { type: 'hangoutsMeet' },
+          },
+        },
+      };
+
+      const res = await fetch(`${calendarApiBase}?conferenceDataVersion=1`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(gcalEvent),
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        console.error('Google Calendar create-meet failed:', err);
+        return NextResponse.json({ error: 'Failed to create Google Meet link.' }, { status: 502 });
+      }
+
+      const created = await res.json();
+      const meetLink = created.hangoutLink || created.conferenceData?.entryPoints?.[0]?.uri || null;
+      return NextResponse.json({ googleEventId: created.id, meetLink });
+    }
+
     if (action === 'create') {
       const gcalEvent = {
         summary: event.title,
