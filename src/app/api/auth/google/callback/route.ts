@@ -109,38 +109,73 @@ export async function GET(req: NextRequest) {
   });
 
   // Try to get user from the Supabase session cookie
-  // For Next.js App Router with Supabase, the cookie name pattern is typically:
-  // sb-<project-ref>-auth-token
+  // Supabase JS v2+ stores auth as chunked cookies: sb-<ref>-auth-token.0, .1, etc.
+  // or as a single sb-<ref>-auth-token cookie.
   let userId: string | null = null;
 
-  // Attempt to find the auth cookie
   const allCookies = req.cookies.getAll();
-  for (const cookie of allCookies) {
-    if (cookie.name.includes('auth-token') || cookie.name === 'sb-access-token') {
-      try {
-        // The cookie value might be a JSON with access_token
-        let token = cookie.value;
-        try {
-          const parsed = JSON.parse(decodeURIComponent(token));
-          // Supabase stores tokens as base64-encoded JSON chunks
-          if (parsed.access_token) token = parsed.access_token;
-          else if (Array.isArray(parsed)) {
-            // Some Supabase versions store as chunked base64
-            token = parsed.join('');
-            const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
-            if (decoded.access_token) token = decoded.access_token;
-          }
-        } catch {
-          // Token might be used directly
-        }
 
-        const { data: userData } = await adminClient.auth.getUser(token);
+  // Strategy 1: Reassemble chunked Supabase auth cookies
+  const authCookieBase = allCookies
+    .map(c => c.name)
+    .find(n => n.match(/^sb-.*-auth-token/))
+    ?.replace(/\.\d+$/, '');
+
+  if (authCookieBase) {
+    try {
+      // Collect all chunks in order
+      const chunks: Array<{ idx: number; value: string }> = [];
+      for (const cookie of allCookies) {
+        if (cookie.name === authCookieBase) {
+          chunks.push({ idx: 0, value: cookie.value });
+        } else if (cookie.name.startsWith(authCookieBase + '.')) {
+          const idx = parseInt(cookie.name.split('.').pop() || '0', 10);
+          chunks.push({ idx, value: cookie.value });
+        }
+      }
+      chunks.sort((a, b) => a.idx - b.idx);
+      const combined = chunks.map(c => c.value).join('');
+
+      // Try to parse as base64url-encoded JSON
+      let sessionData: { access_token?: string } | null = null;
+      try {
+        sessionData = JSON.parse(Buffer.from(combined, 'base64url').toString());
+      } catch {
+        try {
+          sessionData = JSON.parse(Buffer.from(combined, 'base64').toString());
+        } catch {
+          try {
+            sessionData = JSON.parse(decodeURIComponent(combined));
+          } catch {
+            // Not parseable
+          }
+        }
+      }
+
+      if (sessionData?.access_token) {
+        const { data: userData } = await adminClient.auth.getUser(sessionData.access_token);
         if (userData?.user) {
           userId = userData.user.id;
-          break;
         }
-      } catch {
-        continue;
+      }
+    } catch {
+      // Cookie parsing failed, will fall through to finalize
+    }
+  }
+
+  // Strategy 2: Try each auth-looking cookie directly
+  if (!userId) {
+    for (const cookie of allCookies) {
+      if (cookie.name.includes('auth-token') || cookie.name === 'sb-access-token') {
+        try {
+          const { data: userData } = await adminClient.auth.getUser(cookie.value);
+          if (userData?.user) {
+            userId = userData.user.id;
+            break;
+          }
+        } catch {
+          continue;
+        }
       }
     }
   }

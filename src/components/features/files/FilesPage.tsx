@@ -214,6 +214,21 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
     if (authStatus === 'success') {
       setNotice('Google Drive connected successfully!');
       checkGoogleStatus();
+    } else if (authStatus === 'finalize') {
+      // Callback couldn't identify user from cookies — finalize here with Supabase token
+      const data = searchParams.get('data');
+      if (data) {
+        (async () => {
+          const { finalizeGoogleAuth } = await import('@/lib/db/google-auth');
+          const ok = await finalizeGoogleAuth(data);
+          if (ok) {
+            setNotice('Google Drive connected successfully!');
+            checkGoogleStatus();
+          } else {
+            setNotice('Google Drive connection failed: could not finalize authentication.');
+          }
+        })();
+      }
     } else if (authStatus === 'error') {
       const reason = searchParams.get('reason') || 'unknown';
       setNotice(`Google Drive connection failed: ${reason}`);
