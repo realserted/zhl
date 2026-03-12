@@ -1297,50 +1297,6 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
           <div className="mb-8 ml-6">
             <h3 className="text-lg font-bold mb-4 bg-muted px-3 py-2 rounded text-orange-600 dark:text-orange-400">MEETINGS</h3>
             <div className="ml-4 space-y-4">
-              {/* Google Calendar ID */}
-              <div>
-                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2">
-                  Google Calendar ID
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    defaultValue={projectSettings.google_calendar_id}
-                    key={`${selectedProjectId}-gcal-${projectSettings.google_calendar_id}`}
-                    onBlur={async (e) => {
-                      const val = e.target.value.trim();
-                      if (val !== projectSettings.google_calendar_id && selectedProjectId) {
-                        const ok = await saveProjectSettings(selectedProjectId, { google_calendar_id: val });
-                        if (ok) setProjectSettings((prev) => ({ ...prev, google_calendar_id: val }));
-                      }
-                    }}
-                    placeholder="e.g., abc123@group.calendar.google.com"
-                    className="flex-1 px-3 py-2 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  />
-                </div>
-                {projectSettings.google_calendar_id ? (
-                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1.5 font-medium">
-                    Connected &mdash; meetings will sync to this Google Calendar automatically.
-                  </p>
-                ) : (
-                  <div className="mt-2 p-3 rounded-lg bg-muted/50 border border-border/50">
-                    <p className="text-[10px] font-bold text-muted-foreground mb-1.5">HOW TO SET UP:</p>
-                    <ol className="text-[10px] text-muted-foreground space-y-1 list-decimal list-inside leading-relaxed">
-                      <li>Open <strong>Google Calendar</strong> (calendar.google.com)</li>
-                      <li>On the left sidebar, hover over the calendar you want to use and click the <strong>three dots</strong> menu</li>
-                      <li>Click <strong>&quot;Settings and sharing&quot;</strong></li>
-                      <li>Scroll down to the <strong>&quot;Integrate calendar&quot;</strong> section</li>
-                      <li>Copy the <strong>Calendar ID</strong> (looks like <code className="text-[9px] bg-background/80 px-1 py-0.5 rounded">abc123@group.calendar.google.com</code>)</li>
-                      <li>Paste it in the field above</li>
-                      <li>Make sure your Google account is <strong>connected</strong> in your account settings (above) so ZHL can write events</li>
-                    </ol>
-                    <p className="text-[10px] text-muted-foreground mt-2">
-                      For your primary calendar, the ID is usually your Gmail address.
-                    </p>
-                  </div>
-                )}
-              </div>
-
               {/* Default meeting location */}
               <div>
                 <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2">
@@ -1363,6 +1319,18 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                 <p className="text-[10px] text-muted-foreground mt-1.5">
                   Pre-fills the location field when creating new meetings.
                 </p>
+              </div>
+
+              {/* How it works */}
+              <div className="mt-2 p-3 rounded-lg bg-muted/50 border border-border/50">
+                <p className="text-[10px] font-bold text-muted-foreground mb-1.5">HOW MEETINGS WORK:</p>
+                <ul className="text-[10px] text-muted-foreground space-y-1 list-disc list-inside leading-relaxed">
+                  <li>Editors and admins can <strong>create, edit, and delete</strong> meetings with a title, date, time, location, and meeting link</li>
+                  <li>All users can <strong>view</strong> meetings on the calendar and see meeting details</li>
+                  <li>Click <strong>&quot;GCal&quot;</strong> on any meeting to add it to your personal Google Calendar (opens in a new tab)</li>
+                  <li>If a <strong>Google Meet</strong> or video link is set, all users can click <strong>&quot;Join Meeting&quot;</strong> to join directly</li>
+                  <li>To create a new Google Meet link, click <strong>&quot;Create a new Google Meet&quot;</strong> in the meeting form and paste the link</li>
+                </ul>
               </div>
 
               <Button variant="ghost" className="w-full justify-start text-sm hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">Google Meet settings</Button>
