@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase/client';
 import { CalendarEvent, OutOfOffice } from '@/lib/types/calendar-event';
 import { ProjectPermission } from '@/lib/types/project';
 import { usePermission } from '@/lib/hooks/usePermission';
+import { useUserLogger } from '@/lib/hooks/useUserLogger';
 import {
   getCalendarEvents, getOutOfOffice, setOutOfOffice, removeOutOfOffice,
 } from '@/lib/db/calendar-events';
@@ -27,6 +28,7 @@ interface MeetingsPageProps {
 export default function MeetingsPage({ selectedProjectId, userPermission }: MeetingsPageProps) {
   const { user } = useAuth();
   const { canEdit } = usePermission(userPermission, 'perm_meetings');
+  const { log } = useUserLogger(selectedProjectId);
 
   // ── Core state ──────────────────────────────────────────────────────────────
   const [calMonth, setCalMonth] = useState<YearMonth>(() => {
@@ -92,18 +94,28 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
     const existing = oooMap.get(`${userId}-${date}`);
     if (existing) {
       const ok = await removeOutOfOffice(existing.id);
-      if (ok) setOooEntries((prev) => prev.filter((e) => e.id !== existing.id));
+      if (ok) {
+        setOooEntries((prev) => prev.filter((e) => e.id !== existing.id));
+        log(`Removed OOO for ${userName} on ${date}`);
+      }
     } else {
       const note = prompt('Out-of-office note (e.g., Vacation, WFH, Doctor):', 'Out');
       if (note === null) return;
       const entry = await setOutOfOffice(selectedProjectId, userId, userName, date, note || 'Out');
-      if (entry) setOooEntries((prev) => [...prev, entry]);
+      if (entry) {
+        setOooEntries((prev) => [...prev, entry]);
+        log(`Set OOO for ${userName} on ${date} — ${note || 'Out'}`);
+      }
     }
   };
 
   const handleRemoveOoo = async (id: string) => {
+    const entry = oooEntries.find((e) => e.id === id);
     const ok = await removeOutOfOffice(id);
-    if (ok) setOooEntries((prev) => prev.filter((e) => e.id !== id));
+    if (ok) {
+      setOooEntries((prev) => prev.filter((e) => e.id !== id));
+      if (entry) log(`Removed OOO for ${entry.user_name} on ${entry.ooo_date}`);
+    }
     return ok;
   };
 
@@ -255,9 +267,9 @@ export default function MeetingsPage({ selectedProjectId, userPermission }: Meet
         events={events}
         defaultLocation={defaultLocation}
         googleCalendarId={googleCalendarId}
-        onEventCreated={(ev) => setEvents((prev) => [...prev, ev])}
-        onEventUpdated={(ev) => setEvents((prev) => prev.map((e) => e.id === ev.id ? ev : e))}
-        onEventDeleted={(id) => setEvents((prev) => prev.filter((e) => e.id !== id))}
+        onEventCreated={(ev) => { setEvents((prev) => [...prev, ev]); log(`Created meeting "${ev.title}" on ${ev.event_date}`); }}
+        onEventUpdated={(ev) => { setEvents((prev) => prev.map((e) => e.id === ev.id ? ev : e)); log(`Updated meeting "${ev.title}" on ${ev.event_date}`); }}
+        onEventDeleted={(id) => { const ev = events.find((e) => e.id === id); setEvents((prev) => prev.filter((e) => e.id !== id)); if (ev) log(`Deleted meeting "${ev.title}" on ${ev.event_date}`); }}
       />
     </div>
   );

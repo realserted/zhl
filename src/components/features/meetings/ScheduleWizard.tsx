@@ -7,6 +7,7 @@ import {
   createCalendarEvent, updateCalendarEvent, deleteCalendarEvent,
   addMeetingAttendees, getMeetingAttendees,
 } from '@/lib/db/calendar-events';
+import { createNotification } from '@/lib/db/notifications';
 import {
   DURATIONS, generateTimeSlots, formatTime12, formatDateShort, todayDateStr,
   toDateStr, getGoogleCalendarUrl, buildCalendarDays, getMonthLabel, timeToMinutes,
@@ -282,6 +283,21 @@ export function ScheduleWizard({
 
       if (attendees.length > 0) {
         await addMeetingAttendees(eventId, attendees);
+
+        // Notify each project-member attendee (skip guests who have no user_id)
+        for (const a of attendees) {
+          if (a.user_id && a.user_id !== userId) {
+            createNotification({
+              userId: a.user_id,
+              type: 'meeting_invitation',
+              title: 'Meeting Invitation',
+              message: `You were invited to "${payload.title}" on ${date}${time ? ` at ${time}` : ''} by ${displayName}`,
+              relatedId: eventId,
+              relatedType: 'meeting',
+            }).catch(() => {});
+          }
+        }
+
         // Fire-and-forget email invites
         fetch('/api/meetings/invite', {
           method: 'POST',
