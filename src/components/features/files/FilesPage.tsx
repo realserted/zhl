@@ -33,7 +33,8 @@ import {
   DriveItem,
 } from '@/lib/types/files';
 import { supabase } from '@/lib/supabase/client';
-import { logUserAction } from '@/lib/db/user-logs';
+import { usePermission } from '@/lib/hooks/usePermission';
+import { useUserLogger } from '@/lib/hooks/useUserLogger';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import DriveSetupModal from './DriveSetupModal';
@@ -73,8 +74,7 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
   const { user } = useAuth();
   const searchParams = useSearchParams();
 
-  const permLevel = userPermission?.perm_files ?? 'Admin';
-  const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
+  const { canEdit } = usePermission(userPermission, 'perm_files');
   const canManagePermissions = !userPermission || (userPermission.project_role?.includes('Project Manager') ?? false);
 
   const hasFileAccess = useCallback(
@@ -91,8 +91,7 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
     [userPermission],
   );
 
-  const displayNameRef = useRef('Unknown');
-  const userEmailRef = useRef('');
+  const { log } = useUserLogger(selectedProjectId);
 
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -139,16 +138,6 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
   const [linkingInProgress, setLinkingInProgress] = useState(false);
   const [linkedMap, setLinkedMap] = useState<Map<string, { type: 'field' | 'category'; name: string; parentName?: string }>>(new Map());
 
-  const log = (action: string) => {
-    if (!user || !selectedProjectId) return;
-    logUserAction({
-      projectId: selectedProjectId,
-      userId: user.id,
-      userName: displayNameRef.current,
-      userEmail: userEmailRef.current,
-      action,
-    });
-  };
 
   const loadUnitDataForLinking = async () => {
     if (unitDataLoaded || !selectedProjectId) return;
@@ -182,20 +171,6 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
     setShowLinkModal(true);
     loadUnitDataForLinking();
   };
-
-  // Load user info
-  useEffect(() => {
-    if (!user) return;
-    userEmailRef.current = user.email || '';
-    supabase
-      .from('zhl_accounts')
-      .select('display_name')
-      .eq('user_id', user.id)
-      .maybeSingle()
-      .then(({ data }) => {
-        displayNameRef.current = data?.display_name || user.email || 'Unknown';
-      });
-  }, [user]);
 
   // Check Google connection status
   const checkGoogleStatus = useCallback(async () => {

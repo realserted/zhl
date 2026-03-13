@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { ProjectPermission } from '@/lib/types/project';
+import { usePermission } from '@/lib/hooks/usePermission';
 import {
   Trash2, Lock, Hash, Eye, EyeOff, ShieldAlert,
   PlusCircle, Upload, Loader2, X, GripVertical
@@ -153,8 +154,7 @@ export default function AccountsPage({ selectedProjectId, userPermission }: Acco
     return columnOrder.map((f) => colMap.get(f)).filter(Boolean) as ColumnDef[];
   }, [columnOrder, colMap]);
 
-  const permLevel = userPermission?.perm_accounts ?? 'Admin';
-  const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
+  const { canEdit } = usePermission(userPermission, 'perm_accounts');
 
   // DnD sensors
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));

@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useAuth } from '@/lib/auth-context';
-import { supabase } from '@/lib/supabase/client';
+import { useState, useEffect } from 'react';
 import { ProjectPermission } from '@/lib/types/project';
-import { logUserAction } from '@/lib/db/user-logs';
+import { usePermission } from '@/lib/hooks/usePermission';
+import { useUserLogger } from '@/lib/hooks/useUserLogger';
 import { ChevronDown, ChevronRight, FileText } from 'lucide-react';
 
 interface Props {
@@ -34,21 +33,10 @@ function getStorageKey(projectId: string, sectionId: string) {
 }
 
 export default function FinancialReports({ selectedProjectId, userPermission }: Props) {
-  const { user } = useAuth();
+  const { canEdit } = usePermission(userPermission, 'perm_reports');
+  const { log } = useUserLogger(selectedProjectId);
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['partner']));
   const [notes, setNotes] = useState<Record<string, string>>({});
-  const displayNameRef = useRef('Unknown');
-  const userEmailRef = useRef('');
-
-  const permLevel = userPermission?.perm_reports ?? 'Admin';
-  const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
-
-  useEffect(() => {
-    if (!user) return;
-    userEmailRef.current = user.email || '';
-    supabase.from('zhl_accounts').select('display_name').eq('user_id', user.id).maybeSingle()
-      .then(({ data }) => { displayNameRef.current = data?.display_name || user.email || 'Unknown'; });
-  }, [user]);
 
   // Load notes from localStorage
   useEffect(() => {
@@ -59,11 +47,6 @@ export default function FinancialReports({ selectedProjectId, userPermission }: 
     });
     setNotes(loaded);
   }, [selectedProjectId]);
-
-  const log = (action: string) => {
-    if (!user) return;
-    logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action });
-  };
 
   const toggleSection = (id: string) => {
     setExpanded((prev) => {

@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { useAuth } from '@/lib/auth-context';
-import { supabase } from '@/lib/supabase/client';
+import { useState, useEffect, useMemo } from 'react';
 import { ProjectPermission } from '@/lib/types/project';
+import { usePermission } from '@/lib/hooks/usePermission';
+import { useUserLogger } from '@/lib/hooks/useUserLogger';
 import {
   FinancialTransaction,
   FinancialTxCategory,
@@ -22,9 +22,9 @@ import {
   upsertMonthlyValue,
   seedDefaultFinancials,
 } from '@/lib/db/financial';
-import { logUserAction } from '@/lib/db/user-logs';
 import { Plus, Trash2, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { Button } from '@/components/shared/Button';
+import { computeMonthlyPayment, isLoanActiveInMonth } from '@/lib/financial-utils';
 
 interface Props {
   selectedProjectId: string;
@@ -33,36 +33,9 @@ interface Props {
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-function computeMonthlyPayment(loan: FinancialLoan): number {
-  const P = loan.original_amount ?? 0;
-  const n = loan.amortization ?? 0;
-  const rate = (loan.interest_rate ?? 0) / 100 / 12;
-  if (P === 0) return 0;
-  if (loan.interest_only) return P * rate;
-  if (n === 0) return 0;
-  if (rate === 0) return P / n;
-  return P * (rate * Math.pow(1 + rate, n)) / (Math.pow(1 + rate, n) - 1);
-}
-
-function isLoanActiveInMonth(loan: FinancialLoan, year: number, month: number): boolean {
-  if (!loan.start_date) return false;
-  const sd = new Date(loan.start_date);
-  const sy = sd.getFullYear(), sm = sd.getMonth() + 1;
-  if (year < sy || (year === sy && month < sm)) return false;
-  if (loan.balloon_date) {
-    const bd = new Date(loan.balloon_date);
-    const by = bd.getFullYear(), bm = bd.getMonth() + 1;
-    if (year > by || (year === by && month > bm)) return false;
-  }
-  if (loan.amortization && !loan.interest_only) {
-    const elapsed = (year - sy) * 12 + (month - sm);
-    if (elapsed >= loan.amortization) return false;
-  }
-  return true;
-}
-
 export default function FinancialOverview({ selectedProjectId, userPermission }: Props) {
-  const { user } = useAuth();
+  const { canEdit } = usePermission(userPermission, 'perm_reports');
+  const { log } = useUserLogger(selectedProjectId);
 
   // Auto-computed data (from AutoBooks + Debt Schedule)
   const [transactions, setTransactions] = useState<FinancialTransaction[]>([]);
@@ -79,23 +52,6 @@ export default function FinancialOverview({ selectedProjectId, userPermission }:
   const [editValue, setEditValue] = useState('');
   const [addingItem, setAddingItem] = useState<string | null>(null);
   const [newItemName, setNewItemName] = useState('');
-
-  const displayNameRef = useRef('Unknown');
-  const userEmailRef = useRef('');
-
-  const permLevel = userPermission?.perm_reports ?? 'Admin';
-  const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
-
-  useEffect(() => {
-    if (!user) return;
-    userEmailRef.current = user.email || '';
-    supabase
-      .from('zhl_accounts')
-      .select('display_name')
-      .eq('user_id', user.id)
-      .maybeSingle()
-      .then(({ data }) => { displayNameRef.current = data?.display_name || user.email || 'Unknown'; });
-  }, [user]);
 
   const loadData = async () => {
     setLoading(true);
@@ -121,11 +77,6 @@ export default function FinancialOverview({ selectedProjectId, userPermission }:
   };
 
   useEffect(() => { loadData(); }, [selectedProjectId, year]);
-
-  const log = (action: string) => {
-    if (!user) return;
-    logUserAction({ projectId: selectedProjectId, userId: user.id, userName: displayNameRef.current, userEmail: userEmailRef.current, action });
-  };
 
   // ── Manual values lookup ──────────────────────────────────────────────
   const manualValueMap = useMemo(() => {
