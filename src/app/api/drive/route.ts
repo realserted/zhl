@@ -151,6 +151,16 @@ export async function POST(req: NextRequest) {
         return await handleGetFileUrl(headers, params);
       case 'getFolderInfo':
         return await handleGetFolderInfo(headers, params);
+      case 'getFileContent':
+        return await handleGetFileContent(headers, params);
+      case 'getFileBinary':
+        return await handleGetFileBinary(headers, params);
+      case 'exportGoogleDoc':
+        return await handleExportGoogleDoc(headers, params);
+      case 'convertOfficeToPdf':
+        return await handleConvertOfficeToPdf(headers, params);
+      case 'getThumbnail':
+        return await handleGetThumbnail(headers, params);
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
     }
@@ -162,7 +172,7 @@ export async function POST(req: NextRequest) {
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
-const FILE_FIELDS = 'id,name,mimeType,size,modifiedTime,webViewLink,webContentLink,iconLink,parents';
+const FILE_FIELDS = 'id,name,mimeType,size,modifiedTime,webViewLink,webContentLink,iconLink,thumbnailLink,parents';
 
 async function driveList(headers: Record<string, string>, query: string): Promise<Array<Record<string, unknown>>> {
   const allFiles: Array<Record<string, unknown>> = [];
@@ -324,4 +334,118 @@ async function handleGetFolderInfo(headers: Record<string, string>, params: Reco
 
   const res = await fetch(`${DRIVE_API}/files/${folderId}?fields=id,name,mimeType,owners,shared`, { headers });
   return NextResponse.json(await res.json(), { status: res.ok ? 200 : res.status });
+}
+
+async function handleGetFileContent(headers: Record<string, string>, params: Record<string, unknown>) {
+  const fileId = params.fileId as string;
+  if (!fileId) return NextResponse.json({ error: 'Missing fileId.' }, { status: 400 });
+
+  const res = await fetch(`${DRIVE_API}/files/${fileId}?alt=media`, { headers });
+  if (!res.ok) {
+    return NextResponse.json({ error: 'Failed to fetch file content.' }, { status: res.status });
+  }
+
+  const text = await res.text();
+  return NextResponse.json({ content: text });
+}
+
+/** Return raw binary file content as base64 (for videos, images, Office docs). */
+async function handleGetFileBinary(headers: Record<string, string>, params: Record<string, unknown>) {
+  const fileId = params.fileId as string;
+  if (!fileId) return NextResponse.json({ error: 'Missing fileId.' }, { status: 400 });
+
+  const res = await fetch(`${DRIVE_API}/files/${fileId}?alt=media`, { headers });
+  if (!res.ok) {
+    return NextResponse.json({ error: 'Failed to fetch file.' }, { status: res.status });
+  }
+
+  const arrayBuffer = await res.arrayBuffer();
+  const base64 = Buffer.from(arrayBuffer).toString('base64');
+  const contentType = res.headers.get('content-type') || 'application/octet-stream';
+  return NextResponse.json({ base64, contentType });
+}
+
+/** Export a Google Workspace file (Docs/Sheets/Slides) as HTML. */
+async function handleExportGoogleDoc(headers: Record<string, string>, params: Record<string, unknown>) {
+  const fileId = params.fileId as string;
+  const exportMime = (params.exportMime as string) || 'text/html';
+  if (!fileId) return NextResponse.json({ error: 'Missing fileId.' }, { status: 400 });
+
+  const url = `${DRIVE_API}/files/${fileId}/export?mimeType=${encodeURIComponent(exportMime)}`;
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    return NextResponse.json({ error: 'Failed to export file.' }, { status: res.status });
+  }
+
+  const html = await res.text();
+  return NextResponse.json({ content: html });
+}
+
+/** Convert Office file (.pptx/.xlsx/.xls/.ppt) to PDF via copy-to-Google → export. */
+async function handleConvertOfficeToPdf(headers: Record<string, string>, params: Record<string, unknown>) {
+  const fileId = params.fileId as string;
+  const mimeType = params.mimeType as string;
+  if (!fileId || !mimeType) return NextResponse.json({ error: 'Missing fileId or mimeType.' }, { status: 400 });
+
+  const googleMimeMap: Record<string, string> = {
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'application/vnd.google-apps.presentation',
+    'application/vnd.ms-powerpoint': 'application/vnd.google-apps.presentation',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'application/vnd.google-apps.spreadsheet',
+    'application/vnd.ms-excel': 'application/vnd.google-apps.spreadsheet',
+  };
+
+  const googleMime = googleMimeMap[mimeType];
+  if (!googleMime) {
+    return NextResponse.json({ error: 'Unsupported MIME type for PDF conversion.' }, { status: 400 });
+  }
+
+  let tempId: string | null = null;
+  try {
+    // 1. Copy file as Google format
+    const copyRes = await fetch(`${DRIVE_API}/files/${fileId}/copy`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mimeType: googleMime }),
+    });
+    if (!copyRes.ok) return NextResponse.json({ error: 'Failed to copy file.' }, { status: copyRes.status });
+    const copyData = await copyRes.json();
+    tempId = copyData.id;
+
+    // 2. Export as PDF
+    const exportUrl = `${DRIVE_API}/files/${tempId}/export?mimeType=${encodeURIComponent('application/pdf')}`;
+    const pdfRes = await fetch(exportUrl, { headers });
+    if (!pdfRes.ok) return NextResponse.json({ error: 'Failed to export as PDF.' }, { status: pdfRes.status });
+
+    const pdfBuffer = await pdfRes.arrayBuffer();
+    const base64 = Buffer.from(pdfBuffer).toString('base64');
+    return NextResponse.json({ base64, contentType: 'application/pdf' });
+  } finally {
+    // 3. Delete temp copy
+    if (tempId) {
+      fetch(`${DRIVE_API}/files/${tempId}`, { method: 'DELETE', headers }).catch(() => {});
+    }
+  }
+}
+
+/** Get a file's thumbnail from Google Drive. */
+async function handleGetThumbnail(headers: Record<string, string>, params: Record<string, unknown>) {
+  const fileId = params.fileId as string;
+  if (!fileId) return NextResponse.json({ error: 'Missing fileId.' }, { status: 400 });
+
+  // Get thumbnailLink from metadata
+  const metaRes = await fetch(`${DRIVE_API}/files/${fileId}?fields=thumbnailLink`, { headers });
+  if (!metaRes.ok) return NextResponse.json({ error: 'Failed to get metadata.' }, { status: metaRes.status });
+
+  const meta = await metaRes.json();
+  if (!meta.thumbnailLink) return NextResponse.json({ error: 'No thumbnail available.' }, { status: 404 });
+
+  // Fetch thumbnail at higher resolution
+  const thumbUrl = (meta.thumbnailLink as string).replace(/=s\d+/, '=s1600');
+  const thumbRes = await fetch(thumbUrl, { headers });
+  if (!thumbRes.ok) return NextResponse.json({ error: 'Failed to fetch thumbnail.' }, { status: thumbRes.status });
+
+  const thumbBuffer = await thumbRes.arrayBuffer();
+  const base64 = Buffer.from(thumbBuffer).toString('base64');
+  const contentType = thumbRes.headers.get('content-type') || 'image/png';
+  return NextResponse.json({ base64, contentType });
 }

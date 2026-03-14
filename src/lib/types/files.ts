@@ -18,6 +18,17 @@ export interface DriveItem {
   modifiedTime: string | null;
   /** Drive icon URL */
   iconLink: string | null;
+  /** Thumbnail URL for image preview */
+  thumbnailLink: string | null;
+}
+
+// ─── File Tree Node (for lazy-loading tree view) ─────────────────────────────
+
+export interface FileTreeNode {
+  item: DriveItem;
+  children: FileTreeNode[];
+  isLoaded: boolean;
+  isExpanded: boolean;
 }
 
 // ─── Project Drive Configuration ────────────────────────────────────────────

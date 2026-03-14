@@ -116,9 +116,25 @@ export async function listDriveFolder(
   if (!result.ok || !result.data) return [];
 
   const raw = (result.data as { files?: Array<Record<string, unknown>> }).files || [];
-  return raw.map((f) => ({
+  return raw.map((f) => mapDriveFile(f, (f.parentId as string) || null));
+}
+
+/** List direct children of a folder (non-recursive, for lazy-loading tree). */
+export async function listDriveFolderDirect(
+  projectId: string,
+  folderId: string
+): Promise<DriveItem[]> {
+  const result = await callDriveProxy(projectId, 'listFolder', { folderId });
+  if (!result.ok || !result.data) return [];
+
+  const raw = (result.data as { files?: Array<Record<string, unknown>> }).files || [];
+  return raw.map((f) => mapDriveFile(f, folderId));
+}
+
+function mapDriveFile(f: Record<string, unknown>, parentId: string | null): DriveItem {
+  return {
     id: f.id as string,
-    parentId: (f.parentId as string) || null,
+    parentId,
     name: f.name as string,
     mimeType: (f.mimeType as string) || null,
     size: f.size ? Number(f.size) : null,
@@ -127,7 +143,68 @@ export async function listDriveFolder(
     webContentLink: (f.webContentLink as string) || null,
     modifiedTime: (f.modifiedTime as string) || null,
     iconLink: (f.iconLink as string) || null,
-  }));
+    thumbnailLink: (f.thumbnailLink as string) || null,
+  };
+}
+
+/** Get raw file content for text-preview (proxied through Drive API). */
+export async function getDriveFileContent(
+  projectId: string,
+  fileId: string
+): Promise<string | null> {
+  const result = await callDriveProxy(projectId, 'getFileContent', { fileId });
+  if (!result.ok || !result.data) return null;
+  return (result.data as { content?: string }).content ?? null;
+}
+
+/** Get raw binary file content as a blob URL (for videos, images, Office docs). */
+export async function getDriveFileBinary(
+  projectId: string,
+  fileId: string
+): Promise<{ blobUrl: string; contentType: string } | null> {
+  const result = await callDriveProxy(projectId, 'getFileBinary', { fileId });
+  if (!result.ok || !result.data) return null;
+  const { base64, contentType } = result.data as { base64: string; contentType: string };
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  const blob = new Blob([bytes], { type: contentType });
+  return { blobUrl: URL.createObjectURL(blob), contentType };
+}
+
+/** Export a Google Workspace file as HTML. */
+export async function exportGoogleDocAsHtml(
+  projectId: string,
+  fileId: string
+): Promise<string | null> {
+  const result = await callDriveProxy(projectId, 'exportGoogleDoc', { fileId, exportMime: 'text/html' });
+  if (!result.ok || !result.data) return null;
+  return (result.data as { content?: string }).content ?? null;
+}
+
+/** Convert Office file (.pptx/.xlsx/.ppt/.xls) to PDF and return as blob URL. */
+export async function convertOfficeToPdf(
+  projectId: string,
+  fileId: string,
+  mimeType: string
+): Promise<string | null> {
+  const result = await callDriveProxy(projectId, 'convertOfficeToPdf', { fileId, mimeType });
+  if (!result.ok || !result.data) return null;
+  const { base64, contentType } = result.data as { base64: string; contentType: string };
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  const blob = new Blob([bytes], { type: contentType });
+  return URL.createObjectURL(blob);
+}
+
+/** Get a file's thumbnail as blob URL. */
+export async function getDriveFileThumbnail(
+  projectId: string,
+  fileId: string
+): Promise<string | null> {
+  const result = await callDriveProxy(projectId, 'getThumbnail', { fileId });
+  if (!result.ok || !result.data) return null;
+  const { base64, contentType } = result.data as { base64: string; contentType: string };
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  const blob = new Blob([bytes], { type: contentType });
+  return URL.createObjectURL(blob);
 }
 
 export async function createDriveFolder(
