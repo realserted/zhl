@@ -69,11 +69,11 @@ export async function POST(req: NextRequest) {
 
   const { data: project } = await adminClient
     .from('zhl_projects')
-    .select('created_by')
+    .select('owner_id')
     .eq('id', projectId)
     .maybeSingle();
 
-  if (!permission && project?.created_by !== userData.user.id) {
+  if (!permission && project?.owner_id !== userData.user.id) {
     return NextResponse.json({ error: 'Access denied to this project.' }, { status: 403 });
   }
 
