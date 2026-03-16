@@ -170,7 +170,7 @@ export default function OverviewCalendar({ projectId, taskers }: OverviewCalenda
   const selectedEvents = selectedDate ? eventsByDate.get(selectedDate) ?? [] : [];
 
   return (
-    <div className="glass-card rounded-2xl p-6">
+    <div className="glass-card rounded-2xl p-6 overflow-visible">
       <h2 className="text-sm font-bold text-foreground mb-4">Calendar</h2>
 
       {/* Month navigation */}
@@ -238,7 +238,7 @@ export default function OverviewCalendar({ projectId, taskers }: OverviewCalenda
         {selectedDate && (
           <div
             ref={popoverRef}
-            className="absolute z-50 left-1/2 -translate-x-1/2 top-full mt-4 w-72 glass-card rounded-2xl shadow-2xl p-5 animate-in fade-in zoom-in duration-200"
+            className="absolute z-50 left-1/2 -translate-x-1/2 bottom-full mb-4 w-72 glass-card rounded-2xl shadow-2xl p-5 animate-in fade-in zoom-in duration-200"
           >
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold text-foreground">
