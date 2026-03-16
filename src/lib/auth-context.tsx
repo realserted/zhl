@@ -25,6 +25,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
+  /** Ensure zhl_accounts row exists for the given user (upsert, non-blocking). */
+  const ensureAccount = async (u: User) => {
+    try {
+      await fetch('/api/auth/create-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: u.id,
+          display_name:
+            u.user_metadata?.display_name ||
+            u.user_metadata?.full_name ||
+            u.email?.split('@')[0] ||
+            'User',
+          email: u.email!,
+          phone: u.user_metadata?.phone || null,
+        }),
+      });
+    } catch {
+      // Non-blocking — account may already exist
+    }
+  };
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -32,10 +54,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
+
+      // On sign-in, ensure the user has a zhl_accounts row
+      if (event === 'SIGNED_IN' && session?.user) {
+        ensureAccount(session.user);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -92,8 +119,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return { error: error.message };
+
+    // Ensure zhl_accounts row exists for this user
+    if (data.user) {
+      ensureAccount(data.user);
+    }
+
     return { error: null };
   };
 

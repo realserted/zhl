@@ -41,20 +41,6 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Get the Supabase user from the cookie/session
-  // The user must be logged in via Supabase before connecting Google
-  const supabaseToken = req.cookies.get('sb-access-token')?.value
-    || req.headers.get('authorization')?.replace('Bearer ', '');
-
-  if (!supabaseToken) {
-    // Try to get from Supabase auth cookie (standard name varies by project)
-    const allCookies = req.cookies.getAll();
-    const sbCookie = allCookies.find(c => c.name.includes('auth-token'));
-    if (!sbCookie) {
-      return NextResponse.redirect(new URL('/?google_auth=error&reason=not_logged_in', req.url));
-    }
-  }
-
   // Exchange authorization code for tokens
   const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',

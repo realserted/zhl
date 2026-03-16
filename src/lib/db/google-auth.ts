@@ -55,7 +55,9 @@ export async function finalizeGoogleAuth(encodedData: string): Promise<boolean> 
     const accessToken = sessionData?.session?.access_token;
     if (!accessToken) return false;
 
-    const decoded = JSON.parse(Buffer.from(encodedData, 'base64url').toString());
+    // Decode base64url in the browser (Buffer is not available client-side)
+    const base64 = encodedData.replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = JSON.parse(atob(base64));
 
     const res = await fetch('/api/auth/google/finalize', {
       method: 'POST',
