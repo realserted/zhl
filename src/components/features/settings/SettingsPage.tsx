@@ -1321,6 +1321,30 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                 </p>
               </div>
 
+              {/* Google Calendar ID */}
+              <div>
+                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2">
+                  Google Calendar ID
+                </label>
+                <input
+                  type="text"
+                  defaultValue={projectSettings.google_calendar_id ?? ''}
+                  key={`${selectedProjectId}-gcal-id-${projectSettings.google_calendar_id ?? ''}`}
+                  onBlur={async (e) => {
+                    const val = e.target.value.trim();
+                    if (val !== (projectSettings.google_calendar_id ?? '') && selectedProjectId) {
+                      const ok = await saveProjectSettings(selectedProjectId, { google_calendar_id: val });
+                      if (ok) setProjectSettings((prev) => ({ ...prev, google_calendar_id: val }));
+                    }
+                  }}
+                  placeholder="e.g., primary or your-email@gmail.com"
+                  className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+                />
+                <p className="text-[10px] text-muted-foreground mt-1.5">
+                  Required for auto-generating Google Meet links. Use <strong>&quot;primary&quot;</strong> for your default calendar, or paste a specific calendar ID.
+                </p>
+              </div>
+
               {/* How it works */}
               <div className="mt-2 p-3 rounded-lg bg-muted/50 border border-border/50">
                 <p className="text-[10px] font-bold text-muted-foreground mb-1.5">HOW MEETINGS WORK:</p>
@@ -1329,11 +1353,21 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                   <li>All users can <strong>view</strong> meetings on the calendar and see meeting details</li>
                   <li>Click <strong>&quot;GCal&quot;</strong> on any meeting to add it to your personal Google Calendar (opens in a new tab)</li>
                   <li>If a <strong>Google Meet</strong> or video link is set, all users can click <strong>&quot;Join Meeting&quot;</strong> to join directly</li>
-                  <li>To create a new Google Meet link, click <strong>&quot;Create a new Google Meet&quot;</strong> in the meeting form and paste the link</li>
+                  <li>You can manually generate a Meet link by clicking <strong>&quot;Generate Google Meet link&quot;</strong> in the meeting form</li>
                 </ul>
               </div>
 
-              <Button variant="ghost" className="w-full justify-start text-sm hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">Google Meet settings</Button>
+              <div className="mt-2 p-3 rounded-lg bg-muted/50 border border-border/50">
+                <p className="text-[10px] font-bold text-muted-foreground mb-1.5">AUTO GOOGLE MEET SETUP:</p>
+                <ul className="text-[10px] text-muted-foreground space-y-1 list-disc list-inside leading-relaxed">
+                  <li>Make sure your <strong>Google Drive is connected</strong> on the Files page (this also enables Calendar access)</li>
+                  <li>Set the <strong>Google Calendar ID</strong> above (use <strong>&quot;primary&quot;</strong> for your main calendar)</li>
+                  <li>Set the <strong>Default Meeting Location</strong> to <strong>&quot;Google Meet&quot;</strong></li>
+                  <li>When creating a meeting, if the location contains <strong>&quot;Google Meet&quot;</strong> and a date is selected, a Google Meet link will be <strong>automatically generated</strong> on the Review step</li>
+                  <li>The generated Meet link is attached to the meeting and included in email invitations sent to attendees</li>
+                </ul>
+              </div>
+
               <Button variant="ghost" className="w-full justify-start text-sm underline hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">Edit Transcription to Summary Prompt (for YOU)</Button>
               <Button variant="ghost" className="w-full justify-start text-sm underline hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">Edit Transcription to Summary Prompt (for EVERYONE)</Button>
             </div>

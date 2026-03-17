@@ -110,7 +110,7 @@ export async function addMeetingAttendees(
 
   const { data, error } = await supabase
     .from('zhl_meeting_attendees')
-    .insert(rows)
+    .upsert(rows, { onConflict: 'event_id,email' })
     .select();
 
   if (error) {

@@ -129,12 +129,14 @@ export function ScheduleWizard({
       setDate(editEvent.event_date);
       setTime(editEvent.event_time ?? '');
       getMeetingAttendees(editEvent.id).then((att) => {
-        setAttendees(att.map((a) => ({
-          user_id: a.user_id,
-          email: a.email,
-          display_name: a.display_name,
-          is_guest: a.is_guest,
-        })));
+        const seen = new Set<string>();
+        const unique: AttendeeEntry[] = [];
+        for (const a of att) {
+          if (seen.has(a.email)) continue;
+          seen.add(a.email);
+          unique.push({ user_id: a.user_id, email: a.email, display_name: a.display_name, is_guest: a.is_guest });
+        }
+        setAttendees(unique);
       });
     } else {
       setTitle('');
@@ -182,6 +184,7 @@ export function ScheduleWizard({
   }, [projectUsers, memberSearch, attendees, userId]);
 
   const addMember = (pu: ProjectUser) => {
+    if (attendees.some((a) => a.email === pu.user_email)) return;
     setAttendees((prev) => [...prev, { user_id: pu.user_id, email: pu.user_email, display_name: pu.user_name, is_guest: false }]);
     setMemberSearch('');
   };
@@ -251,6 +254,21 @@ export function ScheduleWizard({
       setIsGeneratingMeet(false);
     }
   };
+
+  // ── Auto-generate Meet link when entering review step ────────────────
+  useEffect(() => {
+    if (
+      step === 'review' &&
+      googleCalendarId &&
+      date &&
+      !meetLink.trim() &&
+      location.toLowerCase().includes('google meet') &&
+      !isGeneratingMeet
+    ) {
+      handleGenerateMeetLink();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   // ── Save ──────────────────────────────────────────────────────────────
   const handleSave = async () => {
@@ -469,8 +487,8 @@ export function ScheduleWizard({
             <div>
               <FormLabel>Attendees ({attendees.length})</FormLabel>
               <div className="space-y-1.5">
-                {attendees.map((a) => (
-                  <div key={a.email} className="flex items-center justify-between px-3 py-2 rounded-xl bg-muted/30 border border-border/30">
+                {attendees.map((a, idx) => (
+                  <div key={`${a.email}-${idx}`} className="flex items-center justify-between px-3 py-2 rounded-xl bg-muted/30 border border-border/30">
                     <div className="flex items-center gap-2.5 min-w-0">
                       <AttendeeAvatar name={a.display_name} isGuest={a.is_guest} />
                       <div className="min-w-0">
@@ -587,11 +605,15 @@ export function ScheduleWizard({
                   <MapPin className="h-4 w-4 shrink-0" /><span className="truncate">{location}</span>
                 </div>
               )}
-              {meetLink && (
+              {isGeneratingMeet ? (
+                <div className="flex items-center gap-2 text-muted-foreground col-span-2">
+                  <Video className="h-4 w-4 shrink-0 animate-pulse" /><span className="text-blue-500 text-xs">Generating Google Meet link...</span>
+                </div>
+              ) : meetLink ? (
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Video className="h-4 w-4 shrink-0" /><span className="truncate text-blue-500">Meeting link attached</span>
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
 
@@ -601,8 +623,8 @@ export function ScheduleWizard({
                 Attendees ({attendees.length}) — invitations will be emailed
               </p>
               <div className="space-y-1">
-                {attendees.map((a) => (
-                  <div key={a.email} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/20">
+                {attendees.map((a, idx) => (
+                  <div key={`${a.email}-${idx}`} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/20">
                     <AttendeeAvatar name={a.display_name} isGuest={a.is_guest} size="sm" />
                     <span className="text-sm font-medium">{a.display_name}</span>
                     <span className="text-[11px] text-muted-foreground">({a.email})</span>
