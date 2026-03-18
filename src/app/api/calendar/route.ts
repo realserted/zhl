@@ -78,17 +78,30 @@ export async function POST(req: NextRequest) {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  const googleAccessToken = await getGoogleAccessToken(userData.user.id, adminClient);
+  const body = await req.json();
+  const { action, calendarId: rawCalendarId, googleEventId, event, projectId } = body;
+
+  // Determine whose Google token to use:
+  // If projectId is provided, use the project owner's token (same pattern as drive route)
+  let driveTokenUserId = userData.user.id;
+  if (projectId) {
+    const { data: project } = await adminClient
+      .from('zhl_projects')
+      .select('owner_id')
+      .eq('id', projectId)
+      .maybeSingle();
+    if (project?.owner_id) {
+      driveTokenUserId = project.owner_id;
+    }
+  }
+
+  const googleAccessToken = await getGoogleAccessToken(driveTokenUserId, adminClient);
   if (!googleAccessToken) {
     return NextResponse.json({ error: 'Google account not connected or token expired.' }, { status: 401 });
   }
 
-  const body = await req.json();
-  const { action, calendarId, googleEventId, event } = body;
-
-  if (!calendarId) {
-    return NextResponse.json({ error: 'No Google Calendar ID configured.' }, { status: 400 });
-  }
+  // Default to 'primary' calendar if none specified
+  const calendarId = rawCalendarId || 'primary';
 
   const calendarApiBase = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
   const headers = {
@@ -99,22 +112,35 @@ export async function POST(req: NextRequest) {
   try {
     if (action === 'create-meet') {
       // Create a Google Calendar event with conferenceData to generate a Meet link
-      const startDateTime = event.time
-        ? `${event.date}T${event.time}:00`
-        : `${event.date}T09:00:00`;
-      const endDt = new Date(startDateTime);
-      endDt.setMinutes(endDt.getMinutes() + (event.duration || 60));
-      const endDateTime = endDt.toISOString().replace('Z', '');
+      const tz = event.timeZone || 'UTC';
+
+      let start: { dateTime?: string; date?: string; timeZone?: string };
+      let end: { dateTime?: string; date?: string; timeZone?: string };
+
+      if (event.time) {
+        const startDateTime = `${event.date}T${event.time}:00`;
+        // Calculate end time by adding duration in minutes
+        const [hh, mm] = event.time.split(':').map(Number);
+        const totalMin = hh * 60 + mm + (event.duration || 60);
+        const endHH = String(Math.floor(totalMin / 60) % 24).padStart(2, '0');
+        const endMM = String(totalMin % 60).padStart(2, '0');
+        const endDateTime = `${event.date}T${endHH}:${endMM}:00`;
+        start = { dateTime: startDateTime, timeZone: tz };
+        end = { dateTime: endDateTime, timeZone: tz };
+      } else {
+        // All-day event: end date must be the next day
+        const nextDay = new Date(event.date + 'T00:00:00');
+        nextDay.setDate(nextDay.getDate() + 1);
+        const endDate = nextDay.toISOString().slice(0, 10);
+        start = { date: event.date };
+        end = { date: endDate };
+      }
 
       const gcalEvent = {
         summary: event.title || 'Meeting',
         location: event.location || undefined,
-        start: event.time
-          ? { dateTime: startDateTime, timeZone: event.timeZone || 'America/New_York' }
-          : { date: event.date },
-        end: event.time
-          ? { dateTime: endDateTime, timeZone: event.timeZone || 'America/New_York' }
-          : { date: event.date },
+        start,
+        end,
         conferenceData: {
           createRequest: {
             requestId: `zhl-meet-${Date.now()}`,
@@ -132,6 +158,9 @@ export async function POST(req: NextRequest) {
       if (!res.ok) {
         const err = await res.text();
         console.error('Google Calendar create-meet failed:', err);
+        console.error('Calendar ID used:', calendarId);
+        console.error('Token user ID:', driveTokenUserId);
+        console.error('Request URL:', `${calendarApiBase}?conferenceDataVersion=1`);
         return NextResponse.json({ error: 'Failed to create Google Meet link.' }, { status: 502 });
       }
 

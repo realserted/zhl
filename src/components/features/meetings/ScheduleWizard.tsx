@@ -230,7 +230,7 @@ export function ScheduleWizard({
 
   // ── Generate Meet link ────────────────────────────────────────────────
   const handleGenerateMeetLink = async () => {
-    if (!googleCalendarId || isGeneratingMeet) return;
+    if (isGeneratingMeet) return;
     setIsGeneratingMeet(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -240,8 +240,9 @@ export function ScheduleWizard({
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({
           action: 'create-meet',
-          calendarId: googleCalendarId,
-          event: { title: title.trim() || 'Meeting', date: date || todayStr, time: time || null, duration, location: location.trim() || null },
+          calendarId: googleCalendarId || 'primary',
+          projectId,
+          event: { title: title.trim() || 'Meeting', date: date || todayStr, time: time || null, duration, location: location.trim() || null, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
         }),
       });
       if (res.ok) {
@@ -259,7 +260,6 @@ export function ScheduleWizard({
   useEffect(() => {
     if (
       step === 'review' &&
-      googleCalendarId &&
       date &&
       !meetLink.trim() &&
       location.toLowerCase().includes('google meet') &&

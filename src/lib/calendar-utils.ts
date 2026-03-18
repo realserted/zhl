@@ -85,10 +85,10 @@ export function getOooDateRange(year: number, month: number): { start: string; e
 
 export const DURATIONS = [15, 30, 45, 60, 90] as const;
 
-/** Generate 30-min-interval time slots between 9 AM and 5 PM that fit the given duration. */
+/** Generate 30-min-interval time slots between 8 AM and 5 PM that fit the given duration. */
 export function generateTimeSlots(duration: number): string[] {
   const slots: string[] = [];
-  const startMin = 9 * 60;  // 9:00 AM
+  const startMin = 8 * 60;  // 8:00 AM
   const endMin = 17 * 60;   // 5:00 PM
 
   for (let m = startMin; m + duration <= endMin; m += 30) {

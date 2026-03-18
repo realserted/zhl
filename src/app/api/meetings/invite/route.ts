@@ -46,6 +46,40 @@ export async function POST(req: NextRequest) {
         })
       : 'All day';
 
+    // Build Google Calendar "Add to Calendar" link
+    let googleCalUrl = '';
+    if (dateValue) {
+      const dateClean = dateValue.replace(/-/g, '');
+      let startDt: string;
+      let endDt: string;
+      if (timeValue) {
+        // Time-based event: YYYYMMDDTHHmmSS
+        const [hh, mm] = timeValue.split(':').map(Number);
+        const startMin = hh * 60 + mm;
+        const endMin = startMin + (meeting.duration || 30);
+        const endHH = String(Math.floor(endMin / 60)).padStart(2, '0');
+        const endMM = String(endMin % 60).padStart(2, '0');
+        startDt = `${dateClean}T${String(hh).padStart(2, '0')}${String(mm).padStart(2, '0')}00`;
+        endDt = `${dateClean}T${endHH}${endMM}00`;
+      } else {
+        // All-day event
+        startDt = dateClean;
+        const nextDay = new Date(dateValue + 'T00:00:00');
+        nextDay.setDate(nextDay.getDate() + 1);
+        endDt = nextDay.toISOString().slice(0, 10).replace(/-/g, '');
+      }
+      const calParams = new URLSearchParams({
+        action: 'TEMPLATE',
+        text: meeting.title,
+        dates: `${startDt}/${endDt}`,
+        details: meeting.meet_link
+          ? `Join Google Meet: ${meeting.meet_link}\n\nOrganized by ${meeting.organizer_name} via ZHL`
+          : `Organized by ${meeting.organizer_name} via ZHL`,
+        ...(meeting.location ? { location: meeting.location } : {}),
+      });
+      googleCalUrl = `https://calendar.google.com/calendar/render?${calParams.toString()}`;
+    }
+
     const htmlContent = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px 24px; background: #111; color: #eee; border-radius: 16px;">
         <h1 style="font-size: 20px; font-weight: 700; margin: 0 0 8px;">You're Invited to a Meeting</h1>
@@ -71,9 +105,22 @@ export async function POST(req: NextRequest) {
         </div>
 
         ${meeting.meet_link ? `
-        <a href="${meeting.meet_link}" style="display: inline-block; background: #2563eb; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 14px; font-weight: 600; margin-bottom: 24px;">
-          Join Meeting
-        </a>
+        <div style="margin-bottom: 16px;">
+          <a href="${meeting.meet_link}" style="display: inline-block; background: #2563eb; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 14px; font-weight: 600;">
+            Join Google Meet
+          </a>
+        </div>
+        <p style="font-size: 12px; color: #999; margin: 0 0 20px;">
+          <a href="${meeting.meet_link}" style="color: #60a5fa; text-decoration: none;">${meeting.meet_link}</a>
+        </p>
+        ` : ''}
+
+        ${googleCalUrl ? `
+        <div style="margin-bottom: 24px;">
+          <a href="${googleCalUrl}" target="_blank" style="display: inline-block; background: #1a1a1a; color: #fff; text-decoration: none; padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; border: 1px solid #333;">
+            📅 Add to Google Calendar
+          </a>
+        </div>
         ` : ''}
 
         <p style="color: #666; font-size: 12px; margin-top: 24px; border-top: 1px solid #333; padding-top: 16px;">
