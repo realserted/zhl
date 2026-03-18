@@ -73,7 +73,15 @@ export async function POST(req: NextRequest) {
     .eq('id', projectId)
     .maybeSingle();
 
-  if (!permission && project?.owner_id !== userData.user.id) {
+  // Check if user is a system admin
+  const { data: accountRow } = await adminClient
+    .from('zhl_accounts')
+    .select('is_admin')
+    .eq('user_id', userData.user.id)
+    .maybeSingle();
+  const isSysAdmin = accountRow?.is_admin === true;
+
+  if (!permission && project?.owner_id !== userData.user.id && !isSysAdmin) {
     return NextResponse.json({ error: 'Access denied to this project.' }, { status: 403 });
   }
 
@@ -85,7 +93,7 @@ export async function POST(req: NextRequest) {
   const WRITE_ACTIONS = ['createFolder', 'renameFile', 'moveFile', 'deleteFile', 'restoreFile', 'ensureArchive'];
 
   const isProjectOwner = project?.owner_id === userData.user.id;
-  if (WRITE_ACTIONS.includes(action) && !isProjectOwner) {
+  if (WRITE_ACTIONS.includes(action) && !isProjectOwner && !isSysAdmin) {
     const role = (permission as { project_role?: string } | null)?.project_role || '';
     if (!role.includes('Project Manager')) {
       return NextResponse.json({ error: 'You do not have permission to perform this action.' }, { status: 403 });
