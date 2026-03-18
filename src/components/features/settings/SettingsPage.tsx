@@ -1351,9 +1351,10 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                 <ul className="text-[10px] text-muted-foreground space-y-1 list-disc list-inside leading-relaxed">
                   <li>Editors and admins can <strong>create, edit, and delete</strong> meetings with a title, date, time, location, and meeting link</li>
                   <li>All users can <strong>view</strong> meetings on the calendar and see meeting details</li>
-                  <li>Click <strong>&quot;GCal&quot;</strong> on any meeting to add it to your personal Google Calendar (opens in a new tab)</li>
+                  <li>Available time slots are shown from <strong>8:00 AM to 5:00 PM</strong> in 30-minute intervals</li>
                   <li>If a <strong>Google Meet</strong> or video link is set, all users can click <strong>&quot;Join Meeting&quot;</strong> to join directly</li>
-                  <li>You can manually generate a Meet link by clicking <strong>&quot;Generate Google Meet link&quot;</strong> in the meeting form</li>
+                  <li>Email invitations are sent to attendees with an <strong>&quot;Add to Google Calendar&quot;</strong> button and the Meet link</li>
+                  <li>Timezone is <strong>automatically detected</strong> from the user&apos;s device</li>
                 </ul>
               </div>
 
@@ -1361,10 +1362,11 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
                 <p className="text-[10px] font-bold text-muted-foreground mb-1.5">AUTO GOOGLE MEET SETUP:</p>
                 <ul className="text-[10px] text-muted-foreground space-y-1 list-disc list-inside leading-relaxed">
                   <li>Make sure your <strong>Google Drive is connected</strong> on the Files page (this also enables Calendar access)</li>
-                  <li>Set the <strong>Google Calendar ID</strong> above (use <strong>&quot;primary&quot;</strong> for your main calendar)</li>
+                  <li>Optionally set the <strong>Google Calendar ID</strong> above (defaults to <strong>&quot;primary&quot;</strong> if left empty)</li>
                   <li>Set the <strong>Default Meeting Location</strong> to <strong>&quot;Google Meet&quot;</strong></li>
                   <li>When creating a meeting, if the location contains <strong>&quot;Google Meet&quot;</strong> and a date is selected, a Google Meet link will be <strong>automatically generated</strong> on the Review step</li>
                   <li>The generated Meet link is attached to the meeting and included in email invitations sent to attendees</li>
+                  <li>The meeting is also <strong>synced to the project owner&apos;s Google Calendar</strong> automatically</li>
                 </ul>
               </div>
 
