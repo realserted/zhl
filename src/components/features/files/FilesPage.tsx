@@ -48,6 +48,8 @@ import { FileViewerPanel } from './FileViewerPanel';
 interface FilesPageProps {
   selectedProjectId: string | null;
   userPermission?: ProjectPermission | null;
+  projectOwnerId?: string | null;
+  isAdmin?: boolean;
 }
 
 type PermissionKey =
@@ -67,12 +69,14 @@ const permissionColumns: Array<{ key: PermissionKey; label: string }> = [
   { key: 'link_enabled', label: 'Link' },
 ];
 
-export default function FilesPage({ selectedProjectId, userPermission }: FilesPageProps) {
+export default function FilesPage({ selectedProjectId, userPermission, projectOwnerId, isAdmin }: FilesPageProps) {
   const { user } = useAuth();
   const searchParams = useSearchParams();
 
   const { canEdit } = usePermission(userPermission, 'perm_files');
-  const canManagePermissions = !userPermission || (userPermission.project_role?.includes('Project Manager') ?? false);
+  const isOwner = !!(user && projectOwnerId && user.id === projectOwnerId);
+  const isOwnerOrAdmin = isOwner || !!isAdmin;
+  const canManagePermissions = isOwnerOrAdmin;
 
   const hasFileAccess = useCallback(
     (permEntry: ProjectFileFolderPermissions | ProjectFileItemPermissions | undefined): boolean => {
@@ -182,10 +186,10 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
   // ── Google connection ─────────────────────────────────────────────
 
   const checkGoogleStatus = useCallback(async () => {
-    const status = await getGoogleTokenStatus();
+    const status = await getGoogleTokenStatus(selectedProjectId);
     setGoogleConnected(status.connected);
     setGoogleEmail(status.google_email);
-  }, []);
+  }, [selectedProjectId]);
 
   useEffect(() => { checkGoogleStatus(); }, [checkGoogleStatus]);
 
@@ -498,12 +502,14 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
   return (
     <main className="bg-background text-foreground min-h-screen p-4 sm:p-6">
       <div className="max-w-[1800px] mx-auto space-y-4">
-        {/* Google Connect Banner */}
-        <GoogleConnectBanner
-          connected={googleConnected}
-          googleEmail={googleEmail}
-          onStatusChange={checkGoogleStatus}
-        />
+        {/* Google Connect Banner — only show to owner/admin */}
+        {isOwnerOrAdmin && (
+          <GoogleConnectBanner
+            connected={googleConnected}
+            googleEmail={googleEmail}
+            onStatusChange={checkGoogleStatus}
+          />
+        )}
 
         {/* Setup prompt if not configured */}
         {!driveConfig && (
@@ -512,10 +518,16 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
               <Folder className="h-10 w-10 text-muted-foreground" />
             </div>
             <div>
-              <p className="text-sm font-bold tracking-widest uppercase text-muted-foreground mb-1">Google Drive not connected</p>
-              <p className="text-xs text-muted-foreground/60">Connect a Google Drive folder to manage files for this project.</p>
+              <p className="text-sm font-bold tracking-widest uppercase text-muted-foreground mb-1">
+                {isOwnerOrAdmin ? 'Google Drive not connected' : 'No files available'}
+              </p>
+              <p className="text-xs text-muted-foreground/60">
+                {isOwnerOrAdmin
+                  ? 'Connect a Google Drive folder to manage files for this project.'
+                  : 'The project owner has not configured Google Drive for this project yet.'}
+              </p>
             </div>
-            {canEdit && (
+            {isOwnerOrAdmin && canEdit && (
               <Button variant="primary" onClick={() => setShowSetupModal(true)}>
                 <Settings className="h-4 w-4 mr-1" />
                 Configure Google Drive
@@ -536,79 +548,83 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                 </p>
               </div>
 
-              {/* Permissions toggle */}
-              <Button
-                variant="ghost" size="sm"
-                onClick={() => setShowPermissions((p) => !p)}
-                className="text-[10px] font-bold tracking-widest uppercase text-primary hover:text-primary transition-all flex items-center gap-1.5 px-1 h-auto py-1 shadow-none"
-              >
-                {showPermissions ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                {showPermissions ? 'Hide Permissions' : 'Show Permissions'}
-              </Button>
-
-              {/* Actions */}
-              <div className="space-y-3 pt-2">
+              {/* Permissions toggle — owner/admin only */}
+              {isOwnerOrAdmin && (
                 <Button
                   variant="ghost" size="sm"
-                  onClick={handleRefresh}
-                  disabled={treeLoading || !googleConnected}
-                  className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
-                  leftIcon={treeLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  onClick={() => setShowPermissions((p) => !p)}
+                  className="text-[10px] font-bold tracking-widest uppercase text-primary hover:text-primary transition-all flex items-center gap-1.5 px-1 h-auto py-1 shadow-none"
                 >
-                  Refresh from Drive
+                  {showPermissions ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                  {showPermissions ? 'Hide Permissions' : 'Show Permissions'}
                 </Button>
+              )}
 
-                <Button
-                  variant="ghost" size="sm"
-                  onClick={() => setShowAddCustomField(true)}
-                  disabled={!canEdit}
-                  className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
-                  leftIcon={<Plus className="h-3.5 w-3.5" />}
-                >
-                  Add Custom Field
-                </Button>
+              {/* Actions — owner/admin only */}
+              {isOwnerOrAdmin && (
+                <div className="space-y-3 pt-2">
+                  <Button
+                    variant="ghost" size="sm"
+                    onClick={handleRefresh}
+                    disabled={treeLoading || !googleConnected}
+                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
+                    leftIcon={treeLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  >
+                    Refresh from Drive
+                  </Button>
 
-                <Button
-                  variant="ghost" size="sm"
-                  onClick={() => { if (canEdit) setShowNewFolderInput((v) => !v); }}
-                  disabled={!canEdit || !googleConnected}
-                  className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
-                  leftIcon={<Plus className="h-3.5 w-3.5" />}
-                >
-                  Add New Folder
-                </Button>
-                {showNewFolderInput && (
-                  <div className="flex flex-col gap-2 px-1">
-                    <input
-                      autoFocus
-                      value={newFolderName}
-                      onChange={(e) => setNewFolderName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleCreateFolder();
-                        if (e.key === 'Escape') { setShowNewFolderInput(false); setNewFolderName(''); }
-                      }}
-                      placeholder="Folder name..."
-                      className="w-full px-3 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
-                    />
-                    <button
-                      onClick={handleCreateFolder}
-                      disabled={!newFolderName.trim()}
-                      className="px-3 py-1.5 text-[10px] font-bold tracking-wider uppercase bg-primary text-primary-foreground rounded-xl disabled:opacity-50 transition-all"
-                    >
-                      Create on Drive
-                    </button>
-                  </div>
-                )}
+                  <Button
+                    variant="ghost" size="sm"
+                    onClick={() => setShowAddCustomField(true)}
+                    disabled={!canEdit}
+                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
+                    leftIcon={<Plus className="h-3.5 w-3.5" />}
+                  >
+                    Add Custom Field
+                  </Button>
 
-                <Button
-                  variant="ghost" size="sm"
-                  onClick={() => setShowSetupModal(true)}
-                  className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all px-1 h-auto py-1 shadow-none"
-                  leftIcon={<Settings className="h-3.5 w-3.5" />}
-                >
-                  Drive Settings
-                </Button>
-              </div>
+                  <Button
+                    variant="ghost" size="sm"
+                    onClick={() => { if (canEdit) setShowNewFolderInput((v) => !v); }}
+                    disabled={!canEdit || !googleConnected}
+                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
+                    leftIcon={<Plus className="h-3.5 w-3.5" />}
+                  >
+                    Add New Folder
+                  </Button>
+                  {showNewFolderInput && (
+                    <div className="flex flex-col gap-2 px-1">
+                      <input
+                        autoFocus
+                        value={newFolderName}
+                        onChange={(e) => setNewFolderName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleCreateFolder();
+                          if (e.key === 'Escape') { setShowNewFolderInput(false); setNewFolderName(''); }
+                        }}
+                        placeholder="Folder name..."
+                        className="w-full px-3 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
+                      />
+                      <button
+                        onClick={handleCreateFolder}
+                        disabled={!newFolderName.trim()}
+                        className="px-3 py-1.5 text-[10px] font-bold tracking-wider uppercase bg-primary text-primary-foreground rounded-xl disabled:opacity-50 transition-all"
+                      >
+                        Create on Drive
+                      </button>
+                    </div>
+                  )}
+
+                  <Button
+                    variant="ghost" size="sm"
+                    onClick={() => setShowSetupModal(true)}
+                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all px-1 h-auto py-1 shadow-none"
+                    leftIcon={<Settings className="h-3.5 w-3.5" />}
+                  >
+                    Drive Settings
+                  </Button>
+                </div>
+              )}
 
               <div className="h-px bg-white/5 mx-1" />
 
@@ -662,7 +678,7 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                           <ExternalLink className="h-3 w-3" /> Open
                         </button>
                       )}
-                      {canEdit && (
+                      {isOwnerOrAdmin && canEdit && (
                         <button
                           onClick={() => { setRenamingId(selectedFile.id); setRenameValue(selectedFile.name); }}
                           className="flex items-center gap-1 px-2 py-1 rounded-lg bg-muted/50 hover:bg-primary/10 text-[10px] font-bold tracking-wider uppercase transition-colors"
@@ -670,7 +686,7 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                           <Pencil className="h-3 w-3" /> Rename
                         </button>
                       )}
-                      {canEdit && (
+                      {isOwnerOrAdmin && canEdit && (
                         <button
                           onClick={() => setConfirmArchiveId(selectedFile.id)}
                           className="flex items-center gap-1 px-2 py-1 rounded-lg bg-muted/50 hover:bg-destructive/10 text-[10px] font-bold tracking-wider uppercase text-destructive transition-colors"
@@ -678,7 +694,7 @@ export default function FilesPage({ selectedProjectId, userPermission }: FilesPa
                           <Archive className="h-3 w-3" /> Archive
                         </button>
                       )}
-                      {canEdit && (
+                      {isOwnerOrAdmin && canEdit && (
                         <button
                           onClick={() => openLinkModal([{
                             name: selectedFile.name,

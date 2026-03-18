@@ -97,6 +97,8 @@ export default function TabPage({ params }: { params: Promise<{ tab: string }> }
         <FilesPage
           selectedProjectId={projectId}
           userPermission={userPermission}
+          projectOwnerId={selectedProject?.owner_id ?? null}
+          isAdmin={isAdmin}
         />
       );
 

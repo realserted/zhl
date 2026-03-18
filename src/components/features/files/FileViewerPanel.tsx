@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { FileText, ExternalLink, Download, Eye, Loader2 } from 'lucide-react';
 import mammoth from 'mammoth';
+import DOMPurify from 'isomorphic-dompurify';
 import { Button } from '@/components/shared/Button';
 import {
   getDriveFileContent,
@@ -270,7 +271,7 @@ export function FileViewerPanel({ file, projectId }: FileViewerPanelProps) {
           <div className="h-full overflow-auto bg-white">
             <div
               className="prose prose-sm max-w-none p-6 text-black [&_a]:text-blue-600"
-              dangerouslySetInnerHTML={{ __html: content }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content) }}
             />
           </div>
         ) : previewType === 'pdf' && blobUrl ? (

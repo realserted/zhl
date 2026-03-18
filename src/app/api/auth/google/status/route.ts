@@ -37,14 +37,50 @@ export async function GET(req: NextRequest) {
   const adminClient = createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+
+  // Check the user's own token first
   const { data: tokenRow } = await adminClient
     .from('zhl_google_tokens')
     .select('google_email')
     .eq('user_id', userData.user.id)
     .maybeSingle();
 
+  if (tokenRow) {
+    return NextResponse.json({
+      connected: true,
+      google_email: tokenRow.google_email || null,
+    });
+  }
+
+  // If the user doesn't have their own token, check if the project owner has one
+  // This allows project members to access Drive via the owner's connection
+  const projectId = req.nextUrl.searchParams.get('projectId');
+  if (projectId) {
+    const { data: project } = await adminClient
+      .from('zhl_projects')
+      .select('owner_id')
+      .eq('id', projectId)
+      .maybeSingle();
+
+    if (project?.owner_id) {
+      const { data: ownerToken } = await adminClient
+        .from('zhl_google_tokens')
+        .select('google_email')
+        .eq('user_id', project.owner_id)
+        .maybeSingle();
+
+      if (ownerToken) {
+        return NextResponse.json({
+          connected: true,
+          google_email: ownerToken.google_email || null,
+          via_owner: true,
+        });
+      }
+    }
+  }
+
   return NextResponse.json({
-    connected: !!tokenRow,
-    google_email: tokenRow?.google_email || null,
+    connected: false,
+    google_email: null,
   });
 }

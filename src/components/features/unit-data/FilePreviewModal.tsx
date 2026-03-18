@@ -2,6 +2,7 @@
 
 import { lazy, Suspense } from 'react';
 import { X, FileText } from 'lucide-react';
+import DOMPurify from 'isomorphic-dompurify';
 
 const PdfViewer = lazy(() => import('@/components/shared/PdfViewer'));
 
@@ -50,7 +51,7 @@ export function FilePreviewModal({ preview, onClose }: FilePreviewModalProps) {
           {isDrive ? (
             <iframe src={preview.url} className="w-full h-full rounded-lg border-0" title={preview.name} allow="autoplay" sandbox="allow-scripts allow-same-origin allow-popups" />
           ) : preview.htmlContent ? (
-            <div className="w-full h-full overflow-auto bg-white rounded-lg p-8" dangerouslySetInnerHTML={{ __html: preview.htmlContent }} style={{ color: '#222', fontSize: '14px', lineHeight: '1.6' }} />
+            <div className="w-full h-full overflow-auto bg-white rounded-lg p-8" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(preview.htmlContent) }} style={{ color: '#222', fontSize: '14px', lineHeight: '1.6' }} />
           ) : /\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(preview.name) ? (
             <div className="w-full h-full flex items-center justify-center overflow-auto p-4">
               <img src={preview.url} alt={preview.name} className="max-w-full max-h-full object-contain rounded-lg" />

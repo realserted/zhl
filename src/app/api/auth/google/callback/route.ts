@@ -30,12 +30,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Missing authorization code.' }, { status: 400 });
   }
 
-  // Parse state to get returnUrl
+  // Parse state to get returnUrl (validated against whitelist to prevent open redirect)
   let returnUrl = '/';
   if (stateParam) {
     try {
       const parsed = JSON.parse(Buffer.from(stateParam, 'base64url').toString());
-      returnUrl = parsed.returnUrl || '/';
+      const candidate = parsed.returnUrl || '/';
+      // Only allow relative paths starting with / (no protocol/external URLs)
+      if (typeof candidate === 'string' && candidate.startsWith('/') && !candidate.startsWith('//')) {
+        returnUrl = candidate;
+      }
     } catch {
       // Ignore malformed state
     }

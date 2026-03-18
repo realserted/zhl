@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
   // 2. Verify user has access to this project
   const { data: permission } = await adminClient
     .from('zhl_project_permissions')
-    .select('id')
+    .select('id, project_role')
     .eq('project_id', projectId)
     .eq('user_id', userData.user.id)
     .maybeSingle();
@@ -77,6 +77,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Access denied to this project.' }, { status: 403 });
   }
 
+  // 2b. Action-level authorization
+  // Read-only actions allowed for all project members
+  const READ_ACTIONS = ['listFolder', 'listFolderRecursive', 'getFileUrl', 'getFolderInfo',
+    'getFileContent', 'getFileBinary', 'exportGoogleDoc', 'convertOfficeToPdf', 'getThumbnail'];
+  // Write actions require owner/admin role
+  const WRITE_ACTIONS = ['createFolder', 'renameFile', 'moveFile', 'deleteFile', 'restoreFile', 'ensureArchive'];
+
+  const isProjectOwner = project?.owner_id === userData.user.id;
+  if (WRITE_ACTIONS.includes(action) && !isProjectOwner) {
+    const role = (permission as { project_role?: string } | null)?.project_role || '';
+    if (!role.includes('Project Manager')) {
+      return NextResponse.json({ error: 'You do not have permission to perform this action.' }, { status: 403 });
+    }
+  }
+
+  if (!READ_ACTIONS.includes(action) && !WRITE_ACTIONS.includes(action)) {
+    return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
+  }
+
   // 3. Get project's Drive config
   const { data: driveConfig, error: configErr } = await adminClient
     .from('zhl_project_drive_config')
@@ -89,14 +108,17 @@ export async function POST(req: NextRequest) {
   }
 
   // 4. Get fresh Google access token
+  //    Use the project owner's Google token so all permitted members can access Drive files.
+  //    File-level visibility is controlled by the permission checkboxes (All Users, Project Manager, etc.)
+  const driveTokenUserId = project?.owner_id ?? userData.user.id;
   const { data: tokenRow } = await adminClient
     .from('zhl_google_tokens')
     .select('encrypted_refresh_token')
-    .eq('user_id', userData.user.id)
+    .eq('user_id', driveTokenUserId)
     .maybeSingle();
 
   if (!tokenRow) {
-    return NextResponse.json({ error: 'Google account not connected. Please connect your Google Drive.' }, { status: 401 });
+    return NextResponse.json({ error: 'Google Drive not connected. The project owner needs to connect Google Drive first.' }, { status: 401 });
   }
 
   let refreshToken: string;

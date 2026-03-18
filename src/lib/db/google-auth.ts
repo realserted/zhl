@@ -1,14 +1,15 @@
 import { supabase } from '@/lib/supabase/client';
 import type { GoogleTokenStatus } from '@/lib/types/files';
 
-/** Check if the current user has a connected Google account. */
-export async function getGoogleTokenStatus(): Promise<GoogleTokenStatus> {
+/** Check if the current user (or project owner) has a connected Google account. */
+export async function getGoogleTokenStatus(projectId?: string | null): Promise<GoogleTokenStatus> {
   try {
     const { data: sessionData } = await supabase.auth.getSession();
     const accessToken = sessionData?.session?.access_token;
     if (!accessToken) return { connected: false, google_email: null };
 
-    const res = await fetch('/api/auth/google/status', {
+    const params = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+    const res = await fetch(`/api/auth/google/status${params}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
