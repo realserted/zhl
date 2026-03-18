@@ -10,8 +10,10 @@ export async function POST(req: NextRequest) {
       attendees: { email: string; display_name: string }[];
       meeting: {
         title: string;
-        date: string;
-        time: string | null;
+        event_date?: string;
+        date?: string;
+        event_time?: string | null;
+        time?: string | null;
         duration: number;
         location: string | null;
         meet_link: string | null;
@@ -23,15 +25,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No attendees provided' }, { status: 400 });
     }
 
-    const formattedDate = new Date(meeting.date + 'T00:00:00').toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
+    // Support both field names (event_date/event_time from ScheduleWizard, date/time as fallback)
+    const dateValue = meeting.event_date || meeting.date;
+    const timeValue = meeting.event_time ?? meeting.time ?? null;
 
-    const formattedTime = meeting.time
-      ? new Date(`2000-01-01T${meeting.time}`).toLocaleTimeString('en-US', {
+    const formattedDate = dateValue
+      ? new Date(dateValue + 'T00:00:00').toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        })
+      : 'TBD';
+
+    const formattedTime = timeValue
+      ? new Date(`2000-01-01T${timeValue}`).toLocaleTimeString('en-US', {
           hour: 'numeric',
           minute: '2-digit',
           hour12: true,
