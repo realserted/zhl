@@ -275,6 +275,29 @@ export async function ensureArchiveFolder(
   return data.archiveFolderId || null;
 }
 
+/** Upload a file to Google Drive. */
+export async function uploadFileToDrive(
+  projectId: string,
+  file: File,
+  parentId: string
+): Promise<{ ok: boolean; error?: string }> {
+  // Convert file to base64
+  const arrayBuffer = await file.arrayBuffer();
+  const base64 = btoa(
+    new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+  );
+
+  const result = await callDriveProxy(projectId, 'uploadFile', {
+    fileName: file.name,
+    parentId,
+    mimeType: file.type || 'application/octet-stream',
+    base64Content: base64,
+  });
+
+  if (!result.ok) return { ok: false, error: result.error };
+  return { ok: true };
+}
+
 // ── Permissions (unchanged — UI-only visibility controls) ───────────────────
 
 export async function getAllFolderPermissions(projectId: string): Promise<ProjectFileFolderPermissions[]> {

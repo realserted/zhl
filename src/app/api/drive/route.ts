@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
   const READ_ACTIONS = ['listFolder', 'listFolderRecursive', 'getFileUrl', 'getFolderInfo',
     'getFileContent', 'getFileBinary', 'exportGoogleDoc', 'convertOfficeToPdf', 'getThumbnail'];
   // Write actions require owner/admin role
-  const WRITE_ACTIONS = ['createFolder', 'renameFile', 'moveFile', 'deleteFile', 'restoreFile', 'ensureArchive'];
+  const WRITE_ACTIONS = ['createFolder', 'renameFile', 'moveFile', 'deleteFile', 'restoreFile', 'ensureArchive', 'uploadFile'];
 
   const isProjectOwner = project?.owner_id === userData.user.id;
   if (WRITE_ACTIONS.includes(action) && !isProjectOwner && !isSysAdmin) {
@@ -191,6 +191,8 @@ export async function POST(req: NextRequest) {
         return await handleConvertOfficeToPdf(headers, params);
       case 'getThumbnail':
         return await handleGetThumbnail(headers, params);
+      case 'uploadFile':
+        return await handleUploadFile(headers, params);
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
     }
@@ -478,4 +480,54 @@ async function handleGetThumbnail(headers: Record<string, string>, params: Recor
   const base64 = Buffer.from(thumbBuffer).toString('base64');
   const contentType = thumbRes.headers.get('content-type') || 'image/png';
   return NextResponse.json({ base64, contentType });
+}
+
+/** Upload a file to Google Drive. Expects base64-encoded file content. */
+async function handleUploadFile(headers: Record<string, string>, params: Record<string, unknown>) {
+  const fileName = params.fileName as string;
+  const parentId = params.parentId as string;
+  const mimeType = params.mimeType as string || 'application/octet-stream';
+  const base64Content = params.base64Content as string;
+
+  if (!fileName || !parentId || !base64Content) {
+    return NextResponse.json({ error: 'Missing fileName, parentId, or base64Content.' }, { status: 400 });
+  }
+
+  // Google Drive uses multipart upload: metadata + file content
+  const metadata = JSON.stringify({
+    name: fileName,
+    parents: [parentId],
+  });
+
+  const fileBytes = Buffer.from(base64Content, 'base64');
+  const boundary = '-------zhl_upload_boundary';
+
+  const body = Buffer.concat([
+    Buffer.from(
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`
+    ),
+    fileBytes,
+    Buffer.from(`\r\n--${boundary}--`),
+  ]);
+
+  const res = await fetch(
+    `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=${FILE_FIELDS}`,
+    {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+        'Content-Length': String(body.length),
+      },
+      body,
+    },
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error('Drive upload failed:', err);
+    return NextResponse.json({ error: 'Failed to upload file.' }, { status: res.status });
+  }
+
+  return NextResponse.json(await res.json());
 }

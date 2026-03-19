@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   ChevronDown, ChevronRight, Folder, Plus, Loader2, ShieldCheck, FileText, Pencil,
-  Link as LinkIcon, RefreshCw, ExternalLink, Settings, Archive, RotateCcw, Trash2,
+  Link as LinkIcon, RefreshCw, ExternalLink, Settings, Archive, RotateCcw, Trash2, HardDrive, Upload,
 } from 'lucide-react';
 import { ProjectPermission } from '@/lib/types/project';
 import { useAuth } from '@/lib/auth-context';
@@ -18,6 +18,7 @@ import {
   ensureArchiveFolder,
   updateDriveConfigArchiveId,
   listDriveFolderDirect,
+  uploadFileToDrive,
   getAllFilePermissions,
   getAllFolderPermissions,
   getCustomFields,
@@ -46,6 +47,7 @@ import GoogleConnectBanner from './GoogleConnectBanner';
 import { useFileTree } from './useFileTree';
 import { FileTreePanel } from './FileTreePanel';
 import { FileViewerPanel } from './FileViewerPanel';
+import { StorageBreakdown } from './StorageBreakdown';
 
 interface FilesPageProps {
   selectedProjectId: string | null;
@@ -141,11 +143,19 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
 
+  // Storage view
+  const [showStorage, setShowStorage] = useState(false);
+
   // Archive viewer
   const [showArchive, setShowArchive] = useState(false);
   const [archiveItems, setArchiveItems] = useState<DriveItem[]>([]);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+
+  // File upload
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
 
   // Unit linking state
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -289,14 +299,33 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
 
   const handleToggleFolder = useCallback(async (nodeId: string) => {
     setLoadingFolderId(nodeId);
+    // Find the folder node and select/deselect it
+    const findNode = (nodes: FileTreeNode[]): FileTreeNode | null => {
+      for (const n of nodes) {
+        if (n.item.id === nodeId) return n;
+        const found = findNode(n.children);
+        if (found) return found;
+      }
+      return null;
+    };
+    const node = findNode(tree);
+    if (node) {
+      // If clicking the same folder, deselect it (back to root)
+      if (selectedFile?.id === nodeId) {
+        setSelectedFile(null);
+      } else {
+        setSelectedFile(node.item);
+      }
+    }
     await toggleFolder(nodeId);
     setLoadingFolderId(undefined);
-  }, [toggleFolder]);
+  }, [toggleFolder, tree, selectedFile?.id]);
 
   const handleSelectFile = useCallback((node: FileTreeNode) => {
-    if (node.item.isFolder) return;
     setSelectedFile(node.item);
-    log(`Opened "${node.item.name}" preview`);
+    if (!node.item.isFolder) {
+      log(`Opened "${node.item.name}" preview`);
+    }
   }, [log]);
 
   // ── Permission toggles ────────────────────────────────────────────
@@ -362,7 +391,7 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
   const handleCreateFolder = async () => {
     if (!selectedProjectId || !user || !newFolderName.trim() || !driveConfig) return;
 
-    const targetParentId = driveConfig.root_folder_id;
+    const targetParentId = selectedFile?.isFolder ? selectedFile.id : driveConfig.root_folder_id;
     const result = await createDriveFolder(selectedProjectId, newFolderName.trim(), targetParentId);
     if (result.ok) {
       log(`Created folder "${newFolderName.trim()}" on Google Drive`);
@@ -492,6 +521,49 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
     setNewCustomFieldName('');
     setShowAddCustomField(false);
     log(`Created custom field "${created.name}"`);
+  };
+
+  // ── File upload handler ──────────────────────────────────────────
+
+  const getUploadTargetId = (): string | null => {
+    if (!driveConfig) return null;
+    // If a folder is selected, upload into it; otherwise upload to root
+    if (selectedFile?.isFolder) return selectedFile.id;
+    return driveConfig.root_folder_id;
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0 || !selectedProjectId || !driveConfig) return;
+
+    const targetId = getUploadTargetId();
+    if (!targetId) return;
+
+    setUploading(true);
+    let uploaded = 0;
+    const total = files.length;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setUploadProgress(`Uploading ${i + 1}/${total}: ${file.name}`);
+      const result = await uploadFileToDrive(selectedProjectId, file, targetId);
+      if (result.ok) {
+        uploaded++;
+        log(`Uploaded "${file.name}" to Google Drive`);
+      } else {
+        setNotice(`Failed to upload "${file.name}": ${result.error || 'unknown error'}`);
+      }
+    }
+
+    setUploading(false);
+    setUploadProgress('');
+    if (uploaded > 0) {
+      setNotice(`${uploaded} file(s) uploaded successfully.`);
+      await refresh(driveConfig.root_folder_id);
+    }
+
+    // Reset file input
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   // ── Resize handler ────────────────────────────────────────────────
@@ -628,6 +700,27 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
 
                   <Button
                     variant="ghost" size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={!canEdit || !googleConnected || uploading}
+                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
+                    leftIcon={uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                  >
+                    {uploading ? 'Uploading...' : `Upload Files${selectedFile?.isFolder ? ` to ${selectedFile.name}` : ''}`}
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    onChange={handleFileUpload}
+                    className="hidden"
+                    accept="*/*"
+                  />
+                  {uploadProgress && (
+                    <p className="text-[10px] text-muted-foreground px-1 animate-pulse">{uploadProgress}</p>
+                  )}
+
+                  <Button
+                    variant="ghost" size="sm"
                     onClick={() => setShowAddCustomField(true)}
                     disabled={!canEdit}
                     className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
@@ -643,7 +736,7 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
                     className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
                     leftIcon={<Plus className="h-3.5 w-3.5" />}
                   >
-                    Add New Folder
+                    {`Add Folder${selectedFile?.isFolder ? ` in ${selectedFile.name}` : ''}`}
                   </Button>
                   {showNewFolderInput && (
                     <div className="flex flex-col gap-2 px-1">
@@ -685,6 +778,16 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
                     leftIcon={<Trash2 className="h-3.5 w-3.5" />}
                   >
                     {showArchive ? 'Hide Archive' : 'View Archive'}
+                  </Button>
+
+                  <Button
+                    variant="ghost" size="sm"
+                    onClick={() => setShowStorage((v) => !v)}
+                    disabled={!googleConnected}
+                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
+                    leftIcon={<HardDrive className="h-3.5 w-3.5" />}
+                  >
+                    {showStorage ? 'Hide Storage' : 'Storage Usage'}
                   </Button>
                 </div>
               )}
@@ -902,9 +1005,16 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
                   onMouseDown={handleMouseDown}
                 />
 
-                {/* File Viewer */}
+                {/* File Viewer or Storage Breakdown */}
                 <div className="flex-1 overflow-hidden">
-                  <FileViewerPanel file={selectedFile} projectId={selectedProjectId} />
+                  {showStorage ? (
+                    <StorageBreakdown
+                      tree={tree}
+                      onSelectFile={(item) => { setSelectedFile(item); setShowStorage(false); }}
+                    />
+                  ) : (
+                    <FileViewerPanel file={selectedFile} projectId={selectedProjectId} />
+                  )}
                 </div>
               </div>
             </div>
