@@ -59,7 +59,7 @@ export async function updateDriveConfigArchiveId(
 ): Promise<boolean> {
   const { error } = await supabase
     .from('zhl_project_drive_config')
-    .update({ archive_folder_id: archiveFolderId, updated_at: new Date().toISOString() })
+    .update({ archive_folder_id: archiveFolderId })
     .eq('project_id', projectId);
 
   if (error) {

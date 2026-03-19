@@ -276,11 +276,17 @@ export function FileViewerPanel({ file, projectId }: FileViewerPanelProps) {
           </div>
         ) : previewType === 'pdf' && blobUrl ? (
           /* PDF rendered from blob */
-          <iframe
-            src={blobUrl}
-            className="h-full w-full border-0"
-            title={file.name}
-          />
+          <object
+            data={`${blobUrl}#toolbar=1&navpanes=1`}
+            type="application/pdf"
+            className="h-full w-full"
+          >
+            <iframe
+              src={`${blobUrl}#toolbar=1`}
+              className="h-full w-full border-0"
+              title={file.name}
+            />
+          </object>
         ) : previewType === 'image' && blobUrl ? (
           /* Images rendered from blob */
           <div className="flex h-full items-center justify-center bg-muted/10 p-8">

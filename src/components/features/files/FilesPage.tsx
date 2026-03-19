@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   ChevronDown, ChevronRight, Folder, Plus, Loader2, ShieldCheck, FileText, Pencil,
-  Link as LinkIcon, RefreshCw, ExternalLink, Settings, Archive,
+  Link as LinkIcon, RefreshCw, ExternalLink, Settings, Archive, RotateCcw, Trash2,
 } from 'lucide-react';
 import { ProjectPermission } from '@/lib/types/project';
 import { useAuth } from '@/lib/auth-context';
@@ -14,8 +14,10 @@ import {
   createDriveFolder,
   renameDriveItem,
   archiveDriveItem,
+  restoreDriveItem,
   ensureArchiveFolder,
   updateDriveConfigArchiveId,
+  listDriveFolderDirect,
   getAllFilePermissions,
   getAllFolderPermissions,
   getCustomFields,
@@ -138,6 +140,12 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+
+  // Archive viewer
+  const [showArchive, setShowArchive] = useState(false);
+  const [archiveItems, setArchiveItems] = useState<DriveItem[]>([]);
+  const [archiveLoading, setArchiveLoading] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
 
   // Unit linking state
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -426,6 +434,51 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
     }
   };
 
+  const loadArchiveItems = async () => {
+    if (!selectedProjectId || !driveConfig) return;
+    setArchiveLoading(true);
+    let archiveId = driveConfig.archive_folder_id;
+    if (!archiveId) {
+      archiveId = await ensureArchiveFolder(selectedProjectId, driveConfig.root_folder_id);
+      if (archiveId) {
+        await updateDriveConfigArchiveId(selectedProjectId, archiveId);
+        setDriveConfig((prev) => prev ? { ...prev, archive_folder_id: archiveId } : prev);
+      }
+    }
+    if (archiveId) {
+      const items = await listDriveFolderDirect(selectedProjectId, archiveId);
+      setArchiveItems(items);
+    }
+    setArchiveLoading(false);
+  };
+
+  const handleToggleArchive = async () => {
+    if (!showArchive) {
+      await loadArchiveItems();
+    }
+    setShowArchive((v) => !v);
+  };
+
+  const handleRestoreItem = async (item: DriveItem) => {
+    if (!selectedProjectId || !driveConfig?.archive_folder_id) return;
+    setRestoringId(item.id);
+    const ok = await restoreDriveItem(
+      selectedProjectId,
+      item.id,
+      driveConfig.archive_folder_id,
+      driveConfig.root_folder_id,
+    );
+    if (ok) {
+      log(`Restored "${item.name}" from archive`);
+      setNotice(`"${item.name}" restored.`);
+      setArchiveItems((prev) => prev.filter((i) => i.id !== item.id));
+      await refresh(driveConfig.root_folder_id);
+    } else {
+      setNotice(`Failed to restore "${item.name}".`);
+    }
+    setRestoringId(null);
+  };
+
   const handleAddCustomField = async () => {
     if (!selectedProjectId || !user || !newCustomFieldName.trim() || !canEdit) return;
     const created = await createCustomField({
@@ -623,6 +676,57 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
                   >
                     Drive Settings
                   </Button>
+
+                  <Button
+                    variant="ghost" size="sm"
+                    onClick={handleToggleArchive}
+                    disabled={!googleConnected}
+                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-amber-500 hover:text-amber-400 transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
+                    leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+                  >
+                    {showArchive ? 'Hide Archive' : 'View Archive'}
+                  </Button>
+                </div>
+              )}
+
+              {/* Archive panel */}
+              {showArchive && isOwnerOrAdmin && (
+                <div className="space-y-2">
+                  <div className="h-px bg-white/5 mx-1" />
+                  <p className="text-[10px] font-bold tracking-widest uppercase text-amber-500 px-1 flex items-center gap-1.5">
+                    <Archive className="h-3.5 w-3.5" /> Archived Items
+                  </p>
+                  {archiveLoading ? (
+                    <div className="flex items-center gap-2 text-[10px] font-bold tracking-widest uppercase text-muted-foreground px-3">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Loading...
+                    </div>
+                  ) : archiveItems.length === 0 ? (
+                    <p className="text-[10px] text-muted-foreground/60 px-3">No archived items.</p>
+                  ) : (
+                    <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                      {archiveItems.map((item) => (
+                        <div
+                          key={item.id}
+                          className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg hover:bg-muted/30 transition-colors group"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className={`p-1 rounded shrink-0 ${item.isFolder ? 'bg-amber-500/10' : 'bg-muted/30'}`}>
+                              {item.isFolder ? <Folder className="h-3 w-3 text-amber-500" /> : <FileText className="h-3 w-3 text-muted-foreground" />}
+                            </div>
+                            <span className="text-[11px] font-medium truncate">{item.name}</span>
+                          </div>
+                          <button
+                            onClick={() => handleRestoreItem(item)}
+                            disabled={restoringId === item.id}
+                            className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-green-500/10 hover:bg-green-500/20 text-green-500 text-[9px] font-bold tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50"
+                          >
+                            {restoringId === item.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+                            Restore
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
