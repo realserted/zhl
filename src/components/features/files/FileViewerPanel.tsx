@@ -2,15 +2,11 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { FileText, ExternalLink, Download, Eye, Loader2 } from 'lucide-react';
-import mammoth from 'mammoth';
-import DOMPurify from 'isomorphic-dompurify';
 import { Button } from '@/components/shared/Button';
 import {
   getDriveFileContent,
   getDriveFileBinary,
-  exportGoogleDocAsHtml,
-  convertOfficeToPdf,
-  getDriveFileThumbnail,
+  importToGoogleFormat,
 } from '@/lib/db/files';
 import type { DriveItem } from '@/lib/types/files';
 
@@ -55,6 +51,37 @@ function isPreviewable(mime: string | null) {
     || isVideo(mime) || isWordDoc(mime) || isOfficeSlideSheet(mime);
 }
 
+function isCsv(mime: string | null, name?: string) {
+  if (mime === 'text/csv') return true;
+  if (name && name.toLowerCase().endsWith('.csv')) return true;
+  return false;
+}
+
+/** Build embedded Google editor URL */
+function getGoogleEditorUrl(file: DriveItem, ownerEmail?: string | null): string | null {
+  const mime = file.mimeType;
+  if (!mime) return null;
+
+  const authParam = ownerEmail ? `&authuser=${encodeURIComponent(ownerEmail)}` : '';
+
+  // Native Google Workspace files — full editor UI
+  if (mime === 'application/vnd.google-apps.document') {
+    return `https://docs.google.com/document/d/${file.id}/edit?hl=en${authParam}`;
+  }
+  if (mime === 'application/vnd.google-apps.spreadsheet') {
+    return `https://docs.google.com/spreadsheets/d/${file.id}/edit?hl=en${authParam}`;
+  }
+  if (mime === 'application/vnd.google-apps.presentation') {
+    return `https://docs.google.com/presentation/d/${file.id}/edit?hl=en${authParam}`;
+  }
+
+  return null;
+}
+
+function hasGoogleEditor(file: DriveItem): boolean {
+  return getGoogleEditorUrl(file) !== null || isCsv(file.mimeType, file.name) || isWordDoc(file.mimeType) || isOfficeSlideSheet(file.mimeType);
+}
+
 function formatBytes(bytes: number | null): string {
   if (!bytes) return '';
   if (bytes < 1024) return `${bytes} B`;
@@ -70,27 +97,31 @@ function formatDate(dateStr: string | null): string {
 
 // ── Preview types ────────────────────────────────────────────────────────────
 
-type PreviewType = 'text' | 'html' | 'pdf' | 'image' | 'video' | null;
+type PreviewType = 'text' | 'pdf' | 'image' | 'video' | 'drivePreview' | null;
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
 interface FileViewerPanelProps {
   file: DriveItem | null;
   projectId: string;
+  ownerEmail?: string | null;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export function FileViewerPanel({ file, projectId }: FileViewerPanelProps) {
+export function FileViewerPanel({ file, projectId, ownerEmail }: FileViewerPanelProps) {
   const [content, setContent] = useState<string | null>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [previewType, setPreviewType] = useState<PreviewType>(null);
   const [loading, setLoading] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [importedEditorUrl, setImportedEditorUrl] = useState<string | null>(null);
   const blobUrlRef = useRef<string | null>(null);
 
   const cleanup = useCallback(() => {
     setContent(null);
     setPreviewType(null);
+    setImportedEditorUrl(null);
     if (blobUrlRef.current) {
       URL.revokeObjectURL(blobUrlRef.current);
       blobUrlRef.current = null;
@@ -105,21 +136,14 @@ export function FileViewerPanel({ file, projectId }: FileViewerPanelProps) {
     try {
       const mime = f.mimeType;
 
-      // Office slide/sheet files → convert to PDF server-side
+      // Office slide/sheet files → convert to Google format and edit
       if (isOfficeSlideSheet(mime)) {
-        const pdfBlobUrl = await convertOfficeToPdf(projectId, f.id, mime!);
-        if (pdfBlobUrl) {
-          blobUrlRef.current = pdfBlobUrl;
-          setBlobUrl(pdfBlobUrl);
-          setPreviewType('pdf');
+        const imported = await importToGoogleFormat(projectId, f.id, mime!, f.name);
+        if (imported) {
+          setImportedEditorUrl(imported.editorUrl);
+          setEditMode(true);
         } else {
-          // Fallback: try thumbnail
-          const thumbUrl = await getDriveFileThumbnail(projectId, f.id);
-          if (thumbUrl) {
-            blobUrlRef.current = thumbUrl;
-            setBlobUrl(thumbUrl);
-            setPreviewType('image');
-          }
+          setPreviewType('drivePreview');
         }
         return;
       }
@@ -135,26 +159,21 @@ export function FileViewerPanel({ file, projectId }: FileViewerPanelProps) {
         return;
       }
 
-      // Google Workspace docs → export as HTML
+      // Google Workspace docs (Docs, Sheets, Slides) → open editor directly
       if (isGoogleDoc(mime)) {
-        const html = await exportGoogleDocAsHtml(projectId, f.id);
-        if (html) {
-          setContent(html);
-          setPreviewType('html');
-        }
+        setPreviewType('drivePreview');
+        setEditMode(true);
         return;
       }
 
-      // Word docs (.docx/.doc) → download binary, convert to HTML with mammoth
+      // Word docs (.docx/.doc) → convert to Google Doc and edit
       if (isWordDoc(mime)) {
-        const result = await getDriveFileBinary(projectId, f.id);
-        if (result) {
-          const response = await fetch(result.blobUrl);
-          const arrayBuffer = await response.arrayBuffer();
-          URL.revokeObjectURL(result.blobUrl);
-          const mammothResult = await mammoth.convertToHtml({ arrayBuffer });
-          setContent(mammothResult.value);
-          setPreviewType('html');
+        const imported = await importToGoogleFormat(projectId, f.id, mime!, f.name);
+        if (imported) {
+          setImportedEditorUrl(imported.editorUrl);
+          setEditMode(true);
+        } else {
+          setPreviewType('drivePreview');
         }
         return;
       }
@@ -181,6 +200,18 @@ export function FileViewerPanel({ file, projectId }: FileViewerPanelProps) {
         return;
       }
 
+      // CSV files → convert to Google Sheet and edit
+      if (isCsv(mime, f.name)) {
+        const imported = await importToGoogleFormat(projectId, f.id, 'text/csv', f.name);
+        if (imported) {
+          setImportedEditorUrl(imported.editorUrl);
+          setEditMode(true);
+        } else {
+          setPreviewType('drivePreview');
+        }
+        return;
+      }
+
       // Text files → get as text
       if (isText(mime)) {
         const text = await getDriveFileContent(projectId, f.id);
@@ -199,6 +230,7 @@ export function FileViewerPanel({ file, projectId }: FileViewerPanelProps) {
 
   useEffect(() => {
     cleanup();
+    setEditMode(false);
     if (file && isPreviewable(file.mimeType)) {
       fetchPreview(file);
     }
@@ -261,18 +293,18 @@ export function FileViewerPanel({ file, projectId }: FileViewerPanelProps) {
 
       {/* Preview content */}
       <div className="flex-1 overflow-hidden">
-        {loading ? (
+        {editMode && (importedEditorUrl || getGoogleEditorUrl(file, ownerEmail)) ? (
+          /* Google embedded editor */
+          <iframe
+            src={importedEditorUrl || getGoogleEditorUrl(file, ownerEmail)!}
+            className="h-full w-full border-0"
+            title={`Edit ${file.name}`}
+            allow="clipboard-read; clipboard-write"
+          />
+        ) : loading ? (
           <div className="flex flex-col items-center gap-2 py-12 text-center">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
             <p className="text-xs text-muted-foreground font-medium">Loading preview...</p>
-          </div>
-        ) : previewType === 'html' && content ? (
-          /* Google Docs / Word docs exported as HTML */
-          <div className="h-full overflow-auto bg-white">
-            <div
-              className="prose prose-sm max-w-none p-6 text-black [&_a]:text-blue-600"
-              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content) }}
-            />
           </div>
         ) : previewType === 'pdf' && blobUrl ? (
           /* PDF rendered from blob */
@@ -308,6 +340,14 @@ export function FileViewerPanel({ file, projectId }: FileViewerPanelProps) {
               Your browser does not support the video tag.
             </video>
           </div>
+        ) : previewType === 'drivePreview' ? (
+          /* Google Drive embedded preview for CSV, DOCX, XLSX, PPTX */
+          <iframe
+            src={`https://drive.google.com/file/d/${file.id}/preview`}
+            className="h-full w-full border-0"
+            title={file.name}
+            allow="autoplay"
+          />
         ) : previewType === 'text' && content ? (
           /* Text/code files */
           <div className="h-full overflow-auto">

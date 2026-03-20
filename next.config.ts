@@ -29,7 +29,7 @@ const nextConfig: NextConfig = {
               "img-src 'self' data: blob: https:",
               "font-src 'self' data:",
               "object-src blob:",
-              "frame-src 'self' blob:",
+              "frame-src 'self' blob: https://docs.google.com https://drive.google.com https://accounts.google.com https://*.google.com",
               "frame-ancestors 'self'",
               "base-uri 'self'",
               "form-action 'self'",

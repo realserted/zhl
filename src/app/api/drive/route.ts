@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { decrypt } from '@/lib/crypto';
+import HTMLtoDOCX from 'html-to-docx';
 
 function getBearerToken(req: NextRequest): string | null {
   const auth = req.headers.get('authorization') || '';
@@ -90,7 +91,7 @@ export async function POST(req: NextRequest) {
   const READ_ACTIONS = ['listFolder', 'listFolderRecursive', 'getFileUrl', 'getFolderInfo',
     'getFileContent', 'getFileBinary', 'exportGoogleDoc', 'convertOfficeToPdf', 'getThumbnail'];
   // Write actions require owner/admin role
-  const WRITE_ACTIONS = ['createFolder', 'renameFile', 'moveFile', 'deleteFile', 'restoreFile', 'ensureArchive', 'uploadFile'];
+  const WRITE_ACTIONS = ['createFolder', 'renameFile', 'moveFile', 'deleteFile', 'restoreFile', 'ensureArchive', 'uploadFile', 'updateFileContent', 'updateDocx', 'shareFile', 'importToGoogle'];
 
   const isProjectOwner = project?.owner_id === userData.user.id;
   if (WRITE_ACTIONS.includes(action) && !isProjectOwner && !isSysAdmin) {
@@ -121,7 +122,7 @@ export async function POST(req: NextRequest) {
   const driveTokenUserId = project?.owner_id ?? userData.user.id;
   const { data: tokenRow } = await adminClient
     .from('zhl_google_tokens')
-    .select('encrypted_refresh_token')
+    .select('encrypted_refresh_token, google_email')
     .eq('user_id', driveTokenUserId)
     .maybeSingle();
 
@@ -162,9 +163,9 @@ export async function POST(req: NextRequest) {
   try {
     switch (action) {
       case 'listFolder':
-        return await handleListFolder(headers, params);
+        return await handleListFolder(headers, params, tokenRow?.google_email);
       case 'listFolderRecursive':
-        return await handleListFolderRecursive(headers, params);
+        return await handleListFolderRecursive(headers, params, tokenRow?.google_email);
       case 'createFolder':
         return await handleCreateFolder(headers, params);
       case 'renameFile':
@@ -193,6 +194,14 @@ export async function POST(req: NextRequest) {
         return await handleGetThumbnail(headers, params);
       case 'uploadFile':
         return await handleUploadFile(headers, params);
+      case 'updateFileContent':
+        return await handleUpdateFileContent(headers, params);
+      case 'updateDocx':
+        return await handleUpdateDocx(headers, params);
+      case 'shareFile':
+        return await handleShareFile(headers, params);
+      case 'importToGoogle':
+        return await handleImportToGoogle(headers, params, tokenRow?.google_email);
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
     }
@@ -232,15 +241,17 @@ async function driveList(headers: Record<string, string>, query: string): Promis
   return allFiles;
 }
 
-async function handleListFolder(headers: Record<string, string>, params: Record<string, unknown>) {
+async function handleListFolder(headers: Record<string, string>, params: Record<string, unknown>, ownerEmail?: string | null) {
   const folderId = params.folderId as string;
   if (!folderId) return NextResponse.json({ error: 'Missing folderId.' }, { status: 400 });
 
   const files = await driveList(headers, `'${folderId}' in parents and trashed=false`);
-  return NextResponse.json({ files });
+  // Hide "(Edit)" copies created by importToGoogle
+  const filtered = files.filter(f => !(f.name as string)?.endsWith(' (Edit)'));
+  return NextResponse.json({ files: filtered, ownerEmail: ownerEmail || null });
 }
 
-async function handleListFolderRecursive(headers: Record<string, string>, params: Record<string, unknown>) {
+async function handleListFolderRecursive(headers: Record<string, string>, params: Record<string, unknown>, ownerEmail?: string | null) {
   const folderId = params.folderId as string;
   if (!folderId) return NextResponse.json({ error: 'Missing folderId.' }, { status: 400 });
 
@@ -252,6 +263,8 @@ async function handleListFolderRecursive(headers: Record<string, string>, params
     const files = await driveList(headers, `'${currentId}' in parents and trashed=false`);
 
     for (const file of files) {
+      // Hide "(Edit)" copies created by importToGoogle
+      if ((file.name as string)?.endsWith(' (Edit)')) continue;
       (file as Record<string, unknown>).parentId = currentId;
       allItems.push(file);
       if (file.mimeType === 'application/vnd.google-apps.folder') {
@@ -260,7 +273,7 @@ async function handleListFolderRecursive(headers: Record<string, string>, params
     }
   }
 
-  return NextResponse.json({ files: allItems });
+  return NextResponse.json({ files: allItems, ownerEmail: ownerEmail || null });
 }
 
 async function handleCreateFolder(headers: Record<string, string>, params: Record<string, unknown>) {
@@ -527,6 +540,187 @@ async function handleUploadFile(headers: Record<string, string>, params: Record<
     const err = await res.json().catch(() => ({}));
     console.error('Drive upload failed:', err);
     return NextResponse.json({ error: 'Failed to upload file.' }, { status: res.status });
+  }
+
+  const uploaded = await res.json();
+
+  return NextResponse.json(uploaded);
+}
+
+async function handleUpdateFileContent(headers: Record<string, string>, params: Record<string, unknown>) {
+  const fileId = params.fileId as string;
+  const content = params.content as string;
+  const mimeType = params.mimeType as string || 'text/plain';
+  const isBase64 = params.isBase64 as boolean || false;
+
+  if (!fileId || content === undefined) {
+    return NextResponse.json({ error: 'Missing fileId or content.' }, { status: 400 });
+  }
+
+  // Build request body — either raw text or decoded base64 binary
+  const body = isBase64 ? Buffer.from(content, 'base64') : content;
+
+  // Google Drive PATCH with uploadType=media to update file content
+  const res = await fetch(
+    `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
+    {
+      method: 'PATCH',
+      headers: {
+        ...headers,
+        'Content-Type': mimeType,
+        ...(isBase64 ? { 'Content-Length': String((body as Buffer).length) } : {}),
+      },
+      body,
+    },
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error('Drive file update failed:', err);
+    return NextResponse.json({ error: 'Failed to update file.' }, { status: res.status });
+  }
+
+  return NextResponse.json(await res.json());
+}
+
+/** Share a file so anyone with the link can edit (needed for iframe embedding). */
+async function shareFilePublic(headers: Record<string, string>, fileId: string) {
+  const res = await fetch(`${DRIVE_API}/files/${fileId}/permissions`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: 'writer', type: 'anyone' }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error('shareFilePublic failed:', fileId, err);
+  }
+  return res.ok;
+}
+
+async function handleShareFile(headers: Record<string, string>, params: Record<string, unknown>) {
+  const fileId = params.fileId as string;
+  if (!fileId) return NextResponse.json({ error: 'Missing fileId.' }, { status: 400 });
+
+  const ok = await shareFilePublic(headers, fileId);
+  if (!ok) {
+    return NextResponse.json({ error: 'Failed to share file.' }, { status: 500 });
+  }
+  return NextResponse.json({ shared: true });
+}
+
+/**
+ * Import a non-native file (CSV, DOCX, XLSX, PPTX) as a native Google format.
+ * Creates a converted copy and shares it publicly for iframe embedding.
+ * Returns the native Google file ID and editor URL.
+ */
+async function handleImportToGoogle(headers: Record<string, string>, params: Record<string, unknown>, ownerEmail?: string | null) {
+  const fileId = params.fileId as string;
+  const mimeType = params.mimeType as string;
+  const fileName = params.fileName as string;
+  if (!fileId || !mimeType) return NextResponse.json({ error: 'Missing fileId or mimeType.' }, { status: 400 });
+
+  // Map non-native MIME types to Google native equivalents
+  const conversionMap: Record<string, { googleMime: string; editorBase: string }> = {
+    'text/csv': { googleMime: 'application/vnd.google-apps.spreadsheet', editorBase: 'https://docs.google.com/spreadsheets/d' },
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': { googleMime: 'application/vnd.google-apps.document', editorBase: 'https://docs.google.com/document/d' },
+    'application/msword': { googleMime: 'application/vnd.google-apps.document', editorBase: 'https://docs.google.com/document/d' },
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': { googleMime: 'application/vnd.google-apps.spreadsheet', editorBase: 'https://docs.google.com/spreadsheets/d' },
+    'application/vnd.ms-excel': { googleMime: 'application/vnd.google-apps.spreadsheet', editorBase: 'https://docs.google.com/spreadsheets/d' },
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': { googleMime: 'application/vnd.google-apps.presentation', editorBase: 'https://docs.google.com/presentation/d' },
+    'application/vnd.ms-powerpoint': { googleMime: 'application/vnd.google-apps.presentation', editorBase: 'https://docs.google.com/presentation/d' },
+  };
+
+  const conversion = conversionMap[mimeType];
+  if (!conversion) {
+    return NextResponse.json({ error: 'Unsupported file type for Google import.' }, { status: 400 });
+  }
+
+  const editName = fileName ? `${fileName} (Edit)` : `${fileId} (Edit)`;
+
+  // Check if an "(Edit)" copy already exists (to avoid duplicates)
+  const existingFiles = await driveList(
+    headers,
+    `name='${editName.replace(/'/g, "\\'")}' and mimeType='${conversion.googleMime}' and trashed=false`
+  );
+
+  let copied: { id: string };
+
+  if (existingFiles.length > 0) {
+    // Reuse existing copy
+    copied = { id: existingFiles[0].id as string };
+  } else {
+    // Create a new copy as Google native format (owned by the same account)
+    const copyRes = await fetch(`${DRIVE_API}/files/${fileId}/copy`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mimeType: conversion.googleMime,
+        name: editName,
+      }),
+    });
+
+    if (!copyRes.ok) {
+      const err = await copyRes.json().catch(() => ({}));
+      console.error('Drive import copy failed:', err);
+      return NextResponse.json({ error: 'Failed to import file to Google format.' }, { status: copyRes.status });
+    }
+
+    copied = await copyRes.json();
+  }
+
+  const authParam = ownerEmail ? `&authuser=${encodeURIComponent(ownerEmail)}` : '';
+  const editorUrl = `${conversion.editorBase}/${copied.id}/edit?hl=en${authParam}`;
+
+  return NextResponse.json({
+    googleFileId: copied.id,
+    editorUrl,
+    ownerEmail: ownerEmail || null,
+    mimeType: conversion.googleMime,
+  });
+}
+
+async function handleUpdateDocx(headers: Record<string, string>, params: Record<string, unknown>) {
+  const fileId = params.fileId as string;
+  const html = params.html as string;
+
+  if (!fileId || !html) {
+    return NextResponse.json({ error: 'Missing fileId or html.' }, { status: 400 });
+  }
+
+  const fullHtml = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: #000; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 6px 10px; }
+</style></head><body>${html}</body></html>`;
+
+  const docxResult = await HTMLtoDOCX(fullHtml, null, {
+    table: { row: { cantSplit: true } },
+    footer: false,
+    header: false,
+  });
+
+  const body = Buffer.isBuffer(docxResult)
+    ? docxResult
+    : Buffer.from(await (docxResult as Blob).arrayBuffer());
+
+  const res = await fetch(
+    `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
+    {
+      method: 'PATCH',
+      headers: {
+        ...headers,
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'Content-Length': String(body.length),
+      },
+      body,
+    },
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error('Drive docx update failed:', err);
+    return NextResponse.json({ error: 'Failed to update document.' }, { status: res.status });
   }
 
   return NextResponse.json(await res.json());

@@ -12,6 +12,7 @@ interface DriveSetupModalProps {
   projectId: string;
   userId: string | null;
   onConfigured: () => void;
+  isReconfigure?: boolean;
 }
 
 /** Extract Google Drive folder ID from a pasted URL. */
@@ -29,7 +30,7 @@ function extractFolderId(url: string): string | null {
   return null;
 }
 
-export default function DriveSetupModal({ isOpen, onClose, projectId, userId, onConfigured }: DriveSetupModalProps) {
+export default function DriveSetupModal({ isOpen, onClose, projectId, userId, onConfigured, isReconfigure }: DriveSetupModalProps) {
   const [driveUrl, setDriveUrl] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,11 +84,13 @@ export default function DriveSetupModal({ isOpen, onClose, projectId, userId, on
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Connect Google Drive" maxWidth="md">
+    <Modal isOpen={isOpen} onClose={onClose} title={isReconfigure ? 'Change Google Drive Folder' : 'Connect Google Drive'} maxWidth="md">
       <div className="space-y-6">
         {/* Instructions */}
         <div className="text-sm text-muted-foreground space-y-3">
-          <p>Connect a Google Drive folder to manage files for this project.</p>
+          <p>{isReconfigure
+            ? 'Replace the current Google Drive folder with a new one. This will overwrite the existing configuration.'
+            : 'Connect a Google Drive folder to manage files for this project.'}</p>
           <div className="space-y-2 text-xs">
             <div className="flex items-start gap-2">
               <CheckCircle className="h-3.5 w-3.5 text-green-400 mt-0.5 shrink-0" />
@@ -140,7 +143,7 @@ export default function DriveSetupModal({ isOpen, onClose, projectId, userId, on
             isLoading={saving}
             disabled={!folderId}
           >
-            Connect Drive
+            {isReconfigure ? 'Update Drive' : 'Connect Drive'}
           </Button>
         </div>
       </div>

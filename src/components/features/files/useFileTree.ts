@@ -21,6 +21,7 @@ export function useFileTree(projectId: string | null) {
   const [tree, setTree] = useState<FileTreeNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ownerEmail, setOwnerEmail] = useState<string | null>(null);
 
   /** Load the root-level children for a given Drive folder. */
   const loadRoot = useCallback(async (rootFolderId: string) => {
@@ -28,8 +29,9 @@ export function useFileTree(projectId: string | null) {
     setLoading(true);
     setError(null);
     try {
-      const items = await listDriveFolderDirect(projectId, rootFolderId);
+      const { items, ownerEmail: email } = await listDriveFolderDirect(projectId, rootFolderId);
       setTree(itemsToNodes(items));
+      if (email) setOwnerEmail(email);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load files');
     } finally {
@@ -46,7 +48,7 @@ export function useFileTree(projectId: string | null) {
       for (const node of nodes) {
         if (node.item.id === nodeId) {
           if (!node.isLoaded && node.item.mimeType === FOLDER_MIME) {
-            const items = await listDriveFolderDirect(projectId, node.item.id);
+            const { items } = await listDriveFolderDirect(projectId, node.item.id);
             result.push({
               ...node,
               children: itemsToNodes(items),
@@ -87,5 +89,5 @@ export function useFileTree(projectId: string | null) {
     return result;
   }, [tree]);
 
-  return { tree, loading, error, loadRoot, toggleFolder, refresh, flattenTree, setTree };
+  return { tree, loading, error, loadRoot, toggleFolder, refresh, flattenTree, setTree, ownerEmail };
 }

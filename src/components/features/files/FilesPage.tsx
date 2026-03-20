@@ -107,7 +107,7 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
   const [showSetupModal, setShowSetupModal] = useState(false);
 
   // File tree (lazy-loading)
-  const { tree, loading: treeLoading, error: treeError, loadRoot, toggleFolder, refresh } = useFileTree(selectedProjectId);
+  const { tree, loading: treeLoading, error: treeError, loadRoot, toggleFolder, refresh, ownerEmail } = useFileTree(selectedProjectId);
 
   // Selected file for viewer
   const [selectedFile, setSelectedFile] = useState<DriveItem | null>(null);
@@ -848,6 +848,16 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
                 >
                   Open in Google Drive <ExternalLink className="h-3 w-3" />
                 </a>
+                {isOwnerOrAdmin && (
+                  <Button
+                    variant="ghost" size="sm"
+                    onClick={() => setShowSetupModal(true)}
+                    className="w-full justify-start items-center gap-2 text-[10px] font-bold tracking-wider uppercase text-muted-foreground hover:text-primary transition-all px-1 h-auto py-1 shadow-none"
+                    leftIcon={<Settings className="h-3 w-3" />}
+                  >
+                    Change Drive Folder
+                  </Button>
+                )}
               </div>
 
               {notice && (
@@ -1013,7 +1023,7 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
                       onSelectFile={(item) => { setSelectedFile(item); setShowStorage(false); }}
                     />
                   ) : (
-                    <FileViewerPanel file={selectedFile} projectId={selectedProjectId} />
+                    <FileViewerPanel file={selectedFile} projectId={selectedProjectId} ownerEmail={ownerEmail} />
                   )}
                 </div>
               </div>
@@ -1029,6 +1039,7 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
         onClose={() => setShowSetupModal(false)}
         projectId={selectedProjectId}
         userId={user?.id ?? null}
+        isReconfigure={!!driveConfig}
         onConfigured={async () => {
           const config = await getDriveConfig(selectedProjectId);
           setDriveConfig(config);

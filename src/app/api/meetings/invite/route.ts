@@ -143,6 +143,13 @@ export async function POST(req: NextRequest) {
     const sent = results.filter((r) => r.status === 'fulfilled').length;
     const failed = results.filter((r) => r.status === 'rejected').length;
 
+    // Log failures for debugging
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        console.error(`Failed to send invite to ${attendees[i]?.email}:`, r.reason?.response?.body || r.reason?.message || r.reason);
+      }
+    });
+
     return NextResponse.json({ sent, failed, total: attendees.length });
   } catch (err) {
     console.error('Error sending meeting invites:', err);

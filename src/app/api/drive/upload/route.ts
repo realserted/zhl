@@ -161,5 +161,16 @@ export async function POST(req: NextRequest) {
   }
 
   const uploadedFile = await uploadRes.json();
+
+  // Auto-share so the file is accessible in iframe editors
+  await fetch(`https://www.googleapis.com/drive/v3/files/${uploadedFile.id}/permissions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ role: 'writer', type: 'anyone' }),
+  }).catch(() => {});
+
   return NextResponse.json(uploadedFile);
 }

@@ -123,12 +123,13 @@ export async function listDriveFolder(
 export async function listDriveFolderDirect(
   projectId: string,
   folderId: string
-): Promise<DriveItem[]> {
+): Promise<{ items: DriveItem[]; ownerEmail: string | null }> {
   const result = await callDriveProxy(projectId, 'listFolder', { folderId });
-  if (!result.ok || !result.data) return [];
+  if (!result.ok || !result.data) return { items: [], ownerEmail: null };
 
-  const raw = (result.data as { files?: Array<Record<string, unknown>> }).files || [];
-  return raw.map((f) => mapDriveFile(f, folderId));
+  const data = result.data as { files?: Array<Record<string, unknown>>; ownerEmail?: string | null };
+  const raw = data.files || [];
+  return { items: raw.map((f) => mapDriveFile(f, folderId)), ownerEmail: data.ownerEmail || null };
 }
 
 function mapDriveFile(f: Record<string, unknown>, parentId: string | null): DriveItem {
@@ -294,6 +295,44 @@ export async function uploadFileToDrive(
     base64Content: base64,
   });
 
+  if (!result.ok) return { ok: false, error: result.error };
+  return { ok: true };
+}
+
+/** Import a non-native file (CSV, DOCX, etc.) as a native Google format for iframe editing. */
+export async function importToGoogleFormat(
+  projectId: string,
+  fileId: string,
+  mimeType: string,
+  fileName: string
+): Promise<{ googleFileId: string; editorUrl: string } | null> {
+  const result = await callDriveProxy(projectId, 'importToGoogle', { fileId, mimeType, fileName });
+  if (!result.ok || !result.data) return null;
+  const data = result.data as { googleFileId: string; editorUrl: string };
+  return data;
+}
+
+/** Share a Drive file so anyone with the link can edit (needed for iframe embedding). */
+export async function shareDriveFile(
+  projectId: string,
+  fileId: string
+): Promise<boolean> {
+  const result = await callDriveProxy(projectId, 'shareFile', { fileId });
+  return result.ok;
+}
+
+/** Update the content of an existing file on Google Drive. */
+export async function updateDriveFileContent(
+  projectId: string,
+  fileId: string,
+  content: string,
+  mimeType: string = 'text/plain'
+): Promise<{ ok: boolean; error?: string }> {
+  const result = await callDriveProxy(projectId, 'updateFileContent', {
+    fileId,
+    content,
+    mimeType,
+  });
   if (!result.ok) return { ok: false, error: result.error };
   return { ok: true };
 }

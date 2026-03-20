@@ -262,7 +262,6 @@ export function ScheduleWizard({
       step === 'review' &&
       date &&
       !meetLink.trim() &&
-      location.toLowerCase().includes('google meet') &&
       !isGeneratingMeet
     ) {
       handleGenerateMeetLink();
@@ -316,7 +315,7 @@ export function ScheduleWizard({
           }
         }
 
-        // Fire-and-forget email invites
+        // Send email invites (log errors for debugging)
         fetch('/api/meetings/invite', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -324,7 +323,17 @@ export function ScheduleWizard({
             attendees: attendees.map((a) => ({ email: a.email, display_name: a.display_name })),
             meeting: { ...payload, organizer_name: displayName },
           }),
-        }).catch(() => {});
+        })
+          .then(async (res) => {
+            if (!res.ok) {
+              const body = await res.json().catch(() => ({}));
+              console.error('Meeting invite API error:', res.status, body);
+            } else {
+              const result = await res.json().catch(() => ({}));
+              console.log('Meeting invites sent:', result);
+            }
+          })
+          .catch((err) => console.error('Meeting invite fetch error:', err));
       }
 
       onClose();
