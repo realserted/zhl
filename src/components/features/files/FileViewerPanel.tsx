@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { FileText, ExternalLink, Download, Eye, Loader2 } from 'lucide-react';
 import { Button } from '@/components/shared/Button';
-import mammoth from 'mammoth';
 import {
   getDriveFileContent,
   getDriveFileBinary,
@@ -178,6 +177,7 @@ export function FileViewerPanel({ file, projectId, ownerEmail }: FileViewerPanel
       if (isWordDoc(mime)) {
         const arrayBuffer = await getDriveFileArrayBuffer(projectId, f.id);
         if (arrayBuffer) {
+          const mammoth = (await import('mammoth')).default;
           const result = await mammoth.convertToHtml({ arrayBuffer });
           setDocxHtml(result.value);
           setPreviewType('docx');
