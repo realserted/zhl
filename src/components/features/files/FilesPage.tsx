@@ -475,7 +475,7 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
       }
     }
     if (archiveId) {
-      const items = await listDriveFolderDirect(selectedProjectId, archiveId);
+      const { items } = await listDriveFolderDirect(selectedProjectId, archiveId);
       setArchiveItems(items);
     }
     setArchiveLoading(false);

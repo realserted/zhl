@@ -3,11 +3,17 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { FileText, ExternalLink, Download, Eye, Loader2 } from 'lucide-react';
 import { Button } from '@/components/shared/Button';
+import mammoth from 'mammoth';
 import {
   getDriveFileContent,
   getDriveFileBinary,
+  getDriveFileArrayBuffer,
   importToGoogleFormat,
+  updateDriveFileContent,
+  updateDriveDocx,
 } from '@/lib/db/files';
+import { CsvEditor } from './CsvEditor';
+import { DocxEditor } from './DocxEditor';
 import type { DriveItem } from '@/lib/types/files';
 
 // ── MIME helpers ─────────────────────────────────────────────────────────────
@@ -97,7 +103,7 @@ function formatDate(dateStr: string | null): string {
 
 // ── Preview types ────────────────────────────────────────────────────────────
 
-type PreviewType = 'text' | 'pdf' | 'image' | 'video' | 'drivePreview' | null;
+type PreviewType = 'text' | 'pdf' | 'image' | 'video' | 'drivePreview' | 'csv' | 'docx' | null;
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
@@ -116,12 +122,14 @@ export function FileViewerPanel({ file, projectId, ownerEmail }: FileViewerPanel
   const [loading, setLoading] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [importedEditorUrl, setImportedEditorUrl] = useState<string | null>(null);
+  const [docxHtml, setDocxHtml] = useState<string | null>(null);
   const blobUrlRef = useRef<string | null>(null);
 
   const cleanup = useCallback(() => {
     setContent(null);
     setPreviewType(null);
     setImportedEditorUrl(null);
+    setDocxHtml(null);
     if (blobUrlRef.current) {
       URL.revokeObjectURL(blobUrlRef.current);
       blobUrlRef.current = null;
@@ -166,12 +174,13 @@ export function FileViewerPanel({ file, projectId, ownerEmail }: FileViewerPanel
         return;
       }
 
-      // Word docs (.docx/.doc) → convert to Google Doc and edit
+      // Word docs (.docx/.doc) → inline rich text editor
       if (isWordDoc(mime)) {
-        const imported = await importToGoogleFormat(projectId, f.id, mime!, f.name);
-        if (imported) {
-          setImportedEditorUrl(imported.editorUrl);
-          setEditMode(true);
+        const arrayBuffer = await getDriveFileArrayBuffer(projectId, f.id);
+        if (arrayBuffer) {
+          const result = await mammoth.convertToHtml({ arrayBuffer });
+          setDocxHtml(result.value);
+          setPreviewType('docx');
         } else {
           setPreviewType('drivePreview');
         }
@@ -200,14 +209,12 @@ export function FileViewerPanel({ file, projectId, ownerEmail }: FileViewerPanel
         return;
       }
 
-      // CSV files → convert to Google Sheet and edit
+      // CSV files → inline CSV editor
       if (isCsv(mime, f.name)) {
-        const imported = await importToGoogleFormat(projectId, f.id, 'text/csv', f.name);
-        if (imported) {
-          setImportedEditorUrl(imported.editorUrl);
-          setEditMode(true);
-        } else {
-          setPreviewType('drivePreview');
+        const text = await getDriveFileContent(projectId, f.id);
+        if (text) {
+          setContent(text);
+          setPreviewType('csv');
         }
         return;
       }
@@ -347,6 +354,18 @@ export function FileViewerPanel({ file, projectId, ownerEmail }: FileViewerPanel
             className="h-full w-full border-0"
             title={file.name}
             allow="autoplay"
+          />
+        ) : previewType === 'csv' && content && file ? (
+          /* Inline CSV editor */
+          <CsvEditor
+            initialContent={content}
+            onSave={async (csv) => updateDriveFileContent(projectId, file.id, csv, 'text/csv')}
+          />
+        ) : previewType === 'docx' && docxHtml !== null && file ? (
+          /* Inline DOCX editor */
+          <DocxEditor
+            initialHtml={docxHtml}
+            onSave={async (html) => updateDriveDocx(projectId, file.id, html)}
           />
         ) : previewType === 'text' && content ? (
           /* Text/code files */

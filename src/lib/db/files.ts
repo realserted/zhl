@@ -171,6 +171,18 @@ export async function getDriveFileBinary(
   return { blobUrl: URL.createObjectURL(blob), contentType };
 }
 
+/** Get a Drive file as an ArrayBuffer (for mammoth DOCX→HTML conversion). */
+export async function getDriveFileArrayBuffer(
+  projectId: string,
+  fileId: string
+): Promise<ArrayBuffer | null> {
+  const result = await callDriveProxy(projectId, 'getFileBinary', { fileId });
+  if (!result.ok || !result.data) return null;
+  const { base64 } = result.data as { base64: string };
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  return bytes.buffer;
+}
+
 /** Export a Google Workspace file as HTML. */
 export async function exportGoogleDocAsHtml(
   projectId: string,
@@ -333,6 +345,17 @@ export async function updateDriveFileContent(
     content,
     mimeType,
   });
+  if (!result.ok) return { ok: false, error: result.error };
+  return { ok: true };
+}
+
+/** Update a DOCX file on Drive from HTML (server-side HTML→DOCX conversion). */
+export async function updateDriveDocx(
+  projectId: string,
+  fileId: string,
+  html: string
+): Promise<{ ok: boolean; error?: string }> {
+  const result = await callDriveProxy(projectId, 'updateDocx', { fileId, html });
   if (!result.ok) return { ok: false, error: result.error };
   return { ok: true };
 }
