@@ -84,9 +84,11 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
 
   const hasFileAccess = useCallback(
     (permEntry: ProjectFileFolderPermissions | ProjectFileItemPermissions | undefined): boolean => {
-      if (!userPermission) return true;
-      if (!permEntry) return true;
+      // Owners/admins are already handled by filterTreeByAccess — this only runs for regular members.
+      // Deny by default: files are hidden unless the owner explicitly grants access via checkboxes.
+      if (!permEntry) return false;
       if (permEntry.allow_all_users) return true;
+      if (!userPermission) return false;
       const role = userPermission.project_role || '';
       if (permEntry.allow_project_manager && role.includes('Project Manager')) return true;
       if (permEntry.allow_property_manager && role.includes('Property Manager')) return true;
@@ -122,6 +124,39 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
   const [allPermissions, setAllPermissions] = useState<Map<string, ProjectFileFolderPermissions>>(new Map());
   const [allFilePermissions, setAllFilePermissions] = useState<Map<string, ProjectFileItemPermissions>>(new Map());
   const [savingPermission, setSavingPermission] = useState<string | null>(null);
+
+  // Filter tree to only show items the current user has access to.
+  // Owners/admins always see everything so they can manage permissions.
+  const filterTreeByAccess = useCallback(
+    (nodes: FileTreeNode[]): FileTreeNode[] => {
+      if (isOwnerOrAdmin) return nodes;
+      return nodes.reduce<FileTreeNode[]>((acc, node) => {
+        const isFolder = node.item.mimeType === 'application/vnd.google-apps.folder';
+        const permEntry = isFolder
+          ? allPermissions.get(node.item.id)
+          : allFilePermissions.get(node.item.id);
+
+        if (isFolder) {
+          const filteredChildren = filterTreeByAccess(node.children);
+          // Show folder if user has access OR if any accessible children exist
+          if (hasFileAccess(permEntry) || filteredChildren.length > 0) {
+            acc.push({ ...node, children: filteredChildren });
+          }
+        } else {
+          if (hasFileAccess(permEntry)) {
+            acc.push(node);
+          }
+        }
+        return acc;
+      }, []);
+    },
+    [isOwnerOrAdmin, allPermissions, allFilePermissions, hasFileAccess],
+  );
+
+  const accessFilteredTree = useMemo(
+    () => filterTreeByAccess(tree),
+    [tree, filterTreeByAccess],
+  );
 
   // Custom fields
   const [customFields, setCustomFields] = useState<ProjectFileCustomField[]>([]);
@@ -993,7 +1028,7 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
                 {/* File Tree */}
                 <div className="flex-shrink-0 border-r border-border/40" style={{ width: `${treeWidth}px` }}>
                   <FileTreePanel
-                    tree={tree}
+                    tree={accessFilteredTree}
                     loading={treeLoading}
                     error={treeError}
                     selectedId={selectedFile?.id}

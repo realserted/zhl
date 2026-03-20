@@ -360,6 +360,16 @@ export async function updateDriveDocx(
   return { ok: true };
 }
 
+/** Remove all public "anyone with the link" permissions from all files in a folder. */
+export async function removePublicAccessFromAll(
+  projectId: string,
+  folderId: string
+): Promise<{ filesProcessed: number; permissionsRemoved: number } | null> {
+  const result = await callDriveProxy(projectId, 'removePublicAccess', { folderId });
+  if (!result.ok || !result.data) return null;
+  return result.data as { filesProcessed: number; permissionsRemoved: number };
+}
+
 // ── Permissions (unchanged — UI-only visibility controls) ───────────────────
 
 export async function getAllFolderPermissions(projectId: string): Promise<ProjectFileFolderPermissions[]> {

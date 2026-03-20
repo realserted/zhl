@@ -1,11 +1,21 @@
 import { supabase } from '@/lib/supabase/client';
 import type { GoogleTokenStatus } from '@/lib/types/files';
 
+/** Get a valid Supabase access token, refreshing if necessary. */
+async function getAccessToken(): Promise<string | null> {
+  // Try cached session first
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (sessionData?.session?.access_token) return sessionData.session.access_token;
+
+  // Session might be stale after redirect — force a refresh
+  const { data: refreshData } = await supabase.auth.refreshSession();
+  return refreshData?.session?.access_token ?? null;
+}
+
 /** Check if the current user (or project owner) has a connected Google account. */
 export async function getGoogleTokenStatus(projectId?: string | null): Promise<GoogleTokenStatus> {
   try {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData?.session?.access_token;
+    const accessToken = await getAccessToken();
     if (!accessToken) return { connected: false, google_email: null };
 
     const params = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
@@ -31,8 +41,7 @@ export function initiateGoogleAuth(returnUrl?: string): void {
 /** Disconnect Google account (revoke token and delete). */
 export async function disconnectGoogle(): Promise<boolean> {
   try {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData?.session?.access_token;
+    const accessToken = await getAccessToken();
     if (!accessToken) return false;
 
     const res = await fetch('/api/auth/google/disconnect', {
@@ -52,8 +61,13 @@ export async function disconnectGoogle(): Promise<boolean> {
  */
 export async function finalizeGoogleAuth(encodedData: string): Promise<boolean> {
   try {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData?.session?.access_token;
+    // After OAuth redirect chain, session may need time to restore — retry once
+    let accessToken = await getAccessToken();
+    if (!accessToken) {
+      // Wait a moment for auth state to settle after redirect
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      accessToken = await getAccessToken();
+    }
     if (!accessToken) return false;
 
     // Decode base64url in the browser (Buffer is not available client-side)

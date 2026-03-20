@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
   const READ_ACTIONS = ['listFolder', 'listFolderRecursive', 'getFileUrl', 'getFolderInfo',
     'getFileContent', 'getFileBinary', 'exportGoogleDoc', 'convertOfficeToPdf', 'getThumbnail'];
   // Write actions require owner/admin role
-  const WRITE_ACTIONS = ['createFolder', 'renameFile', 'moveFile', 'deleteFile', 'restoreFile', 'ensureArchive', 'uploadFile', 'updateFileContent', 'updateDocx', 'shareFile', 'importToGoogle'];
+  const WRITE_ACTIONS = ['createFolder', 'renameFile', 'moveFile', 'deleteFile', 'restoreFile', 'ensureArchive', 'uploadFile', 'updateFileContent', 'updateDocx', 'shareFile', 'importToGoogle', 'removePublicAccess'];
 
   const isProjectOwner = project?.owner_id === userData.user.id;
   if (WRITE_ACTIONS.includes(action) && !isProjectOwner && !isSysAdmin) {
@@ -159,7 +159,35 @@ export async function POST(req: NextRequest) {
   const googleTokens = await googleRes.json();
   const headers = { Authorization: `Bearer ${googleTokens.access_token}` };
 
-  // 5. Handle actions directly via Google Drive API
+  // 5. File-level permission check for non-owner/non-admin users
+  //    When a specific file is requested, verify the user's role grants access.
+  const FILE_ACCESS_ACTIONS = ['getFileContent', 'getFileBinary', 'exportGoogleDoc', 'convertOfficeToPdf', 'getThumbnail'];
+  if (FILE_ACCESS_ACTIONS.includes(action) && !isProjectOwner && !isSysAdmin) {
+    const fileId = params.fileId as string | undefined;
+    if (fileId) {
+      // Check file-level permissions first, then folder-level
+      const { data: filePerm } = await adminClient
+        .from('zhl_project_file_item_permissions')
+        .select('*')
+        .eq('file_id', fileId)
+        .maybeSingle();
+
+      const role = (permission as { project_role?: string } | null)?.project_role || '';
+      if (!filePerm) {
+        // No permission entry = deny by default for non-owner/non-admin
+        return NextResponse.json({ error: 'You do not have permission to access this file.' }, { status: 403 });
+      }
+      const hasAccess = filePerm.allow_all_users
+        || (filePerm.allow_project_manager && role.includes('Project Manager'))
+        || (filePerm.allow_property_manager && role.includes('Property Manager'))
+        || (filePerm.allow_accountant && role.includes('Accountant'));
+      if (!hasAccess) {
+        return NextResponse.json({ error: 'You do not have permission to access this file.' }, { status: 403 });
+      }
+    }
+  }
+
+  // 6. Handle actions directly via Google Drive API
   try {
     switch (action) {
       case 'listFolder':
@@ -202,6 +230,8 @@ export async function POST(req: NextRequest) {
         return await handleShareFile(headers, params);
       case 'importToGoogle':
         return await handleImportToGoogle(headers, params, tokenRow?.google_email);
+      case 'removePublicAccess':
+        return await handleRemovePublicAccess(headers, params);
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
     }
@@ -583,27 +613,68 @@ async function handleUpdateFileContent(headers: Record<string, string>, params: 
   return NextResponse.json(await res.json());
 }
 
-/** Share a file so anyone with the link can edit (needed for iframe embedding). */
-async function shareFilePublic(headers: Record<string, string>, fileId: string) {
-  const res = await fetch(`${DRIVE_API}/files/${fileId}/permissions`, {
-    method: 'POST',
-    headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ role: 'writer', type: 'anyone' }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    console.error('shareFilePublic failed:', fileId, err);
+/** Remove all "anyone" (public) permissions from a single file. */
+async function removePublicPermissions(headers: Record<string, string>, fileId: string): Promise<number> {
+  // List permissions on the file
+  const listRes = await fetch(`${DRIVE_API}/files/${fileId}/permissions?fields=permissions(id,type,role)`, { headers });
+  if (!listRes.ok) return 0;
+  const { permissions } = await listRes.json() as { permissions?: Array<{ id: string; type: string; role: string }> };
+  if (!permissions) return 0;
+
+  let removed = 0;
+  for (const perm of permissions) {
+    if (perm.type === 'anyone') {
+      const delRes = await fetch(`${DRIVE_API}/files/${fileId}/permissions/${perm.id}`, {
+        method: 'DELETE',
+        headers,
+      });
+      if (delRes.ok) removed++;
+    }
   }
-  return res.ok;
+  return removed;
+}
+
+/** Remove public "anyone with the link" access from all files in a folder (recursive). */
+async function handleRemovePublicAccess(headers: Record<string, string>, params: Record<string, unknown>) {
+  const folderId = params.folderId as string;
+  if (!folderId) return NextResponse.json({ error: 'Missing folderId.' }, { status: 400 });
+
+  const allFiles = await driveList(headers, `'${folderId}' in parents and trashed=false`);
+  const queue = [...allFiles];
+  let totalRemoved = 0;
+  let filesProcessed = 0;
+
+  while (queue.length > 0) {
+    const file = queue.shift()!;
+    filesProcessed++;
+
+    // Remove public permissions from this file
+    totalRemoved += await removePublicPermissions(headers, file.id as string);
+
+    // If it's a folder, recurse into it
+    if (file.mimeType === 'application/vnd.google-apps.folder') {
+      const children = await driveList(headers, `'${file.id}' in parents and trashed=false`);
+      queue.push(...children);
+    }
+  }
+
+  return NextResponse.json({ filesProcessed, permissionsRemoved: totalRemoved });
 }
 
 async function handleShareFile(headers: Record<string, string>, params: Record<string, unknown>) {
   const fileId = params.fileId as string;
+  const email = params.email as string | undefined;
+  const role = (params.role as string) || 'reader';
   if (!fileId) return NextResponse.json({ error: 'Missing fileId.' }, { status: 400 });
 
-  const ok = await shareFilePublic(headers, fileId);
-  if (!ok) {
-    return NextResponse.json({ error: 'Failed to share file.' }, { status: 500 });
+  if (email) {
+    // Share with a specific user
+    const res = await fetch(`${DRIVE_API}/files/${fileId}/permissions?sendNotificationEmail=false`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role, type: 'user', emailAddress: email }),
+    });
+    if (!res.ok) return NextResponse.json({ error: 'Failed to share file.' }, { status: 500 });
   }
   return NextResponse.json({ shared: true });
 }
