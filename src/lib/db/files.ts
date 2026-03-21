@@ -292,8 +292,10 @@ export async function ensureArchiveFolder(
 export async function uploadFileToDrive(
   projectId: string,
   file: File,
-  parentId: string
-): Promise<{ ok: boolean; error?: string }> {
+  parentId: string,
+  /** Override the file name on Drive (defaults to file.name). */
+  customName?: string
+): Promise<{ ok: boolean; error?: string; fileId?: string; fileName?: string }> {
   // Convert file to base64
   const arrayBuffer = await file.arrayBuffer();
   const base64 = btoa(
@@ -301,14 +303,15 @@ export async function uploadFileToDrive(
   );
 
   const result = await callDriveProxy(projectId, 'uploadFile', {
-    fileName: file.name,
+    fileName: customName || file.name,
     parentId,
     mimeType: file.type || 'application/octet-stream',
     base64Content: base64,
   });
 
   if (!result.ok) return { ok: false, error: result.error };
-  return { ok: true };
+  const data = result.data as { id?: string; name?: string } | undefined;
+  return { ok: true, fileId: data?.id, fileName: data?.name ?? customName ?? file.name };
 }
 
 /** Import a non-native file (CSV, DOCX, etc.) as a native Google format for iframe editing. */

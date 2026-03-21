@@ -810,14 +810,36 @@ export default function UnitDataPage({ selectedProjectId, userPermission, isAdmi
                                     {val?.file_url && (
                                       <span className="inline-flex items-center gap-0.5 shrink-0">
                                         <button
-                                          onClick={(e) => {
+                                          onClick={async (e) => {
                                             e.stopPropagation();
+                                            if (!selectedProjectId) return;
                                             const driveId = val.file_url!;
-                                            setFilePreview({
-                                              url: `https://drive.google.com/file/d/${driveId}/preview`,
-                                              name: cellValue || 'File',
-                                              downloadUrl: `https://drive.google.com/uc?export=download&id=${driveId}`,
-                                            });
+                                            const fileName = cellValue || 'File';
+                                            // Show loading state immediately
+                                            setFilePreview({ url: '', name: fileName, loading: true });
+                                            try {
+                                              const { getDriveFileBinary } = await import('@/lib/db/files');
+                                              const result = await getDriveFileBinary(selectedProjectId, driveId);
+                                              if (result) {
+                                                setFilePreview({
+                                                  url: result.blobUrl,
+                                                  name: fileName,
+                                                  contentType: result.contentType,
+                                                });
+                                              } else {
+                                                setFilePreview({
+                                                  url: `https://drive.google.com/file/d/${driveId}/preview`,
+                                                  name: fileName,
+                                                  downloadUrl: `https://drive.google.com/uc?export=download&id=${driveId}`,
+                                                });
+                                              }
+                                            } catch {
+                                              setFilePreview({
+                                                url: `https://drive.google.com/file/d/${driveId}/preview`,
+                                                name: fileName,
+                                                downloadUrl: `https://drive.google.com/uc?export=download&id=${driveId}`,
+                                              });
+                                            }
                                           }}
                                           className="shrink-0 p-1 text-blue-500 hover:text-blue-400 transition-colors bg-blue-500/5 rounded-md"
                                           title={`Linked to: ${getRowLabel(row.id)} — Click to preview`}

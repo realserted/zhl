@@ -8,6 +8,7 @@ import {
   FinancialTransaction,
   FinancialTxCategory,
   FinancialLoan,
+  FinancialBankType,
   SectionWithItems,
   FinancialMonthlyValue,
 } from '@/lib/types/financial';
@@ -15,6 +16,7 @@ import {
   getTransactions,
   getTxCategories,
   getLoans,
+  getBankTypes,
   getSections,
   getMonthlyValues,
   createLineItem,
@@ -41,6 +43,8 @@ export default function FinancialOverview({ selectedProjectId, userPermission }:
   const [transactions, setTransactions] = useState<FinancialTransaction[]>([]);
   const [categories, setCategories] = useState<FinancialTxCategory[]>([]);
   const [loans, setLoans] = useState<FinancialLoan[]>([]);
+  const [bankTypes, setBankTypes] = useState<FinancialBankType[]>([]);
+  const [selectedBankTypeId, setSelectedBankTypeId] = useState<string>('all');
 
   // Manual sections/line items (from financial_sections/line_items/monthly_values)
   const [sections, setSections] = useState<SectionWithItems[]>([]);
@@ -55,14 +59,16 @@ export default function FinancialOverview({ selectedProjectId, userPermission }:
 
   const loadData = async () => {
     setLoading(true);
-    const [txs, cats, lns] = await Promise.all([
+    const [txs, cats, lns, bts] = await Promise.all([
       getTransactions(selectedProjectId),
       getTxCategories(selectedProjectId),
       getLoans(selectedProjectId),
+      getBankTypes(selectedProjectId),
     ]);
     setTransactions(txs);
     setCategories(cats);
     setLoans(lns);
+    setBankTypes(bts.filter((b) => b.status === 'approved'));
 
     // Load manual sections for GROSS INCOME and CASHFLOW line items
     let secs = await getSections(selectedProjectId);
@@ -105,9 +111,11 @@ export default function FinancialOverview({ selectedProjectId, userPermission }:
     () =>
       transactions.filter((tx) => {
         if (!tx.date || tx.amount == null) return false;
-        return new Date(tx.date).getFullYear() === year;
+        if (new Date(tx.date).getFullYear() !== year) return false;
+        if (selectedBankTypeId !== 'all' && tx.bank_type_id !== selectedBankTypeId) return false;
+        return true;
       }),
-    [transactions, year],
+    [transactions, year, selectedBankTypeId],
   );
 
   const txByCatMonth = useMemo(() => {
@@ -125,21 +133,26 @@ export default function FinancialOverview({ selectedProjectId, userPermission }:
   const { incomeItems, expenseItems } = useMemo(() => {
     const income: { id: string; name: string }[] = [];
     const expense: { id: string; name: string }[] = [];
-    for (const [catId] of txByCatMonth) {
-      const cat = categoryMap.get(catId);
-      const name =
-        catId === '__uncategorized__'
-          ? 'Uncategorized'
-          : (cat?.name ?? 'Unknown');
-      // Use explicit category_type; uncategorized defaults to expense
-      const type = cat?.category_type ?? 'expense';
-      if (type === 'income') income.push({ id: catId, name });
-      else expense.push({ id: catId, name });
+    const seen = new Set<string>();
+
+    // Include ALL categories from AutoBooks (synced), not just those with transactions
+    for (const cat of categories) {
+      seen.add(cat.id);
+      if (cat.category_type === 'income') income.push({ id: cat.id, name: cat.name });
+      else expense.push({ id: cat.id, name: cat.name });
     }
+
+    // Also include any transaction-only entries (e.g., uncategorized)
+    for (const [catId] of txByCatMonth) {
+      if (seen.has(catId)) continue;
+      const name = catId === '__uncategorized__' ? 'Uncategorized' : 'Unknown';
+      expense.push({ id: catId, name });
+    }
+
     income.sort((a, b) => a.name.localeCompare(b.name));
     expense.sort((a, b) => a.name.localeCompare(b.name));
     return { incomeItems: income, expenseItems: expense };
-  }, [txByCatMonth, categoryMap]);
+  }, [categories, txByCatMonth]);
 
   const getCatVal = (catId: string, month: number) =>
     txByCatMonth.get(catId)?.get(month) ?? 0;
@@ -220,15 +233,29 @@ export default function FinancialOverview({ selectedProjectId, userPermission }:
 
   return (
     <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto p-1 pb-4">
-      {/* Year selector */}
-      <div className="flex items-center gap-3 mb-4 p-4 pb-0">
-        <button onClick={() => setYear((y) => y - 1)} className="p-1 hover:bg-muted rounded text-foreground/70 hover:text-foreground transition-colors">
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-        <span className="text-sm font-bold tracking-wider">{year}</span>
-        <button onClick={() => setYear((y) => y + 1)} className="p-1 hover:bg-muted rounded text-foreground/70 hover:text-foreground transition-colors">
-          <ChevronRight className="h-4 w-4" />
-        </button>
+      {/* Year selector + Bank Type filter */}
+      <div className="flex items-center gap-4 mb-4 p-4 pb-0">
+        <div className="flex items-center gap-3">
+          <button onClick={() => setYear((y) => y - 1)} className="p-1 hover:bg-muted rounded text-foreground/70 hover:text-foreground transition-colors">
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <span className="text-sm font-bold tracking-wider">{year}</span>
+          <button onClick={() => setYear((y) => y + 1)} className="p-1 hover:bg-muted rounded text-foreground/70 hover:text-foreground transition-colors">
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+        {bankTypes.length > 0 && (
+          <select
+            value={selectedBankTypeId}
+            onChange={(e) => setSelectedBankTypeId(e.target.value)}
+            className="h-8 rounded-lg border border-border/50 bg-background/50 px-3 text-xs font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+          >
+            <option value="all">All Bank Types</option>
+            {bankTypes.map((bt) => (
+              <option key={bt.id} value={bt.id}>{bt.name}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       <table className="w-full text-xs sm:text-sm">

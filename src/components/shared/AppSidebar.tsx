@@ -232,7 +232,7 @@ export default function AppSidebar({
       {/* Status + Add Files (below project selector, above nav) */}
       {!isCollapsed && (
         <div className="px-3 py-3 border-b border-border">
-          <NavActions projectStatus={projectStatus} vertical selectedProjectId={selectedProjectId} />
+          <NavActions projectStatus={projectStatus} vertical selectedProjectId={selectedProjectId} projectName={selectedProject?.name} />
         </div>
       )}
 
