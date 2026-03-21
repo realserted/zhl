@@ -12,7 +12,7 @@ import {
   ensureDefaultBankTypes,
   ensureDistinctTxCategories, createTxCategory, updateTxCategoryType,
   getTransactions, updateTransaction, deleteTransaction, createTransaction, bulkCreateTransactions,
-  getUploadSheets, createUploadSheet, deleteUploadSheet, updateSheetColumnHeaders,
+  getUploadSheets, createUploadSheet, deleteUploadSheet, updateSheetColumnHeaders, deleteSheetColumn,
 } from '@/lib/db/financial';
 import { AutoBooksPreviewConfig, TemplateField } from './AutoBooksPreviewModal';
 import * as XLSX from 'xlsx';
@@ -713,6 +713,25 @@ export function useAutoBooks(selectedProjectId: string, userPermission?: Project
     }
   };
 
+  const handleDeleteColumn = async (sheetId: string, colIndex: number) => {
+    const sheet = sheets.find((s) => s.id === sheetId);
+    if (!sheet) return;
+    const colName = sheet.column_headers[colIndex];
+    const newHeaders = sheet.column_headers.filter((_, i) => i !== colIndex);
+    if (await deleteSheetColumn(sheetId, colName, newHeaders)) {
+      setSheets((prev) => prev.map((s) => (s.id === sheetId ? { ...s, column_headers: newHeaders } : s)));
+      // Strip the key from local transaction state too
+      setTransactions((prev) =>
+        prev.map((tx) => {
+          if (tx.sheet_id !== sheetId || !tx.raw_data) return tx;
+          const cleaned = { ...tx.raw_data };
+          delete cleaned[colName];
+          return { ...tx, raw_data: cleaned };
+        })
+      );
+    }
+  };
+
   // ── Inline edit helpers ──────────────────────────────────────
 
   const handleCategoryChange = async (txId: string, categoryId: string) => {
@@ -846,7 +865,7 @@ export function useAutoBooks(selectedProjectId: string, userPermission?: Project
     // Handlers
     handleRequestBankType, handleAddCategory, handleToggleCategoryType,
     handleExcelUpload, handleQuickUpload, processExcelWithMapping,
-    handleDeleteSheet, handleDeleteAllForType, handleRenameHeader,
+    handleDeleteSheet, handleDeleteAllForType, handleRenameHeader, handleDeleteColumn,
     handleCategoryChange, handleAutoGroupingChange, saveInlineEdit,
     handleDeleteTx, handleAddRow,
   };

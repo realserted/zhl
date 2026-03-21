@@ -429,6 +429,30 @@ export async function updateSheetColumnHeaders(sheetId: string, headers: string[
   return !error;
 }
 
+/** Remove a column from a sheet: delete header + strip the key from every transaction's raw_data. */
+export async function deleteSheetColumn(sheetId: string, columnName: string, newHeaders: string[]): Promise<boolean> {
+  // 1. Update headers
+  const { error: hErr } = await supabase.from('zhl_financial_upload_sheets').update({ column_headers: newHeaders }).eq('id', sheetId);
+  if (hErr) return false;
+  // 2. Fetch transactions for this sheet that have raw_data containing the column
+  const { data: txs, error: fErr } = await supabase
+    .from('zhl_financial_transactions')
+    .select('id, raw_data')
+    .eq('sheet_id', sheetId)
+    .not('raw_data', 'is', null);
+  if (fErr || !txs) return !hErr;
+  // 3. Strip the key from each transaction's raw_data
+  const updates = txs
+    .filter((tx) => tx.raw_data && typeof tx.raw_data === 'object' && columnName in (tx.raw_data as Record<string, unknown>))
+    .map((tx) => {
+      const cleaned = { ...(tx.raw_data as Record<string, unknown>) };
+      delete cleaned[columnName];
+      return supabase.from('zhl_financial_transactions').update({ raw_data: cleaned }).eq('id', tx.id);
+    });
+  await Promise.all(updates);
+  return true;
+}
+
 // ── Debt Schedule helpers ─────────────────────────────────────
 
 export async function getLoans(projectId: string): Promise<FinancialLoan[]> {

@@ -1,6 +1,6 @@
 'use client';
 
-import { Pencil, Trash2, AlertTriangle, Bot, User } from 'lucide-react';
+import { Pencil, Trash2, AlertTriangle, Bot, User, X } from 'lucide-react';
 import { FinancialTransaction, FinancialTxCategory, FinancialUploadSheet } from '@/lib/types/financial';
 
 const formatCellValue = (val: unknown): string => {
@@ -37,6 +37,7 @@ interface TransactionTableProps {
   handleAutoGroupingChange: (txId: string, value: string) => void;
   handleDeleteTx: (txId: string) => void;
   handleRenameHeader: (sheetId: string, colIndex: number, value: string) => void;
+  handleDeleteColumn: (sheetId: string, colIndex: number) => void;
   transactions: FinancialTransaction[];
 }
 
@@ -46,7 +47,7 @@ export function TransactionTable({
   colWidths, handleResizeStart,
   editingHeader, headerEditValue, setEditingHeader, setHeaderEditValue,
   activeSheet, saveInlineEdit,
-  handleCategoryChange, handleAutoGroupingChange, handleDeleteTx, handleRenameHeader,
+  handleCategoryChange, handleAutoGroupingChange, handleDeleteTx, handleRenameHeader, handleDeleteColumn,
   transactions,
 }: TransactionTableProps) {
   const rawKeyForColumn = (colIndex: number): string => dynamicColumns[colIndex] ?? '';
@@ -62,45 +63,56 @@ export function TransactionTable({
                   const isEditing = editingHeader?.sheetId === activeSheet?.id && editingHeader?.index === colIndex;
                   const colKey = `dyn-${colIndex}`;
                   return (
-                    <th key={`${col}-${colIndex}`} className="relative px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap" style={{ width: colWidths[colKey] ?? 150, minWidth: 60 }}>
-                      {isEditing ? (
-                        <input
-                          autoFocus value={headerEditValue}
-                          onChange={(e) => setHeaderEditValue(e.target.value)}
-                          onBlur={() => handleRenameHeader(activeSheet!.id, colIndex, headerEditValue)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleRenameHeader(activeSheet!.id, colIndex, headerEditValue);
-                            if (e.key === 'Escape') setEditingHeader(null);
-                          }}
-                          className="px-1 py-0 bg-background border border-input rounded text-xs font-semibold w-24"
-                        />
-                      ) : (
-                        <span
-                          className={activeSheet && canEdit ? 'cursor-pointer hover:text-primary group inline-flex items-center gap-1 transition-colors' : ''}
-                          onClick={() => { if (activeSheet && canEdit) { setEditingHeader({ sheetId: activeSheet.id, index: colIndex }); setHeaderEditValue(col); } }}
-                        >
-                          {col}
-                          {activeSheet && canEdit && <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-50 transition-opacity" />}
-                        </span>
-                      )}
-                      <div onMouseDown={(e) => handleResizeStart(colKey, e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 transition-colors" />
+                    <th key={`${col}-${colIndex}`} className="relative px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap group/th" style={{ width: colWidths[colKey] ?? 150, minWidth: 60 }}>
+                      <div className="flex items-center gap-1">
+                        {isEditing ? (
+                          <input
+                            autoFocus value={headerEditValue}
+                            onChange={(e) => setHeaderEditValue(e.target.value)}
+                            onBlur={() => handleRenameHeader(activeSheet!.id, colIndex, headerEditValue)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleRenameHeader(activeSheet!.id, colIndex, headerEditValue);
+                              if (e.key === 'Escape') setEditingHeader(null);
+                            }}
+                            className="px-1 py-0 bg-background border border-input rounded text-xs font-semibold w-24"
+                          />
+                        ) : (
+                          <span
+                            className={`flex-1 truncate ${activeSheet && canEdit ? 'cursor-pointer hover:text-primary group inline-flex items-center gap-1 transition-colors' : ''}`}
+                            onClick={() => { if (activeSheet && canEdit) { setEditingHeader({ sheetId: activeSheet.id, index: colIndex }); setHeaderEditValue(col); } }}
+                          >
+                            {col}
+                            {activeSheet && canEdit && <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-50 transition-opacity shrink-0" />}
+                          </span>
+                        )}
+                        {activeSheet && canEdit && !isEditing && (
+                          <button
+                            onClick={() => { if (confirm(`Delete column "${col}"? This will remove the column and its data from all transactions.`)) handleDeleteColumn(activeSheet.id, colIndex); }}
+                            className="opacity-0 group-hover/th:opacity-100 p-0.5 rounded hover:bg-destructive/20 hover:text-destructive transition-all shrink-0"
+                            title={`Delete column "${col}"`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                      <div onMouseDown={(e) => handleResizeStart(colKey, e)} className="absolute -right-px top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors z-10" />
                     </th>
                   );
                 })}
-                <th className="relative px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap" style={{ width: colWidths['category'] ?? 150, minWidth: 60 }}>Category<div onMouseDown={(e) => handleResizeStart('category', e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 transition-colors" /></th>
-                <th className="relative px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap" style={{ width: colWidths['notes'] ?? 100, minWidth: 60 }}>Notes<div onMouseDown={(e) => handleResizeStart('notes', e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 transition-colors" /></th>
-                <th className="relative px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap" style={{ width: colWidths['auto-grouping'] ?? 100, minWidth: 60 }}>Auto-Grouping<div onMouseDown={(e) => handleResizeStart('auto-grouping', e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 transition-colors" /></th>
+                <th className="relative px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap" style={{ width: colWidths['category'] ?? 220, minWidth: 120 }}>Category<div onMouseDown={(e) => handleResizeStart('category', e)} className="absolute -right-px top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors z-10" /></th>
+                <th className="relative px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap" style={{ width: colWidths['notes'] ?? 100, minWidth: 60 }}>Notes<div onMouseDown={(e) => handleResizeStart('notes', e)} className="absolute -right-px top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors z-10" /></th>
+                <th className="relative px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap" style={{ width: colWidths['auto-grouping'] ?? 100, minWidth: 60 }}>Auto-Grouping<div onMouseDown={(e) => handleResizeStart('auto-grouping', e)} className="absolute -right-px top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors z-10" /></th>
                 {canEdit && <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap" style={{ width: 40 }}></th>}
               </>
             ) : (
               <>
                 {['date', 'amount', 'description', 'category', 'notes', 'auto-grouping'].map((col) => {
-                  const defaults: Record<string, number> = { date: 100, amount: 90, description: 200, category: 150, notes: 100, 'auto-grouping': 100 };
+                  const defaults: Record<string, number> = { date: 100, amount: 90, description: 200, category: 220, notes: 100, 'auto-grouping': 100 };
                   const labels: Record<string, string> = { date: 'Date', amount: 'Amount', description: 'Description', category: 'Category', notes: 'Notes', 'auto-grouping': 'Auto-Grouping' };
                   return (
                     <th key={col} className="relative px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap" style={{ width: colWidths[col] ?? defaults[col], minWidth: 60 }}>
                       {labels[col]}
-                      <div onMouseDown={(e) => handleResizeStart(col, e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 transition-colors" />
+                      <div onMouseDown={(e) => handleResizeStart(col, e)} className="absolute -right-px top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors z-10" />
                     </th>
                   );
                 })}
@@ -129,7 +141,7 @@ export function TransactionTable({
                       const numVal = typeof val === 'number' ? val : (typeof val === 'string' ? parseFloat(val.replace(/,/g, '')) : NaN);
                       const isAmt = isAmountColumn(rawKey || col) && !isNaN(numVal);
                       return (
-                        <td key={`${col}-${colIndex}`} className={`px-4 py-4 text-xs whitespace-nowrap overflow-hidden text-ellipsis ${isAmt && numVal < 0 ? 'text-red-500 font-medium' : isAmt && numVal > 0 ? 'text-green-500 font-medium' : ''}`}>
+                        <td key={`${col}-${colIndex}`} className={`px-4 py-4 text-xs whitespace-nowrap overflow-hidden text-ellipsis max-w-0 ${isAmt && numVal < 0 ? 'text-red-500 font-medium' : isAmt && numVal > 0 ? 'text-green-500 font-medium' : ''}`}>
                           {isAmt ? formatCellValue(numVal) : formatCellValue(val)}
                         </td>
                       );
@@ -138,7 +150,7 @@ export function TransactionTable({
                 ) : (
                   <>
                     {/* Date */}
-                    <td className="px-4 py-4 text-xs whitespace-nowrap">
+                    <td className="px-4 py-4 text-xs whitespace-nowrap overflow-hidden max-w-0">
                       {editingCell?.id === tx.id && editingCell?.field === 'date' ? (
                         <input autoFocus type="date" value={editValue} onChange={(e) => setEditValue(e.target.value)}
                           onBlur={() => saveInlineEdit(tx.id, 'date', editValue)}
@@ -152,7 +164,7 @@ export function TransactionTable({
                       )}
                     </td>
                     {/* Amount */}
-                    <td className={`px-4 py-4 text-xs font-medium whitespace-nowrap ${tx.amount != null && tx.amount < 0 ? 'text-red-500' : tx.amount != null && tx.amount > 0 ? 'text-green-500' : ''}`}>
+                    <td className={`px-4 py-4 text-xs font-medium whitespace-nowrap overflow-hidden max-w-0 ${tx.amount != null && tx.amount < 0 ? 'text-red-500' : tx.amount != null && tx.amount > 0 ? 'text-green-500' : ''}`}>
                       {editingCell?.id === tx.id && editingCell?.field === 'amount' ? (
                         <input autoFocus type="number" step="0.01" value={editValue} onChange={(e) => setEditValue(e.target.value)}
                           onBlur={() => saveInlineEdit(tx.id, 'amount', editValue)}
@@ -168,7 +180,7 @@ export function TransactionTable({
                       )}
                     </td>
                     {/* Description */}
-                    <td className="px-4 py-4 text-xs text-muted-foreground max-w-[200px] whitespace-nowrap">
+                    <td className="px-4 py-4 text-xs text-muted-foreground whitespace-nowrap overflow-hidden max-w-0">
                       {editingCell?.id === tx.id && editingCell?.field === 'description' ? (
                         <input autoFocus value={editValue} onChange={(e) => setEditValue(e.target.value)}
                           onBlur={() => saveInlineEdit(tx.id, 'description', editValue)}
@@ -184,7 +196,7 @@ export function TransactionTable({
                   </>
                 )}
                 {/* Category */}
-                <td className="px-4 py-4 whitespace-nowrap">
+                <td className="px-4 py-4 overflow-hidden max-w-0">
                   <div className="flex items-center gap-1.5">
                     {tx.category_id ? (
                       tx.ai_needs_review ? (
@@ -195,7 +207,7 @@ export function TransactionTable({
                         </span>
                       )
                     ) : null}
-                    <select value={tx.category_id ?? ''} onChange={(e) => handleCategoryChange(tx.id, e.target.value)} disabled={!canEdit} className="w-full px-2 py-1 bg-background border border-input rounded text-xs">
+                    <select value={tx.category_id ?? ''} onChange={(e) => handleCategoryChange(tx.id, e.target.value)} disabled={!canEdit} className="w-full min-w-[100px] px-2 py-1 bg-background border border-input rounded text-xs">
                       <option value="">--</option>
                       {txCategories.some((c) => c.category_type === 'income') && (
                         <optgroup label="Income">
@@ -209,7 +221,7 @@ export function TransactionTable({
                   </div>
                 </td>
                 {/* Notes */}
-                <td className="px-4 py-4 whitespace-nowrap">
+                <td className="px-4 py-4 whitespace-nowrap overflow-hidden max-w-0">
                   {editingCell?.id === tx.id && editingCell?.field === 'notes' ? (
                     <input autoFocus value={editValue} onChange={(e) => setEditValue(e.target.value)}
                       onBlur={() => saveInlineEdit(tx.id, 'notes', editValue)}
@@ -223,7 +235,7 @@ export function TransactionTable({
                   )}
                 </td>
                 {/* Auto-Grouping */}
-                <td className="px-4 py-4 whitespace-nowrap">
+                <td className="px-4 py-4 whitespace-nowrap overflow-hidden max-w-0">
                   <select value={tx.auto_grouping ?? ''} onChange={(e) => handleAutoGroupingChange(tx.id, e.target.value)} disabled={!canEdit} className="w-full px-2 py-1 bg-background border border-input rounded text-xs">
                     <option value="">Auto</option>
                     <option value="Do not group">Do not group</option>

@@ -28,7 +28,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
     previewRows, setPreviewRows, setPreviewWorkbook, previewInitialConfig,
     handleRequestBankType, handleAddCategory, handleToggleCategoryType,
     handleExcelUpload, handleQuickUpload, processExcelWithMapping,
-    handleDeleteSheet, handleDeleteAllForType, handleRenameHeader,
+    handleDeleteSheet, handleDeleteAllForType, handleRenameHeader, handleDeleteColumn,
     handleCategoryChange, handleAutoGroupingChange, saveInlineEdit,
     handleDeleteTx, handleAddRow,
   } = useAutoBooks(selectedProjectId, userPermission);
@@ -285,6 +285,7 @@ export default function FinancialAutoBooks({ selectedProjectId, userPermission }
         handleAutoGroupingChange={handleAutoGroupingChange}
         handleDeleteTx={handleDeleteTx}
         handleRenameHeader={handleRenameHeader}
+        handleDeleteColumn={handleDeleteColumn}
         transactions={transactions}
       />
 
