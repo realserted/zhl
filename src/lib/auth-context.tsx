@@ -13,6 +13,7 @@ interface AuthContextType {
     username?: string; accountNumber?: string; notes?: string;
   }) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
+  signInWithGoogle: () => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   resendVerification: (email: string, password: string) => Promise<{ error: string | null }>;
   resetPassword: (email: string) => Promise<{ error: string | null }>;
@@ -73,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     username?: string; accountNumber?: string; notes?: string;
   }) => {
     // Block admin email from public registration
-    if (email.toLowerCase() === 'admin@zhl.com') {
+    if (email.toLowerCase() === 'presaling@gmail.com') {
       return { error: 'This email address is reserved and cannot be used for registration.' };
     }
 
@@ -138,6 +139,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: null };
   };
 
+  const signInWithGoogle = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/overview`,
+        queryParams: { access_type: 'offline', prompt: 'consent' },
+      },
+    });
+    if (error) return { error: error.message };
+    return { error: null };
+  };
+
   const resetPassword = async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/reset-password`,
@@ -152,7 +165,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signUp, signIn, signOut, resendVerification, resetPassword }}>
+    <AuthContext.Provider value={{ user, session, loading, signUp, signIn, signInWithGoogle, signOut, resendVerification, resetPassword }}>
       {children}
     </AuthContext.Provider>
   );

@@ -27,6 +27,10 @@ import {
 import { Plus, Trash2, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { Button } from '@/components/shared/Button';
 import { computeMonthlyPayment, isLoanActiveInMonth } from '@/lib/financial-utils';
+import {
+  BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, ReferenceLine,
+} from 'recharts';
 
 interface Props {
   selectedProjectId: string;
@@ -227,11 +231,172 @@ export default function FinancialOverview({ selectedProjectId, userPermission }:
     return `${sign}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   };
 
+  // ── Chart data ──────────────────────────────────────────────────────
+  const chartData = useMemo(() => {
+    return MONTHS.map((month, i) => {
+      const m = i + 1;
+      const income = getIncomeTotal(m);
+      const expenses = getExpenseTotal(m);
+      const loans_val = getLoanTotal(m);
+      const cashflow = getCashflowTotal(m);
+      return { month, income, expenses, loans: loans_val, cashflow };
+    });
+  }, [yearTxs, manualValues, loans, categories, sections, year, selectedBankTypeId]);
+
+  // Summary stats for cards
+  const totalIncome = useMemo(() => chartData.reduce((s, d) => s + d.income, 0), [chartData]);
+  const totalExpenses = useMemo(() => chartData.reduce((s, d) => s + d.expenses, 0), [chartData]);
+  const totalLoans = useMemo(() => chartData.reduce((s, d) => s + d.loans, 0), [chartData]);
+  const netCashflow = useMemo(() => chartData.reduce((s, d) => s + d.cashflow, 0), [chartData]);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div className="bg-background/95 backdrop-blur-md border border-border/50 rounded-xl shadow-xl px-4 py-3 min-w-[160px]">
+        <p className="text-xs font-bold text-foreground mb-2">{label} {year}</p>
+        {payload.map((entry: { color: string; name: string; value: number }, idx: number) => (
+          <div key={idx} className="flex items-center justify-between gap-4 py-0.5">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+              <span className="text-[11px] text-muted-foreground">{entry.name}</span>
+            </div>
+            <span className="text-[11px] font-semibold text-foreground">
+              ${Math.abs(entry.value).toLocaleString('en-US', { minimumFractionDigits: 0 })}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   if (loading) {
     return <div className="text-sm text-muted-foreground py-4">Loading overview...</div>;
   }
 
+  const fmtCompact = (n: number) => {
+    if (n === 0) return '$0';
+    const sign = n < 0 ? '-' : '';
+    const abs = Math.abs(n);
+    if (abs >= 1000000) return `${sign}$${(abs / 1000000).toFixed(1)}M`;
+    if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(0)}k`;
+    return `${sign}$${abs.toFixed(0)}`;
+  };
+
   return (
+    <div className="space-y-6">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="glass-card rounded-2xl border border-border/50 p-4">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Total Income</p>
+          <p className="text-xl font-bold text-green-500">{fmtCompact(totalIncome)}</p>
+        </div>
+        <div className="glass-card rounded-2xl border border-border/50 p-4">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Total Expenses</p>
+          <p className="text-xl font-bold text-red-500">{fmtCompact(totalExpenses)}</p>
+        </div>
+        <div className="glass-card rounded-2xl border border-border/50 p-4">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Total Loans</p>
+          <p className="text-xl font-bold text-amber-500">{fmtCompact(totalLoans)}</p>
+        </div>
+        <div className="glass-card rounded-2xl border border-border/50 p-4">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Net Cashflow</p>
+          <p className={`text-xl font-bold ${netCashflow >= 0 ? 'text-blue-500' : 'text-red-500'}`}>{fmtCompact(netCashflow)}</p>
+        </div>
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Income vs Expenses Bar Chart */}
+        <div className="glass-card rounded-2xl border border-border/50 shadow-sm p-5 pb-3">
+          <h3 className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Income vs Expenses</h3>
+          <p className="text-xs text-muted-foreground/60 mb-4">Monthly breakdown for {year}</p>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={chartData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }} barCategoryGap="20%">
+              <defs>
+                <linearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#22c55e" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="#16a34a" stopOpacity={0.7} />
+                </linearGradient>
+                <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#ef4444" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="#dc2626" stopOpacity={0.7} />
+                </linearGradient>
+                <linearGradient id="loanGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="#d97706" stopOpacity={0.7} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid vertical={false} stroke="hsl(var(--border))" opacity={0.15} />
+              <XAxis
+                dataKey="month"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 11, fontWeight: 500, fill: 'hsl(var(--muted-foreground))' }}
+              />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                tickFormatter={(v) => v === 0 ? '0' : `$${(v / 1000).toFixed(0)}k`}
+              />
+              <Tooltip content={<CustomTooltip />} cursor={{ fill: 'hsl(var(--muted))', opacity: 0.3, radius: 6 }} />
+              <Legend
+                wrapperStyle={{ paddingTop: 12 }}
+                iconType="circle"
+                iconSize={8}
+                formatter={(value: string) => <span style={{ fontSize: 11, fontWeight: 500, color: 'hsl(var(--muted-foreground))' }}>{value}</span>}
+              />
+              <Bar dataKey="income" name="Income" fill="url(#incomeGrad)" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="expenses" name="Expenses" fill="url(#expenseGrad)" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="loans" name="Loans" fill="url(#loanGrad)" radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Cashflow Area Chart */}
+        <div className="glass-card rounded-2xl border border-border/50 shadow-sm p-5 pb-3">
+          <h3 className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Monthly Cashflow</h3>
+          <p className="text-xs text-muted-foreground/60 mb-4">Net flow trend for {year}</p>
+          <ResponsiveContainer width="100%" height={280}>
+            <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+              <defs>
+                <linearGradient id="cashflowGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.3} />
+                  <stop offset="50%" stopColor="#3b82f6" stopOpacity={0.08} />
+                  <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid vertical={false} stroke="hsl(var(--border))" opacity={0.15} />
+              <XAxis
+                dataKey="month"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 11, fontWeight: 500, fill: 'hsl(var(--muted-foreground))' }}
+              />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                tickFormatter={(v) => v === 0 ? '0' : `$${(v / 1000).toFixed(0)}k`}
+              />
+              <Tooltip content={<CustomTooltip />} />
+              <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" opacity={0.3} />
+              <Area
+                type="monotone"
+                dataKey="cashflow"
+                name="Cashflow"
+                stroke="#3b82f6"
+                strokeWidth={2.5}
+                fill="url(#cashflowGrad)"
+                dot={{ r: 4, fill: '#3b82f6', stroke: '#fff', strokeWidth: 2 }}
+                activeDot={{ r: 6, fill: '#3b82f6', stroke: '#fff', strokeWidth: 2 }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
     <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto p-1 pb-4">
       {/* Year selector + Bank Type filter */}
       <div className="flex items-center gap-4 mb-4 p-4 pb-0">
@@ -405,6 +570,7 @@ export default function FinancialOverview({ selectedProjectId, userPermission }:
           </tr>
         </tbody>
       </table>
+    </div>
     </div>
   );
 }

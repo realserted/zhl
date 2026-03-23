@@ -229,7 +229,7 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
     // Log admin action
     if (user && project) {
       const fieldLabel = field.charAt(0).toUpperCase() + field.slice(1);
-      logUserAction({ projectId, userId: user.id, userName: 'AdminJon', userEmail: 'admin@zhl.com', action: `Changed ${fieldLabel} to "${value}" for project "${project.name}"` });
+      logUserAction({ projectId, userId: user.id, userName: 'AdminJon', userEmail: 'presaling@gmail.com', action: `Changed ${fieldLabel} to "${value}" for project "${project.name}"` });
     }
   };
 

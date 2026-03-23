@@ -190,7 +190,7 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
     { id: 'files',      label: 'FILES',                 permKey: 'perm_files' },
     ...(isAdmin || selectedProject?.owner_id === user?.id ? [{ id: 'accounts', label: 'ACCOUNTS', permKey: null }] : []),
     { id: 'financial',  label: 'FINANCIAL',             permKey: 'perm_reports' },
-    { id: 'templates',  label: 'TEMPLATES',             permKey: 'perm_templates' },
+    { id: 'templates',  label: 'PROCEDURES & TEMPLATES', permKey: 'perm_templates' },
     { id: 'meetings',   label: 'MEETINGS & AVAILABILITY', permKey: 'perm_meetings' },
     { id: 'issues',     label: 'TENANT ISSUES',         permKey: null },
     ...(isAdmin || selectedProject?.owner_id === user?.id ? [{ id: 'logs', label: 'USER LOGS', permKey: null }] : []),
