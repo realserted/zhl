@@ -963,6 +963,36 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
             <p className="text-sm text-muted-foreground ml-4 mt-1">(do via Plaid)</p>
           </div>
 
+          {/* TIMEZONE SECTION */}
+          <div className="mb-8 ml-6">
+            <h3 className="text-lg font-bold mb-4 bg-muted px-3 py-2 rounded text-orange-600 dark:text-orange-400">GENERAL</h3>
+            <div className="ml-4 space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2">
+                  Project Timezone
+                </label>
+                <select
+                  value={projectSettings.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone}
+                  onChange={async (e) => {
+                    const val = e.target.value;
+                    if (selectedProjectId) {
+                      const ok = await saveProjectSettings(selectedProjectId, { timezone: val });
+                      if (ok) setProjectSettings((prev) => ({ ...prev, timezone: val }));
+                    }
+                  }}
+                  className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+                >
+                  {Intl.supportedValuesOf('timeZone').map((tz) => (
+                    <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-muted-foreground mt-1.5">
+                  Defaults to your device timezone. Used for due dates, meetings, and scheduling.
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* STATUS THRESHOLDS SECTION */}
           <div className="mb-8 ml-6">
             <h3 className="text-lg font-bold mb-4 bg-muted px-3 py-2 rounded flex items-center gap-3">

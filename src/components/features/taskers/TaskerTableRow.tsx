@@ -184,10 +184,10 @@ export function TaskerTableRow({
           const curr = tasker.due_date;
           if (!orig || !curr || orig === curr) return null;
           const diffDays = Math.round((new Date(curr + 'T00:00:00').getTime() - new Date(orig + 'T00:00:00').getTime()) / 86_400_000);
-          if (diffDays === 0) return null;
+          if (diffDays <= 0) return null;
           return (
-            <div className={`text-[9px] font-semibold ${diffDays > 0 ? 'text-red-500' : 'text-green-500'} mt-0.5`}>
-              ({diffDays > 0 ? '+' : ''}{diffDays}D from original date)
+            <div className="text-[9px] font-semibold text-red-500 mt-0.5">
+              (+{diffDays} {diffDays === 1 ? 'day' : 'days'} from original date)
             </div>
           );
         })()}

@@ -37,6 +37,9 @@ yarn-error.log*
 # supabase
 supabase/.temp/
 
+# admin seed script (contains credentials)
+scripts/seed-admin.ts
+
 # vercel
 .vercel
 
