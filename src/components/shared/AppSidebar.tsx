@@ -152,7 +152,6 @@ export default function AppSidebar({
         <div className="px-3 py-2 border-b border-border">
           <a
             href="https://presaling.com"
-            target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 text-xs font-semibold text-foreground hover:text-accent transition-colors"
           >
