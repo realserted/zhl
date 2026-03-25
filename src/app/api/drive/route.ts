@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
   const READ_ACTIONS = ['listFolder', 'listFolderRecursive', 'getFileUrl', 'getFolderInfo',
     'getFileContent', 'getFileBinary', 'exportGoogleDoc', 'convertOfficeToPdf', 'getThumbnail'];
   // Write actions require owner/admin role
-  const WRITE_ACTIONS = ['createFolder', 'renameFile', 'moveFile', 'deleteFile', 'restoreFile', 'ensureArchive', 'uploadFile', 'updateFileContent', 'updateDocx', 'shareFile', 'importToGoogle', 'removePublicAccess'];
+  const WRITE_ACTIONS = ['createFolder', 'renameFile', 'moveFile', 'deleteFile', 'restoreFile', 'ensureArchive', 'uploadFile', 'updateFileContent', 'updateDocx', 'shareFile', 'importToGoogle', 'removePublicAccess', 'syncPdfEdit'];
 
   const isProjectOwner = project?.owner_id === userData.user.id;
   if (WRITE_ACTIONS.includes(action) && !isProjectOwner && !isSysAdmin) {
@@ -232,6 +232,8 @@ export async function POST(req: NextRequest) {
         return await handleImportToGoogle(headers, params, tokenRow?.google_email);
       case 'removePublicAccess':
         return await handleRemovePublicAccess(headers, params);
+      case 'syncPdfEdit':
+        return await handleSyncPdfEdit(headers, params);
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
     }
@@ -699,6 +701,7 @@ async function handleImportToGoogle(headers: Record<string, string>, params: Rec
     'application/vnd.ms-excel': { googleMime: 'application/vnd.google-apps.spreadsheet', editorBase: 'https://docs.google.com/spreadsheets/d' },
     'application/vnd.openxmlformats-officedocument.presentationml.presentation': { googleMime: 'application/vnd.google-apps.presentation', editorBase: 'https://docs.google.com/presentation/d' },
     'application/vnd.ms-powerpoint': { googleMime: 'application/vnd.google-apps.presentation', editorBase: 'https://docs.google.com/presentation/d' },
+    'application/pdf': { googleMime: 'application/vnd.google-apps.document', editorBase: 'https://docs.google.com/document/d' },
   };
 
   const conversion = conversionMap[mimeType];
@@ -795,4 +798,51 @@ td, th { border: 1px solid #ccc; padding: 6px 10px; }
   }
 
   return NextResponse.json(await res.json());
+}
+
+/**
+ * Sync a PDF edit: export the Google Doc copy back as PDF,
+ * overwrite the original file, then delete the temp copy.
+ */
+async function handleSyncPdfEdit(headers: Record<string, string>, params: Record<string, unknown>) {
+  const originalFileId = params.originalFileId as string;
+  const googleDocId = params.googleDocId as string;
+
+  if (!originalFileId || !googleDocId) {
+    return NextResponse.json({ error: 'Missing originalFileId or googleDocId.' }, { status: 400 });
+  }
+
+  // 1. Export the Google Doc as PDF
+  const exportUrl = `${DRIVE_API}/files/${googleDocId}/export?mimeType=${encodeURIComponent('application/pdf')}`;
+  const exportRes = await fetch(exportUrl, { headers });
+  if (!exportRes.ok) {
+    return NextResponse.json({ error: 'Failed to export edited document as PDF.' }, { status: exportRes.status });
+  }
+
+  const pdfBuffer = Buffer.from(await exportRes.arrayBuffer());
+
+  // 2. Overwrite the original PDF with the new content
+  const updateRes = await fetch(
+    `https://www.googleapis.com/upload/drive/v3/files/${originalFileId}?uploadType=media`,
+    {
+      method: 'PATCH',
+      headers: {
+        ...headers,
+        'Content-Type': 'application/pdf',
+        'Content-Length': String(pdfBuffer.length),
+      },
+      body: pdfBuffer,
+    },
+  );
+
+  if (!updateRes.ok) {
+    const err = await updateRes.json().catch(() => ({}));
+    console.error('Failed to update original PDF:', err);
+    return NextResponse.json({ error: 'Failed to save changes back to original PDF.' }, { status: updateRes.status });
+  }
+
+  // 3. Delete the temporary Google Doc copy
+  await fetch(`${DRIVE_API}/files/${googleDocId}`, { method: 'DELETE', headers }).catch(() => {});
+
+  return NextResponse.json({ synced: true });
 }

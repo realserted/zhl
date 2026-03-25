@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { FileText, ExternalLink, Download, Eye, Loader2 } from 'lucide-react';
+import { FileText, ExternalLink, Download, Eye, Loader2, Pencil } from 'lucide-react';
 import { Button } from '@/components/shared/Button';
 import {
   getDriveFileContent,
@@ -10,6 +10,7 @@ import {
   importToGoogleFormat,
   updateDriveFileContent,
   updateDriveDocx,
+  syncPdfEdit,
 } from '@/lib/db/files';
 import { CsvEditor } from './CsvEditor';
 import { DocxEditor } from './DocxEditor';
@@ -122,6 +123,7 @@ export function FileViewerPanel({ file, projectId, ownerEmail }: FileViewerPanel
   const [editMode, setEditMode] = useState(false);
   const [importedEditorUrl, setImportedEditorUrl] = useState<string | null>(null);
   const [docxHtml, setDocxHtml] = useState<string | null>(null);
+  const [pdfEditDocId, setPdfEditDocId] = useState<string | null>(null);
   const blobUrlRef = useRef<string | null>(null);
 
   const cleanup = useCallback(() => {
@@ -129,6 +131,7 @@ export function FileViewerPanel({ file, projectId, ownerEmail }: FileViewerPanel
     setPreviewType(null);
     setImportedEditorUrl(null);
     setDocxHtml(null);
+    setPdfEditDocId(null);
     if (blobUrlRef.current) {
       URL.revokeObjectURL(blobUrlRef.current);
       blobUrlRef.current = null;
@@ -279,6 +282,57 @@ export function FileViewerPanel({ file, projectId, ownerEmail }: FileViewerPanel
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
+          {isPdf(file.mimeType) && (
+            editMode ? (
+              <Button
+                variant="primary"
+                size="sm"
+                className="gap-1.5 text-xs shadow-none"
+                onClick={async () => {
+                  const docId = pdfEditDocId;
+                  // Unmount the iframe FIRST to avoid "Something went wrong" error
+                  setEditMode(false);
+                  setImportedEditorUrl(null);
+                  // Then sync edits back: export Google Doc as PDF → overwrite original → delete copy
+                  if (docId) {
+                    setLoading(true);
+                    await syncPdfEdit(projectId, file.id, docId);
+                    setPdfEditDocId(null);
+                    // Re-fetch the updated PDF for preview
+                    const result = await getDriveFileBinary(projectId, file.id);
+                    if (result) {
+                      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+                      blobUrlRef.current = result.blobUrl;
+                      setBlobUrl(result.blobUrl);
+                    }
+                    setLoading(false);
+                  }
+                }}
+              >
+                <Eye className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Save & Preview</span>
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 text-xs shadow-none"
+                onClick={async () => {
+                  setLoading(true);
+                  const imported = await importToGoogleFormat(projectId, file.id, file.mimeType!, file.name);
+                  if (imported) {
+                    setImportedEditorUrl(imported.editorUrl);
+                    setPdfEditDocId(imported.googleFileId);
+                    setEditMode(true);
+                  }
+                  setLoading(false);
+                }}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Edit</span>
+              </Button>
+            )
+          )}
           {file.webContentLink && (
             <a href={file.webContentLink} target="_blank" rel="noopener noreferrer">
               <Button variant="ghost" size="sm" className="gap-1.5 text-xs shadow-none">

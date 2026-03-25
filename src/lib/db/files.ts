@@ -352,6 +352,42 @@ export async function updateDriveFileContent(
   return { ok: true };
 }
 
+/** Sync PDF edit: export Google Doc copy back as PDF, overwrite original, delete copy. */
+export async function syncPdfEdit(
+  projectId: string,
+  originalFileId: string,
+  googleDocId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const result = await callDriveProxy(projectId, 'syncPdfEdit', { originalFileId, googleDocId });
+  if (!result.ok) return { ok: false, error: result.error };
+  return { ok: true };
+}
+
+/** Update a binary file on Drive (e.g. modified PDF). */
+export async function updateDriveFileBinary(
+  projectId: string,
+  fileId: string,
+  data: Uint8Array,
+  mimeType: string = 'application/pdf'
+): Promise<{ ok: boolean; error?: string }> {
+  // Convert Uint8Array to base64
+  let binary = '';
+  const bytes = data;
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const base64 = btoa(binary);
+
+  const result = await callDriveProxy(projectId, 'updateFileContent', {
+    fileId,
+    content: base64,
+    mimeType,
+    isBase64: true,
+  });
+  if (!result.ok) return { ok: false, error: result.error };
+  return { ok: true };
+}
+
 /** Update a DOCX file on Drive from HTML (server-side HTML→DOCX conversion). */
 export async function updateDriveDocx(
   projectId: string,
