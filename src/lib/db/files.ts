@@ -372,6 +372,18 @@ export async function syncPdfEdit(
   return { ok: true };
 }
 
+/** Sync CSV edit: export Google Sheet back as CSV, overwrite original, delete copy. */
+export async function syncCsvEdit(
+  projectId: string,
+  originalFileId: string,
+  googleSheetId: string
+): Promise<{ ok: boolean; content?: string; error?: string }> {
+  const result = await callDriveProxy(projectId, 'syncCsvEdit', { originalFileId, googleSheetId });
+  if (!result.ok) return { ok: false, error: result.error };
+  const { content } = result.data as { content?: string };
+  return { ok: true, content };
+}
+
 /** Update a binary file on Drive (e.g. modified PDF). */
 export async function updateDriveFileBinary(
   projectId: string,

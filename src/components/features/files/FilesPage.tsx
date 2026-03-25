@@ -26,6 +26,7 @@ import {
   linkFileToUnitData,
   upsertFilePermissions,
   upsertFolderPermissions,
+  moveDriveItem,
 } from '@/lib/db/files';
 import { getGoogleTokenStatus } from '@/lib/db/google-auth';
 import { getCategories } from '@/lib/db/unit-data';
@@ -109,7 +110,7 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
   const [showSetupModal, setShowSetupModal] = useState(false);
 
   // File tree (lazy-loading)
-  const { tree, loading: treeLoading, error: treeError, loadRoot, toggleFolder, refresh, ownerEmail } = useFileTree(selectedProjectId);
+  const { tree, loading: treeLoading, error: treeError, loadRoot, toggleFolder, reorderNode, refresh, ownerEmail } = useFileTree(selectedProjectId);
 
   // Selected file for viewer
   const [selectedFile, setSelectedFile] = useState<DriveItem | null>(null);
@@ -362,6 +363,14 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
       log(`Opened "${node.item.name}" preview`);
     }
   }, [log]);
+
+  const handleMoveItem = useCallback(async (fileId: string, fromFolderId: string, toFolderId: string) => {
+    if (!selectedProjectId || !driveConfig) return;
+    const ok = await moveDriveItem(selectedProjectId, fileId, fromFolderId, toFolderId);
+    if (ok) {
+      await refresh(driveConfig.root_folder_id);
+    }
+  }, [selectedProjectId, driveConfig, refresh]);
 
   // ── Permission toggles ────────────────────────────────────────────
 
@@ -1033,8 +1042,11 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
                     error={treeError}
                     selectedId={selectedFile?.id}
                     loadingId={loadingFolderId}
+                    rootFolderId={driveConfig?.root_folder_id}
                     onToggleFolder={handleToggleFolder}
                     onSelectFile={handleSelectFile}
+                    onMoveItem={handleMoveItem}
+                    onReorderItem={reorderNode}
                     showPermissions={showPermissions}
                     canManagePermissions={canManagePermissions}
                     folderPermissions={allPermissions}

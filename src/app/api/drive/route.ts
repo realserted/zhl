@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
   const READ_ACTIONS = ['listFolder', 'listFolderRecursive', 'getFileUrl', 'getFolderInfo',
     'getFileContent', 'getFileBinary', 'exportGoogleDoc', 'convertOfficeToPdf', 'getThumbnail'];
   // Write actions require owner/admin role
-  const WRITE_ACTIONS = ['createFolder', 'renameFile', 'moveFile', 'deleteFile', 'restoreFile', 'ensureArchive', 'uploadFile', 'updateFileContent', 'updateDocx', 'shareFile', 'importToGoogle', 'removePublicAccess', 'syncPdfEdit'];
+  const WRITE_ACTIONS = ['createFolder', 'renameFile', 'moveFile', 'deleteFile', 'restoreFile', 'ensureArchive', 'uploadFile', 'updateFileContent', 'updateDocx', 'shareFile', 'importToGoogle', 'removePublicAccess', 'syncPdfEdit', 'syncCsvEdit'];
 
   const isProjectOwner = project?.owner_id === userData.user.id;
   if (WRITE_ACTIONS.includes(action) && !isProjectOwner && !isSysAdmin) {
@@ -234,6 +234,8 @@ export async function POST(req: NextRequest) {
         return await handleRemovePublicAccess(headers, params);
       case 'syncPdfEdit':
         return await handleSyncPdfEdit(headers, params);
+      case 'syncCsvEdit':
+        return await handleSyncCsvEdit(headers, params);
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
     }
@@ -709,11 +711,11 @@ async function handleImportToGoogle(headers: Record<string, string>, params: Rec
     return NextResponse.json({ error: 'Unsupported file type for Google import.' }, { status: 400 });
   }
 
-  // For PDFs, use the original name (without extension) so the exported PDF metadata is clean.
+  // For PDFs/CSVs, use the original name (without extension) so exported metadata is clean.
   // For other file types, keep the "(Edit)" suffix for deduplication.
-  const isPdfImport = mimeType === 'application/pdf';
+  const useCleanName = mimeType === 'application/pdf' || mimeType === 'text/csv';
   const cleanName = fileName ? fileName.replace(/\.[^.]+$/, '') : fileId;
-  const editName = isPdfImport ? cleanName : (fileName ? `${fileName} (Edit)` : `${fileId} (Edit)`);
+  const editName = useCleanName ? cleanName : (fileName ? `${fileName} (Edit)` : `${fileId} (Edit)`);
   // Search key always uses "(Edit)" suffix so the listing filter can hide them
   const searchName = fileName ? `${fileName} (Edit)` : `${fileId} (Edit)`;
 
@@ -723,8 +725,8 @@ async function handleImportToGoogle(headers: Record<string, string>, params: Rec
     `name='${searchName.replace(/'/g, "\\'")}' and mimeType='${conversion.googleMime}' and trashed=false`
   );
 
-  // Also search by clean name for PDF copies
-  const existingClean = isPdfImport ? await driveList(
+  // Also search by clean name for PDF/CSV copies
+  const existingClean = useCleanName ? await driveList(
     headers,
     `name='${cleanName.replace(/'/g, "\\'")}' and mimeType='${conversion.googleMime}' and trashed=false`
   ) : [];
@@ -860,4 +862,51 @@ async function handleSyncPdfEdit(headers: Record<string, string>, params: Record
   // 4. Return the PDF content so the client doesn't need a second fetch
   const base64 = pdfBuffer.toString('base64');
   return NextResponse.json({ synced: true, base64, contentType: 'application/pdf' });
+}
+
+/**
+ * Sync a CSV edit: export the Google Sheet copy back as CSV,
+ * overwrite the original file, then delete the temp copy.
+ */
+async function handleSyncCsvEdit(headers: Record<string, string>, params: Record<string, unknown>) {
+  const originalFileId = params.originalFileId as string;
+  const googleSheetId = params.googleSheetId as string;
+
+  if (!originalFileId || !googleSheetId) {
+    return NextResponse.json({ error: 'Missing originalFileId or googleSheetId.' }, { status: 400 });
+  }
+
+  // 1. Export the Google Sheet as CSV
+  const exportUrl = `${DRIVE_API}/files/${googleSheetId}/export?mimeType=${encodeURIComponent('text/csv')}`;
+  const exportRes = await fetch(exportUrl, { headers });
+  if (!exportRes.ok) {
+    return NextResponse.json({ error: 'Failed to export edited sheet as CSV.' }, { status: exportRes.status });
+  }
+
+  const csvText = await exportRes.text();
+
+  // 2. Overwrite the original CSV with the new content
+  const updateRes = await fetch(
+    `https://www.googleapis.com/upload/drive/v3/files/${originalFileId}?uploadType=media`,
+    {
+      method: 'PATCH',
+      headers: {
+        ...headers,
+        'Content-Type': 'text/csv',
+      },
+      body: csvText,
+    },
+  );
+
+  if (!updateRes.ok) {
+    const err = await updateRes.json().catch(() => ({}));
+    console.error('Failed to update original CSV:', err);
+    return NextResponse.json({ error: 'Failed to save changes back to original CSV.' }, { status: updateRes.status });
+  }
+
+  // 3. Delete the temporary Google Sheet copy
+  await fetch(`${DRIVE_API}/files/${googleSheetId}`, { method: 'DELETE', headers }).catch(() => {});
+
+  // 4. Return the CSV content so the client can update the preview immediately
+  return NextResponse.json({ synced: true, content: csvText });
 }

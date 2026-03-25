@@ -8,11 +8,10 @@ import {
   getDriveFileBinary,
   getDriveFileArrayBuffer,
   importToGoogleFormat,
-  updateDriveFileContent,
   updateDriveDocx,
   syncPdfEdit,
+  syncCsvEdit,
 } from '@/lib/db/files';
-import { CsvEditor } from './CsvEditor';
 import { DocxEditor } from './DocxEditor';
 import type { DriveItem } from '@/lib/types/files';
 
@@ -84,10 +83,6 @@ function getGoogleEditorUrl(file: DriveItem, ownerEmail?: string | null): string
   return null;
 }
 
-function hasGoogleEditor(file: DriveItem): boolean {
-  return getGoogleEditorUrl(file) !== null || isCsv(file.mimeType, file.name) || isWordDoc(file.mimeType) || isOfficeSlideSheet(file.mimeType);
-}
-
 function formatBytes(bytes: number | null): string {
   if (!bytes) return '';
   if (bytes < 1024) return `${bytes} B`;
@@ -124,14 +119,24 @@ export function FileViewerPanel({ file, projectId, ownerEmail }: FileViewerPanel
   const [importedEditorUrl, setImportedEditorUrl] = useState<string | null>(null);
   const [docxHtml, setDocxHtml] = useState<string | null>(null);
   const [pdfEditDocId, setPdfEditDocId] = useState<string | null>(null);
+  const [csvEditSheetId, setCsvEditSheetId] = useState<string | null>(null);
   const blobUrlRef = useRef<string | null>(null);
+  // Refs for CSV auto-sync on navigate away
+  const csvSyncRef = useRef<{ projectId: string; fileId: string; sheetId: string } | null>(null);
 
   const cleanup = useCallback(() => {
+    // Auto-sync CSV edits back before navigating away
+    if (csvSyncRef.current) {
+      const { projectId: pid, fileId, sheetId } = csvSyncRef.current;
+      csvSyncRef.current = null;
+      syncCsvEdit(pid, fileId, sheetId).catch(() => {});
+    }
     setContent(null);
     setPreviewType(null);
     setImportedEditorUrl(null);
     setDocxHtml(null);
     setPdfEditDocId(null);
+    setCsvEditSheetId(null);
     if (blobUrlRef.current) {
       URL.revokeObjectURL(blobUrlRef.current);
       blobUrlRef.current = null;
@@ -212,11 +217,14 @@ export function FileViewerPanel({ file, projectId, ownerEmail }: FileViewerPanel
         return;
       }
 
-      // CSV files → inline CSV editor
+      // CSV files → import to Google Sheets for full spreadsheet editing
       if (isCsv(mime, f.name)) {
-        const text = await getDriveFileContent(projectId, f.id);
-        if (text) {
-          setContent(text);
+        const imported = await importToGoogleFormat(projectId, f.id, mime || 'text/csv', f.name);
+        if (imported) {
+          setImportedEditorUrl(imported.editorUrl);
+          setCsvEditSheetId(imported.googleFileId);
+          csvSyncRef.current = { projectId, fileId: f.id, sheetId: imported.googleFileId };
+          setEditMode(true);
           setPreviewType('csv');
         }
         return;
@@ -407,12 +415,6 @@ export function FileViewerPanel({ file, projectId, ownerEmail }: FileViewerPanel
             className="h-full w-full border-0"
             title={file.name}
             allow="autoplay"
-          />
-        ) : previewType === 'csv' && content && file ? (
-          /* Inline CSV editor */
-          <CsvEditor
-            initialContent={content}
-            onSave={async (csv) => updateDriveFileContent(projectId, file.id, csv, 'text/csv')}
           />
         ) : previewType === 'docx' && docxHtml !== null && file ? (
           /* Inline DOCX editor */
