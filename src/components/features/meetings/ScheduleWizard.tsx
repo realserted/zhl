@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase/client';
 import { CalendarEvent } from '@/lib/types/calendar-event';
 import {
   createCalendarEvent, updateCalendarEvent, deleteCalendarEvent,
-  addMeetingAttendees, getMeetingAttendees,
+  addMeetingAttendees, getMeetingAttendees, removeAllMeetingAttendees,
 } from '@/lib/db/calendar-events';
 import { createNotification } from '@/lib/db/notifications';
 import {
@@ -298,8 +298,16 @@ export function ScheduleWizard({
         onEventCreated(ev);
       }
 
+      // Sync attendees: clear old ones (if editing) then insert current list
+      if (editEvent) {
+        await removeAllMeetingAttendees(eventId);
+      }
+
       if (attendees.length > 0) {
-        await addMeetingAttendees(eventId, attendees);
+        const savedAttendees = await addMeetingAttendees(eventId, attendees);
+        if (savedAttendees.length === 0) {
+          console.error('Failed to save meeting attendees — check DB/RLS policies');
+        }
 
         // Notify each project-member attendee (skip guests who have no user_id)
         for (const a of attendees) {
@@ -515,7 +523,7 @@ export function ScheduleWizard({
             </div>
           )}
 
-          <StepNav onBack={() => setStep('details')} onNext={() => setStep('datetime')} nextLabel="Next: Date & Time" />
+          <StepNav onBack={() => setStep('details')} onNext={() => { addGuest(); setStep('datetime'); }} nextLabel="Next: Date & Time" />
         </div>
       )}
 
