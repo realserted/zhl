@@ -357,9 +357,18 @@ export async function syncPdfEdit(
   projectId: string,
   originalFileId: string,
   googleDocId: string
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; blobUrl?: string; error?: string }> {
   const result = await callDriveProxy(projectId, 'syncPdfEdit', { originalFileId, googleDocId });
   if (!result.ok) return { ok: false, error: result.error };
+
+  // Build blob URL from the returned PDF data to avoid a second fetch
+  const { base64, contentType } = result.data as { base64?: string; contentType?: string };
+  if (base64) {
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const blob = new Blob([bytes], { type: contentType || 'application/pdf' });
+    return { ok: true, blobUrl: URL.createObjectURL(blob) };
+  }
+
   return { ok: true };
 }
 

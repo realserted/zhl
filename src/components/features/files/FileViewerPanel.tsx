@@ -296,11 +296,10 @@ export function FileViewerPanel({ file, projectId, ownerEmail }: FileViewerPanel
                   // Then sync edits back: export Google Doc as PDF → overwrite original → delete copy
                   if (docId) {
                     setLoading(true);
-                    await syncPdfEdit(projectId, file.id, docId);
+                    const result = await syncPdfEdit(projectId, file.id, docId);
                     setPdfEditDocId(null);
-                    // Re-fetch the updated PDF for preview
-                    const result = await getDriveFileBinary(projectId, file.id);
-                    if (result) {
+                    // Use the PDF returned by syncPdfEdit directly (no second fetch needed)
+                    if (result.blobUrl) {
                       if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
                       blobUrlRef.current = result.blobUrl;
                       setBlobUrl(result.blobUrl);

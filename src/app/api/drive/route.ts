@@ -709,19 +709,33 @@ async function handleImportToGoogle(headers: Record<string, string>, params: Rec
     return NextResponse.json({ error: 'Unsupported file type for Google import.' }, { status: 400 });
   }
 
-  const editName = fileName ? `${fileName} (Edit)` : `${fileId} (Edit)`;
+  // For PDFs, use the original name (without extension) so the exported PDF metadata is clean.
+  // For other file types, keep the "(Edit)" suffix for deduplication.
+  const isPdfImport = mimeType === 'application/pdf';
+  const cleanName = fileName ? fileName.replace(/\.[^.]+$/, '') : fileId;
+  const editName = isPdfImport ? cleanName : (fileName ? `${fileName} (Edit)` : `${fileId} (Edit)`);
+  // Search key always uses "(Edit)" suffix so the listing filter can hide them
+  const searchName = fileName ? `${fileName} (Edit)` : `${fileId} (Edit)`;
 
   // Check if an "(Edit)" copy already exists (to avoid duplicates)
   const existingFiles = await driveList(
     headers,
-    `name='${editName.replace(/'/g, "\\'")}' and mimeType='${conversion.googleMime}' and trashed=false`
+    `name='${searchName.replace(/'/g, "\\'")}' and mimeType='${conversion.googleMime}' and trashed=false`
   );
+
+  // Also search by clean name for PDF copies
+  const existingClean = isPdfImport ? await driveList(
+    headers,
+    `name='${cleanName.replace(/'/g, "\\'")}' and mimeType='${conversion.googleMime}' and trashed=false`
+  ) : [];
 
   let copied: { id: string };
 
   if (existingFiles.length > 0) {
     // Reuse existing copy
     copied = { id: existingFiles[0].id as string };
+  } else if (existingClean.length > 0) {
+    copied = { id: existingClean[0].id as string };
   } else {
     // Create a new copy as Google native format (owned by the same account)
     const copyRes = await fetch(`${DRIVE_API}/files/${fileId}/copy`, {
@@ -807,7 +821,6 @@ td, th { border: 1px solid #ccc; padding: 6px 10px; }
 async function handleSyncPdfEdit(headers: Record<string, string>, params: Record<string, unknown>) {
   const originalFileId = params.originalFileId as string;
   const googleDocId = params.googleDocId as string;
-
   if (!originalFileId || !googleDocId) {
     return NextResponse.json({ error: 'Missing originalFileId or googleDocId.' }, { status: 400 });
   }
@@ -844,5 +857,7 @@ async function handleSyncPdfEdit(headers: Record<string, string>, params: Record
   // 3. Delete the temporary Google Doc copy
   await fetch(`${DRIVE_API}/files/${googleDocId}`, { method: 'DELETE', headers }).catch(() => {});
 
-  return NextResponse.json({ synced: true });
+  // 4. Return the PDF content so the client doesn't need a second fetch
+  const base64 = pdfBuffer.toString('base64');
+  return NextResponse.json({ synced: true, base64, contentType: 'application/pdf' });
 }
