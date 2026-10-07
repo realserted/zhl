@@ -2,7 +2,10 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { Bell, Loader2 } from 'lucide-react';
+import NavLogo from './NavLogo';
+import NavActions from './NavActions';
+import { ThemeToggle } from './ThemeToggle';
+import { ArrowLeft, ChevronDown, Bell, Loader2 } from 'lucide-react';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { Project } from '@/lib/types/project';
@@ -36,8 +39,10 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
   const rawTab = pathname === '/' ? 'overview' : pathname.replace(/^\//, '');
   // For nested routes like /financial/overview, extract the top-level tab
   const activeTab = rawTab.includes('/') ? rawTab.split('/')[0] : rawTab;
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [displayName, setDisplayName] = useState<string>('');
+  const projectDropdownRef = useRef<HTMLDivElement>(null);
 
   // Tasker alert counts for the TASKERS badge
   const [taskerAlerts, setTaskerAlerts] = useState({ dueSoon: 0, overdue: 0, issues: 0, help: 0 });
@@ -61,6 +66,21 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
         setDisplayName(data?.display_name ?? '');
       });
   }, [user]);
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        projectDropdownRef.current &&
+        !projectDropdownRef.current.contains(event.target as Node)
+      ) {
+        if (openDropdown === 'project') setOpenDropdown(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [openDropdown]);
 
   // Poll unread count every 30s
   useEffect(() => {
@@ -186,27 +206,23 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
   const allTabs = [
     { id: 'overview',   label: 'OVERVIEW',              permKey: null },
     { id: 'taskers',    label: 'TASKERS',               permKey: 'perm_taskers',   badge: taskerBadge },
-    { id: 'unitdata',   label: 'UNIT DATA',             permKey: 'perm_unit_data' },
+    { id: 'unitdata',   label: 'UNIT DATA',             permKey: 'perm_unit_data', badge: '2 Issues' },
     { id: 'files',      label: 'FILES',                 permKey: 'perm_files' },
     ...(isAdmin || selectedProject?.owner_id === user?.id ? [{ id: 'accounts', label: 'ACCOUNTS', permKey: null }] : []),
-    { id: 'financial',  label: 'FINANCIAL',             permKey: 'perm_reports' },
-    { id: 'templates',  label: 'PROCEDURES & TEMPLATES', permKey: 'perm_templates' },
+    { id: 'financial',  label: 'FINANCIAL',             permKey: 'perm_reports',   badge: '2 Issues' },
+    { id: 'templates',  label: 'TEMPLATES',             permKey: 'perm_templates' },
     { id: 'meetings',   label: 'MEETINGS & AVAILABILITY', permKey: 'perm_meetings' },
     { id: 'issues',     label: 'TENANT ISSUES',         permKey: null },
-    ...(isAdmin || selectedProject?.owner_id === user?.id ? [{ id: 'logs', label: 'USER LOGS', permKey: null }] : []),
+    { id: 'logs',       label: 'USER LOGS',             permKey: 'perm_user_logs' },
     ...(isAdmin ? [{ id: 'admin', label: 'ADMIN PANEL', permKey: null }] : []),
     { id: 'settings',   label: 'SETTINGS',              permKey: null },
   ];
 
   // Admins and project owners see all tabs; members are filtered by their permission row
   const HIDDEN_PERM_VALUES = new Set(["View / Don't view", 'None', '']);
-  const isAccountant = userPermission?.project_role?.includes('Accountant') ?? false;
-  const ACCOUNTANT_TABS = new Set(['overview', 'financial', 'settings']);
   const tabs = (isAdmin || !userPermission)
     ? allTabs
     : allTabs.filter((tab) => {
-        // Accountants can only see financial-related tabs
-        if (isAccountant) return ACCOUNTANT_TABS.has(tab.id);
         if (!tab.permKey) return true; // always show non-permission tabs
         const val = (userPermission as unknown as Record<string, string>)[tab.permKey];
         return val && !HIDDEN_PERM_VALUES.has(val);
@@ -226,25 +242,87 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
 
   return (
     <nav className="sticky top-0 z-50 w-full bg-background border-b border-border dark:border-border">
-      {/* Top Navigation Bar */}
-      <div className="flex items-center justify-end px-3 sm:px-6 py-2 sm:py-3">
-        {/* Right Section: User Profile, Theme Toggle, Notifications */}
-        <div className="flex items-center gap-3 sm:gap-4">
-          {/* User Profile */}
-          {user && (
-            <div className="hidden sm:flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-primary text-accent-foreground flex items-center justify-center text-sm font-semibold shrink-0">
-                {(user.user_metadata?.display_name || user.email?.split('@')[0] || 'U').charAt(0).toUpperCase()}
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground truncate max-w-[150px]">
-                  {user.user_metadata?.display_name || user.email?.split('@')[0] || 'User'}
-                </p>
-                <p className="text-xs text-muted-foreground truncate max-w-[150px]">{user.email}</p>
-              </div>
-            </div>
-          )}
+      {/* Back Button */}
+      <div className="px-3 sm:px-6 py-2 border-b border-border">
+        <a
+          href="https://presaling.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 text-xs sm:text-sm font-semibold text-foreground hover:text-accent transition-colors"
+        >
+          <ArrowLeft className="h-3 w-3 sm:h-4 sm:w-4" />
+          <span className="hidden sm:inline">Back to PRESALING</span>
+          <span className="sm:hidden">Back</span>
+        </a>
+      </div>
 
+      {/* Top Navigation Bar */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-border gap-3 sm:gap-0">
+        {/* <div className="flex items-center gap-2">
+          <NavLogo />
+        </div> */}
+
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-8 w-full sm:w-auto">
+          {/* Project and Projects Dropdowns */}
+          <div className="flex gap-4 sm:gap-8 items-center">
+            {/* Project Label */}
+            <span className="text-xs sm:text-sm font-semibold text-foreground whitespace-nowrap">Project</span>
+
+            {/* Projects Dropdown */}
+            <div className="relative" ref={projectDropdownRef}>
+              <Button
+                variant="ghost"
+                onClick={() =>
+                  setOpenDropdown(openDropdown === 'project' ? null : 'project')
+                }
+                className="text-xs sm:text-sm font-semibold text-foreground hover:text-accent transition-colors flex items-center gap-2 h-auto py-1 px-2 shadow-none"
+              >
+                {selectedProject?.name ?? 'Select Project'}
+                <ChevronDown
+                  className={`h-3 w-3 sm:h-4 sm:w-4 transition-transform ${
+                    openDropdown === 'project' ? 'rotate-180' : ''
+                  }`}
+                />
+              </Button>
+              {openDropdown === 'project' && (
+                <div className="absolute top-full left-0 mt-2 w-32 sm:w-48 bg-background border border-input rounded-lg shadow-lg z-50">
+                  {projects.length === 0 ? (
+                    <div className="px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-muted-foreground">
+                      No projects yet
+                    </div>
+                  ) : (
+                    projects.map((project) => (
+                      <Button
+                        key={project.id}
+                        variant="ghost"
+                        onClick={() => {
+                          onProjectChange(project);
+                          setOpenDropdown(null);
+                        }}
+                        className={`w-full justify-start rounded-none px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm hover:bg-muted transition-colors h-auto shadow-none ${
+                          selectedProject?.id === project.id
+                            ? 'bg-muted font-semibold text-accent'
+                            : ''
+                        }`}
+                      >
+                        {project.name}
+                      </Button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Status and Actions */}
+          <div className="hidden sm:block">
+            <NavActions projectStatus={selectedProject?.status} />
+          </div>
+        </div>
+
+        {/* Right Section: Notifications and Theme Toggle */}
+        <div className="flex items-center gap-2 sm:gap-4 ml-auto sm:ml-0">
+          {/* Notification Bell */}
           <div className="relative" ref={notifDropdownRef}>
             <Button
               variant="ghost"
@@ -320,6 +398,8 @@ export default function Navbar({ projects, selectedProject, onProjectChange, use
               </div>
             )}
           </div>
+
+          <ThemeToggle />
         </div>
       </div>
 

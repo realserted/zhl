@@ -285,11 +285,6 @@ export async function createTxCategory(projectId: string, name: string, icon: st
   return data;
 }
 
-export async function updateTxCategoryType(id: string, categoryType: 'expense' | 'income'): Promise<boolean> {
-  const { error } = await supabase.from('zhl_financial_tx_categories').update({ category_type: categoryType }).eq('id', id);
-  return !error;
-}
-
 export async function getTransactions(projectId: string): Promise<FinancialTransaction[]> {
   const { data } = await supabase.from('zhl_financial_transactions').select('*').eq('project_id', projectId).order('date', { ascending: false });
   return data ?? [];
@@ -427,30 +422,6 @@ export async function deleteUploadSheet(sheetId: string): Promise<boolean> {
 export async function updateSheetColumnHeaders(sheetId: string, headers: string[]): Promise<boolean> {
   const { error } = await supabase.from('zhl_financial_upload_sheets').update({ column_headers: headers }).eq('id', sheetId);
   return !error;
-}
-
-/** Remove a column from a sheet: delete header + strip the key from every transaction's raw_data. */
-export async function deleteSheetColumn(sheetId: string, columnName: string, newHeaders: string[]): Promise<boolean> {
-  // 1. Update headers
-  const { error: hErr } = await supabase.from('zhl_financial_upload_sheets').update({ column_headers: newHeaders }).eq('id', sheetId);
-  if (hErr) return false;
-  // 2. Fetch transactions for this sheet that have raw_data containing the column
-  const { data: txs, error: fErr } = await supabase
-    .from('zhl_financial_transactions')
-    .select('id, raw_data')
-    .eq('sheet_id', sheetId)
-    .not('raw_data', 'is', null);
-  if (fErr || !txs) return !hErr;
-  // 3. Strip the key from each transaction's raw_data
-  const updates = txs
-    .filter((tx) => tx.raw_data && typeof tx.raw_data === 'object' && columnName in (tx.raw_data as Record<string, unknown>))
-    .map((tx) => {
-      const cleaned = { ...(tx.raw_data as Record<string, unknown>) };
-      delete cleaned[columnName];
-      return supabase.from('zhl_financial_transactions').update({ raw_data: cleaned }).eq('id', tx.id);
-    });
-  await Promise.all(updates);
-  return true;
 }
 
 // ── Debt Schedule helpers ─────────────────────────────────────

@@ -18,11 +18,6 @@ export interface ProjectSettings {
   // AI prompts
   tasker_name_ai_prompt: string;
   status_ai_prompt: string;
-  // Integrations
-  google_calendar_id: string;
-  default_meeting_location: string;
-  // General
-  timezone: string;
 }
 
 export type ProjectSettingsUpdate = Partial<Omit<ProjectSettings, 'id' | 'project_id'>>;
@@ -41,9 +36,6 @@ export const DEFAULT_PROJECT_SETTINGS: Omit<ProjectSettings, 'id' | 'project_id'
   allow_user_customization:          false,
   tasker_name_ai_prompt:             '',
   status_ai_prompt:                  '',
-  google_calendar_id:                '',
-  default_meeting_location:          '',
-  timezone:                          '',
 };
 
 export async function getProjectSettings(projectId: string): Promise<ProjectSettings> {

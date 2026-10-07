@@ -1,60 +1,53 @@
 'use client';
 
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import {
-  ChevronDown, ChevronRight, Folder, Plus, Loader2, ShieldCheck, FileText, Pencil,
-  Link as LinkIcon, RefreshCw, ExternalLink, Settings, Archive, RotateCcw, Trash2, HardDrive, Upload,
-} from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, FolderUp, Plus, Loader2, Download, DatabaseBackup, ShieldCheck, FileText, Upload, Trash2, Pencil, AlertTriangle, X, Link as LinkIcon } from 'lucide-react';
 import { ProjectPermission } from '@/lib/types/project';
 import { useAuth } from '@/lib/auth-context';
 import {
+  createBackupRequest,
   createCustomField,
-  getDriveConfig,
-  createDriveFolder,
-  renameDriveItem,
-  archiveDriveItem,
-  restoreDriveItem,
-  ensureArchiveFolder,
-  updateDriveConfigArchiveId,
-  listDriveFolderDirect,
-  uploadFileToDrive,
+  createFileFolder,
+  deleteFile,
+  deleteFolder,
+  downloadFileUrl,
   getAllFilePermissions,
   getAllFolderPermissions,
+  getBackupRequests,
+  getBackups,
   getCustomFields,
+  getFileFolders,
+  getFilesForProject,
+  getMonthlyDownloadLog,
+  logDownloadAll,
   getLinkedUnitDataMap,
   linkFileToUnitData,
+  renameFile,
+  renameFolder,
+  uploadFile,
   upsertFilePermissions,
   upsertFolderPermissions,
-  moveDriveItem,
 } from '@/lib/db/files';
-import { getGoogleTokenStatus } from '@/lib/db/google-auth';
 import { getCategories } from '@/lib/db/unit-data';
 import type { CategoryWithFields } from '@/lib/types/unit-data';
 import {
+  ProjectFileBackup,
+  ProjectFileBackupRequest,
   ProjectFileCustomField,
+  ProjectFileFolder,
   ProjectFileFolderPermissions,
+  ProjectFileItem,
   ProjectFileItemPermissions,
-  ProjectDriveConfig,
-  DriveItem,
-  FileTreeNode,
 } from '@/lib/types/files';
-import { usePermission } from '@/lib/hooks/usePermission';
-import { useUserLogger } from '@/lib/hooks/useUserLogger';
+import { supabase } from '@/lib/supabase/client';
+import { logUserAction } from '@/lib/db/user-logs';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
-import DriveSetupModal from './DriveSetupModal';
-import GoogleConnectBanner from './GoogleConnectBanner';
-import { useFileTree } from './useFileTree';
-import { FileTreePanel } from './FileTreePanel';
-import { FileViewerPanel } from './FileViewerPanel';
-import { StorageBreakdown } from './StorageBreakdown';
 
 interface FilesPageProps {
   selectedProjectId: string | null;
   userPermission?: ProjectPermission | null;
-  projectOwnerId?: string | null;
-  isAdmin?: boolean;
 }
 
 type PermissionKey =
@@ -74,22 +67,31 @@ const permissionColumns: Array<{ key: PermissionKey; label: string }> = [
   { key: 'link_enabled', label: 'Link' },
 ];
 
-export default function FilesPage({ selectedProjectId, userPermission, projectOwnerId, isAdmin }: FilesPageProps) {
+function monthStartIso(date: Date): string {
+  return new Date(date.getFullYear(), date.getMonth(), 1).toISOString();
+}
+
+function nextMonthLabel(date: Date): string {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 1).toLocaleDateString();
+}
+
+export default function FilesPage({ selectedProjectId, userPermission }: FilesPageProps) {
   const { user } = useAuth();
   const searchParams = useSearchParams();
 
-  const { canEdit } = usePermission(userPermission, 'perm_files');
-  const isOwner = !!(user && projectOwnerId && user.id === projectOwnerId);
-  const isOwnerOrAdmin = isOwner || !!isAdmin;
-  const canManagePermissions = isOwnerOrAdmin;
+  const permLevel = userPermission?.perm_files ?? 'Admin';
+  const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
+  const canManagePermissions = !userPermission || (userPermission.project_role?.includes('Project Manager') ?? false);
 
+  /** Check if the current user can access a file/folder based on its permission entry */
   const hasFileAccess = useCallback(
     (permEntry: ProjectFileFolderPermissions | ProjectFileItemPermissions | undefined): boolean => {
-      // Owners/admins are already handled by filterTreeByAccess — this only runs for regular members.
-      // Deny by default: files are hidden unless the owner explicitly grants access via checkboxes.
-      if (!permEntry) return false;
+      // Owner / admin always has access (userPermission is null for owners)
+      if (!userPermission) return true;
+      // No permission row = default open (everyone can access)
+      if (!permEntry) return true;
+      // Check permission flags against user's project_role
       if (permEntry.allow_all_users) return true;
-      if (!userPermission) return false;
       const role = userPermission.project_role || '';
       if (permEntry.allow_project_manager && role.includes('Project Manager')) return true;
       if (permEntry.allow_property_manager && role.includes('Property Manager')) return true;
@@ -99,68 +101,24 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
     [userPermission],
   );
 
-  const { log } = useUserLogger(selectedProjectId);
+  const displayNameRef = useRef('Unknown');
+  const userEmailRef = useRef('');
 
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Drive state
-  const [driveConfig, setDriveConfig] = useState<ProjectDriveConfig | null>(null);
-  const [googleConnected, setGoogleConnected] = useState(false);
-  const [googleEmail, setGoogleEmail] = useState<string | null>(null);
-  const [showSetupModal, setShowSetupModal] = useState(false);
+  const [folders, setFolders] = useState<ProjectFileFolder[]>([]);
+  const [files, setFiles] = useState<ProjectFileItem[]>([]);
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
-  // File tree (lazy-loading)
-  const { tree, loading: treeLoading, error: treeError, loadRoot, toggleFolder, reorderNode, refresh, ownerEmail } = useFileTree(selectedProjectId);
-
-  // Selected file for viewer
-  const [selectedFile, setSelectedFile] = useState<DriveItem | null>(null);
-  const [loadingFolderId, setLoadingFolderId] = useState<string | undefined>();
-
-  // Sidebar panel width + resize
-  const [treeWidth, setTreeWidth] = useState(320);
-  const [isResizing, setIsResizing] = useState(false);
-
-  // Permissions
-  const [showPermissions, setShowPermissions] = useState(false);
+  const [showPermissions, setShowPermissions] = useState(true);
   const [allPermissions, setAllPermissions] = useState<Map<string, ProjectFileFolderPermissions>>(new Map());
   const [allFilePermissions, setAllFilePermissions] = useState<Map<string, ProjectFileItemPermissions>>(new Map());
   const [savingPermission, setSavingPermission] = useState<string | null>(null);
 
-  // Filter tree to only show items the current user has access to.
-  // Owners/admins always see everything so they can manage permissions.
-  const filterTreeByAccess = useCallback(
-    (nodes: FileTreeNode[]): FileTreeNode[] => {
-      if (isOwnerOrAdmin) return nodes;
-      return nodes.reduce<FileTreeNode[]>((acc, node) => {
-        const isFolder = node.item.mimeType === 'application/vnd.google-apps.folder';
-        const permEntry = isFolder
-          ? allPermissions.get(node.item.id)
-          : allFilePermissions.get(node.item.id);
-
-        if (isFolder) {
-          const filteredChildren = filterTreeByAccess(node.children);
-          // Show folder if user has access OR if any accessible children exist
-          if (hasFileAccess(permEntry) || filteredChildren.length > 0) {
-            acc.push({ ...node, children: filteredChildren });
-          }
-        } else {
-          if (hasFileAccess(permEntry)) {
-            acc.push(node);
-          }
-        }
-        return acc;
-      }, []);
-    },
-    [isOwnerOrAdmin, allPermissions, allFilePermissions, hasFileAccess],
-  );
-
-  const accessFilteredTree = useMemo(
-    () => filterTreeByAccess(tree),
-    [tree, filterTreeByAccess],
-  );
-
-  // Custom fields
   const [customFields, setCustomFields] = useState<ProjectFileCustomField[]>([]);
+
   const [showAddCustomField, setShowAddCustomField] = useState(false);
   const [newCustomFieldName, setNewCustomFieldName] = useState('');
   const [newCustomFieldTarget, setNewCustomFieldTarget] = useState<'folder' | 'file'>('file');
@@ -168,41 +126,48 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
   const [newCustomFieldIgnoreDays, setNewCustomFieldIgnoreDays] = useState('90');
   const [newCustomFieldRequired, setNewCustomFieldRequired] = useState(true);
 
+  const [downloadingAll, setDownloadingAll] = useState(false);
+  const [monthlyDownloadsCount, setMonthlyDownloadsCount] = useState(0);
+
+  const [backups, setBackups] = useState<ProjectFileBackup[]>([]);
+  const [backupRequests, setBackupRequests] = useState<ProjectFileBackupRequest[]>([]);
+  const [showBackupRequest, setShowBackupRequest] = useState(false);
+  const [backupReason, setBackupReason] = useState('Need a restoration point for audit review.');
+
   const [notice, setNotice] = useState<string | null>(null);
 
-  // Rename
-  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadTargetFolderId, setUploadTargetFolderId] = useState<string | null>(null);
+  const [uploadFolderTargetId, setUploadFolderTargetId] = useState<string | null>(null); // parent folder for subfolder uploads
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const subfolderInputRef = useRef<HTMLInputElement>(null);
+
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
+  const [renamingFileId, setRenamingFileId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
-  // Archive / folder creation
-  const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
-  const [showNewFolderInput, setShowNewFolderInput] = useState(false);
-  const [newFolderName, setNewFolderName] = useState('');
-
-  // Storage view
-  const [showStorage, setShowStorage] = useState(false);
-
-  // Archive viewer
-  const [showArchive, setShowArchive] = useState(false);
-  const [archiveItems, setArchiveItems] = useState<DriveItem[]>([]);
-  const [archiveLoading, setArchiveLoading] = useState(false);
-  const [restoringId, setRestoringId] = useState<string | null>(null);
-
-  // File upload
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState('');
+  const [confirmDeleteFolder, setConfirmDeleteFolder] = useState<string | null>(null);
 
   // Unit linking state
   const [showLinkModal, setShowLinkModal] = useState(false);
-  const [pendingLinkFiles, setPendingLinkFiles] = useState<Array<{ name: string; driveId: string }>>([]);
+  const [pendingLinkFiles, setPendingLinkFiles] = useState<Array<{ name: string; storagePath: string }>>([]); // generic: works for new uploads + existing files/folders
   const [unitCategories, setUnitCategories] = useState<CategoryWithFields[]>([]);
   const [unitDataLoaded, setUnitDataLoaded] = useState(false);
-  const [linkSelections, setLinkSelections] = useState<Map<number, { type: 'field' | 'category'; id: string }>>(new Map());
+  const [linkSelections, setLinkSelections] = useState<Map<number, { type: 'field' | 'category'; id: string }>>(new Map()); // index -> target
   const [linkingInProgress, setLinkingInProgress] = useState(false);
   const [linkedMap, setLinkedMap] = useState<Map<string, { type: 'field' | 'category'; name: string; parentName?: string }>>(new Map());
 
-  // ── Unit linking handlers ─────────────────────────────────────────
+  const log = (action: string) => {
+    if (!user || !selectedProjectId) return;
+    logUserAction({
+      projectId: selectedProjectId,
+      userId: user.id,
+      userName: displayNameRef.current,
+      userEmail: userEmailRef.current,
+      action,
+    });
+  };
 
   const loadUnitDataForLinking = async () => {
     if (unitDataLoaded || !selectedProjectId) return;
@@ -218,7 +183,7 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
       if (!target.id) continue;
       const item = pendingLinkFiles[idx];
       if (!item) continue;
-      const ok = await linkFileToUnitData(target.type, target.id, item.name, item.driveId);
+      const ok = await linkFileToUnitData(target.type, target.id, item.name, item.storagePath);
       if (ok) linked++;
     }
     setLinkingInProgress(false);
@@ -230,71 +195,60 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
     }
   };
 
-  const openLinkModal = (items: Array<{ name: string; driveId: string }>) => {
+  const openLinkModal = (items: Array<{ name: string; storagePath: string }>) => {
     setPendingLinkFiles(items);
     setLinkSelections(new Map());
     setShowLinkModal(true);
     loadUnitDataForLinking();
   };
 
-  // ── Google connection ─────────────────────────────────────────────
-
-  const checkGoogleStatus = useCallback(async () => {
-    const status = await getGoogleTokenStatus(selectedProjectId);
-    setGoogleConnected(status.connected);
-    setGoogleEmail(status.google_email);
-  }, [selectedProjectId]);
-
-  useEffect(() => { checkGoogleStatus(); }, [checkGoogleStatus]);
-
   useEffect(() => {
-    const authStatus = searchParams.get('google_auth');
-    if (authStatus === 'success') {
-      setNotice('Google Drive connected successfully!');
-      checkGoogleStatus();
-    } else if (authStatus === 'finalize') {
-      const data = searchParams.get('data');
-      if (data) {
-        (async () => {
-          const { finalizeGoogleAuth } = await import('@/lib/db/google-auth');
-          const ok = await finalizeGoogleAuth(data);
-          if (ok) {
-            setNotice('Google Drive connected successfully!');
-            checkGoogleStatus();
-          } else {
-            setNotice('Google Drive connection failed: could not finalize authentication.');
-          }
-        })();
-      }
-    } else if (authStatus === 'error') {
-      const reason = searchParams.get('reason') || 'unknown';
-      setNotice(`Google Drive connection failed: ${reason}`);
-    }
-  }, [searchParams, checkGoogleStatus]);
-
-  // ── Load config + permissions + tree ──────────────────────────────
+    if (!user) return;
+    userEmailRef.current = user.email || '';
+    supabase
+      .from('zhl_accounts')
+      .select('display_name, is_admin')
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        displayNameRef.current = data?.display_name || user.email || 'Unknown';
+        setIsAdmin(data?.is_admin === true);
+      });
+  }, [user]);
 
   useEffect(() => {
     if (!selectedProjectId) {
-      setDriveConfig(null);
+      setFolders([]);
+      setFiles([]);
       return;
     }
 
+    // Reset cached unit data on project change
     setUnitDataLoaded(false);
     setUnitCategories([]);
-    setSelectedFile(null);
 
     const load = async () => {
       setLoading(true);
-      const [config, fieldData, permData, filePermData] = await Promise.all([
-        getDriveConfig(selectedProjectId),
+      const [folderData, fileData, fieldData, backupData, backupRequestData, monthLogs, permData, filePermData] = await Promise.all([
+        getFileFolders(selectedProjectId),
+        getFilesForProject(selectedProjectId),
         getCustomFields(selectedProjectId),
+        getBackups(selectedProjectId),
+        getBackupRequests(selectedProjectId),
+        getMonthlyDownloadLog(selectedProjectId, monthStartIso(new Date())),
         getAllFolderPermissions(selectedProjectId),
         getAllFilePermissions(selectedProjectId),
       ]);
 
-      setDriveConfig(config);
+      setFolders(folderData);
+      setFiles(fileData);
       setCustomFields(fieldData);
+      setBackups(backupData);
+      setBackupRequests(backupRequestData);
+      setMonthlyDownloadsCount(monthLogs.length);
+
+      // Start all folders collapsed — user clicks to expand
+      setCollapsedFolders(new Set(folderData.map((f) => f.id)));
 
       const permMap = new Map<string, ProjectFileFolderPermissions>();
       permData.forEach((p) => permMap.set(p.folder_id, p));
@@ -304,100 +258,160 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
       filePermData.forEach((p) => filePermMap.set(p.file_id, p));
       setAllFilePermissions(filePermMap);
 
+      // Load linked unit data map
       getLinkedUnitDataMap(selectedProjectId).then(setLinkedMap);
-
-      // Load file tree (lazy — only root level)
-      if (config && googleConnected) {
-        await loadRoot(config.root_folder_id);
-      }
 
       setLoading(false);
     };
 
     load();
-  }, [selectedProjectId, googleConnected, loadRoot]);
+  }, [selectedProjectId]);
 
-  // ── Refresh ───────────────────────────────────────────────────────
-
-  const handleRefresh = async () => {
-    if (!selectedProjectId || !driveConfig || !googleConnected) return;
-    setNotice(null);
-    try {
-      await refresh(driveConfig.root_folder_id);
-      setNotice('Refreshed file tree from Google Drive.');
-      log('Refreshed file tree from Google Drive');
-    } catch {
-      setNotice('Failed to sync from Google Drive.');
-    }
-  };
-
-  // ── Tree interaction handlers ─────────────────────────────────────
-
-  const handleToggleFolder = useCallback(async (nodeId: string) => {
-    setLoadingFolderId(nodeId);
-    // Find the folder node and select/deselect it
-    const findNode = (nodes: FileTreeNode[]): FileTreeNode | null => {
-      for (const n of nodes) {
-        if (n.item.id === nodeId) return n;
-        const found = findNode(n.children);
-        if (found) return found;
-      }
-      return null;
+  // Listen for file uploads from AddFilesModal (or other sources) and refresh
+  useEffect(() => {
+    const refresh = () => {
+      if (!selectedProjectId) return;
+      Promise.all([
+        getFileFolders(selectedProjectId),
+        getFilesForProject(selectedProjectId),
+      ]).then(([folderData, fileData]) => {
+        setFolders(folderData);
+        setFiles(fileData);
+      });
     };
-    const node = findNode(tree);
-    if (node) {
-      // If clicking the same folder, deselect it (back to root)
-      if (selectedFile?.id === nodeId) {
-        setSelectedFile(null);
-      } else {
-        setSelectedFile(node.item);
+    window.addEventListener('files-updated', refresh);
+    return () => window.removeEventListener('files-updated', refresh);
+  }, [selectedProjectId]);
+
+  const folderChildrenMap = useMemo(() => {
+    const map = new Map<string | null, ProjectFileFolder[]>();
+    folders.forEach((folder) => {
+      const key = folder.parent_folder_id;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)?.push(folder);
+    });
+    return map;
+  }, [folders]);
+
+  const filesInFolderMap = useMemo(() => {
+    const map = new Map<string, ProjectFileItem[]>();
+    files.forEach((file) => {
+      if (!file.folder_id) return;
+      if (!map.has(file.folder_id)) map.set(file.folder_id, []);
+      map.get(file.folder_id)?.push(file);
+    });
+    return map;
+  }, [files]);
+
+  const hasRequiredFolderFields = useMemo(() => {
+    return customFields.some((f) => f.required && f.target_type === 'folder');
+  }, [customFields]);
+
+  // ── Auto-expand & highlight linked file/folder from URL param ────
+  const highlightProcessed = useRef(false);
+  useEffect(() => {
+    const highlightParam = searchParams.get('highlight');
+    if (!highlightParam || folders.length === 0 || highlightProcessed.current) return;
+    highlightProcessed.current = true;
+
+    // Build a folder lookup by ID for walking up the parent chain
+    const folderById = new Map(folders.map((f) => [f.id, f]));
+
+    const expandParentChain = (folderId: string | null) => {
+      const toExpand: string[] = [];
+      let current = folderId;
+      while (current) {
+        toExpand.push(current);
+        current = folderById.get(current)?.parent_folder_id ?? null;
+      }
+      if (toExpand.length > 0) {
+        setCollapsedFolders((prev) => {
+          const next = new Set(prev);
+          toExpand.forEach((id) => next.delete(id));
+          return next;
+        });
+      }
+    };
+
+    // Check if highlight is a folder reference (folder:{id})
+    if (highlightParam.startsWith('folder:')) {
+      const folderId = highlightParam.slice(7);
+      expandParentChain(folderId);
+      setHighlightedId(folderId);
+    } else {
+      // It's a file storage_path — find the file
+      const file = files.find((f) => f.storage_path === highlightParam);
+      if (file) {
+        expandParentChain(file.folder_id);
+        setHighlightedId(file.id);
       }
     }
-    await toggleFolder(nodeId);
-    setLoadingFolderId(undefined);
-  }, [toggleFolder, tree, selectedFile?.id]);
 
-  const handleSelectFile = useCallback((node: FileTreeNode) => {
-    setSelectedFile(node.item);
-    if (!node.item.isFolder) {
-      log(`Opened "${node.item.name}" preview`);
+    // Clear highlight after 4 seconds
+    setTimeout(() => setHighlightedId(null), 4000);
+  }, [searchParams, folders, files]);
+
+  // Reset highlight processing when project changes
+  useEffect(() => {
+    highlightProcessed.current = false;
+  }, [selectedProjectId]);
+
+  // Scroll highlighted row into view
+  const highlightRowRef = useRef<HTMLTableRowElement>(null);
+  useEffect(() => {
+    if (highlightedId && highlightRowRef.current) {
+      highlightRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
-  }, [log]);
+  }, [highlightedId]);
 
-  const handleMoveItem = useCallback(async (fileId: string, fromFolderId: string, toFolderId: string) => {
-    if (!selectedProjectId || !driveConfig) return;
-    const ok = await moveDriveItem(selectedProjectId, fileId, fromFolderId, toFolderId);
-    if (ok) {
-      await refresh(driveConfig.root_folder_id);
-    }
-  }, [selectedProjectId, driveConfig, refresh]);
-
-  // ── Permission toggles ────────────────────────────────────────────
+  // ── Handlers ─────────────────────────────────────────────────────
 
   const togglePermission = async (folderId: string, key: PermissionKey) => {
     if (!canManagePermissions || !selectedProjectId || !user) return;
 
     const existing = allPermissions.get(folderId);
     const current = existing ?? {
-      id: '', project_id: selectedProjectId, folder_id: folderId,
-      allow_all_users: false, allow_project_manager: false, allow_property_manager: false,
-      allow_accountant: false, allow_anyone_with_link: false, link_enabled: false,
-      updated_by: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      id: '',
+      project_id: selectedProjectId,
+      folder_id: folderId,
+      allow_all_users: false,
+      allow_project_manager: false,
+      allow_property_manager: false,
+      allow_accountant: false,
+      allow_anyone_with_link: false,
+      link_enabled: false,
+      updated_by: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
 
     const next = { ...current, [key]: !current[key] };
-    setAllPermissions((prev) => { const map = new Map(prev); map.set(folderId, next); return map; });
+
+    setAllPermissions((prev) => {
+      const map = new Map(prev);
+      map.set(folderId, next);
+      return map;
+    });
     setSavingPermission(folderId);
 
     const saved = await upsertFolderPermissions({
-      projectId: selectedProjectId, folderId, userId: user.id,
-      allow_all_users: next.allow_all_users, allow_project_manager: next.allow_project_manager,
-      allow_property_manager: next.allow_property_manager, allow_accountant: next.allow_accountant,
-      allow_anyone_with_link: next.allow_anyone_with_link, link_enabled: next.link_enabled,
+      projectId: selectedProjectId,
+      folderId,
+      userId: user.id,
+      allow_all_users: next.allow_all_users,
+      allow_project_manager: next.allow_project_manager,
+      allow_property_manager: next.allow_property_manager,
+      allow_accountant: next.allow_accountant,
+      allow_anyone_with_link: next.allow_anyone_with_link,
+      link_enabled: next.link_enabled,
     });
 
     if (saved) {
-      setAllPermissions((prev) => { const map = new Map(prev); map.set(folderId, saved); return map; });
+      setAllPermissions((prev) => {
+        const map = new Map(prev);
+        map.set(folderId, saved);
+        return map;
+      });
     }
     setSavingPermission(null);
   };
@@ -407,248 +421,317 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
 
     const existing = allFilePermissions.get(fileId);
     const current = existing ?? {
-      id: '', project_id: selectedProjectId, file_id: fileId,
-      allow_all_users: false, allow_project_manager: false, allow_property_manager: false,
-      allow_accountant: false, allow_anyone_with_link: false, link_enabled: false,
-      updated_by: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      id: '',
+      project_id: selectedProjectId,
+      file_id: fileId,
+      allow_all_users: false,
+      allow_project_manager: false,
+      allow_property_manager: false,
+      allow_accountant: false,
+      allow_anyone_with_link: false,
+      link_enabled: false,
+      updated_by: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
 
     const next = { ...current, [key]: !current[key] };
-    setAllFilePermissions((prev) => { const map = new Map(prev); map.set(fileId, next); return map; });
+
+    setAllFilePermissions((prev) => {
+      const map = new Map(prev);
+      map.set(fileId, next);
+      return map;
+    });
     setSavingPermission(fileId);
 
     const saved = await upsertFilePermissions({
-      projectId: selectedProjectId, fileId, userId: user.id,
-      allow_all_users: next.allow_all_users, allow_project_manager: next.allow_project_manager,
-      allow_property_manager: next.allow_property_manager, allow_accountant: next.allow_accountant,
-      allow_anyone_with_link: next.allow_anyone_with_link, link_enabled: next.link_enabled,
+      projectId: selectedProjectId,
+      fileId,
+      userId: user.id,
+      allow_all_users: next.allow_all_users,
+      allow_project_manager: next.allow_project_manager,
+      allow_property_manager: next.allow_property_manager,
+      allow_accountant: next.allow_accountant,
+      allow_anyone_with_link: next.allow_anyone_with_link,
+      link_enabled: next.link_enabled,
     });
 
     if (saved) {
-      setAllFilePermissions((prev) => { const map = new Map(prev); map.set(fileId, saved); return map; });
+      setAllFilePermissions((prev) => {
+        const map = new Map(prev);
+        map.set(fileId, saved);
+        return map;
+      });
     }
     setSavingPermission(null);
   };
 
-  // ── Folder / file actions ─────────────────────────────────────────
+  /** Upload a folder: preserves subfolder structure, creates nested folders, uploads files into correct locations.
+   *  If parentFolderId is provided, the uploaded folder becomes a child of that folder. */
+  const handleUploadFolder = async (fileList: File[], parentFolderId?: string | null) => {
+    if (!selectedProjectId || !user || !canEdit || fileList.length === 0) return;
 
-  const handleCreateFolder = async () => {
-    if (!selectedProjectId || !user || !newFolderName.trim() || !driveConfig) return;
+    setUploading(true);
 
-    const targetParentId = selectedFile?.isFolder ? selectedFile.id : driveConfig.root_folder_id;
-    const result = await createDriveFolder(selectedProjectId, newFolderName.trim(), targetParentId);
-    if (result.ok) {
-      log(`Created folder "${newFolderName.trim()}" on Google Drive`);
-      setNotice(`Folder "${newFolderName.trim()}" created.`);
-      await refresh(driveConfig.root_folder_id);
-    } else {
-      setNotice(`Failed to create folder: ${result.error || 'unknown error'}`);
+    // Map of "folderPath" -> folder DB id (e.g. "MyFolder" -> uuid, "MyFolder/Sub" -> uuid)
+    const folderMap = new Map<string, string>();
+    const newFolders: ProjectFileFolder[] = [];
+
+    // Helper: ensure a folder path exists, creating parent folders as needed
+    const ensureFolder = async (pathParts: string[], depth: number = 0): Promise<string> => {
+      const key = pathParts.slice(0, depth + 1).join('/');
+      if (folderMap.has(key)) return folderMap.get(key)!;
+
+      const folderName = pathParts[depth];
+      const parentKey = depth > 0 ? pathParts.slice(0, depth).join('/') : null;
+
+      // If parent doesn't exist yet, create it first
+      if (depth > 0 && parentKey && !folderMap.has(parentKey)) {
+        await ensureFolder(pathParts, depth - 1);
+      }
+
+      // For root-level folders in the upload, use the provided parentFolderId
+      const resolvedParentId = depth === 0
+        ? (parentFolderId ?? null)
+        : (parentKey ? folderMap.get(parentKey) ?? null : null);
+
+      // Count existing siblings for sort_order
+      const siblingCount = newFolders.filter((f) => f.parent_folder_id === resolvedParentId).length
+        + folders.filter((f) => f.parent_folder_id === resolvedParentId).length;
+
+      const created = await createFileFolder(selectedProjectId, folderName, resolvedParentId, siblingCount, user.id);
+      if (created) {
+        folderMap.set(key, created.id);
+        newFolders.push(created);
+      }
+      return folderMap.get(key) ?? '';
+    };
+
+    // Process all files: create folders from their paths, then upload
+    const uploaded: ProjectFileItem[] = [];
+
+    for (const f of fileList) {
+      const relativePath = (f as File & { webkitRelativePath?: string }).webkitRelativePath ?? f.name;
+      const parts = relativePath.split('/');
+      // parts = ["RootFolder", "SubFolder", "file.txt"] — last part is the file name
+      const folderParts = parts.slice(0, -1); // all except file name
+
+      // Ensure all folders in the path exist
+      let targetFolderId: string | null = null;
+      if (folderParts.length > 0) {
+        for (let depth = 0; depth < folderParts.length; depth++) {
+          await ensureFolder(folderParts, depth);
+        }
+        targetFolderId = folderMap.get(folderParts.join('/')) ?? null;
+      }
+
+      const result = await uploadFile(selectedProjectId, targetFolderId, f, user.id);
+      if (result) uploaded.push(result);
     }
-    setNewFolderName('');
-    setShowNewFolderInput(false);
+
+    if (newFolders.length > 0) {
+      setFolders((prev) => [...prev, ...newFolders]);
+    }
+    if (uploaded.length > 0) {
+      setFiles((prev) => [...uploaded, ...prev]);
+    }
+
+    const rootName = newFolders[0]?.name ?? 'folder';
+    log(`Uploaded folder "${rootName}" with ${newFolders.length} folder(s) and ${uploaded.length} file(s)`);
+    setNotice(`Folder "${rootName}" uploaded with ${uploaded.length} file(s) across ${newFolders.length} folder(s).`);
+    setUploading(false);
+    if (uploaded.length > 0) openLinkModal(uploaded.filter((f) => f.storage_path).map((f) => ({ name: f.name, storagePath: f.storage_path! })));
   };
 
-  const handleRename = async () => {
-    if (!renamingId || !renameValue.trim() || !selectedProjectId || !driveConfig) return;
-    const ok = await renameDriveItem(selectedProjectId, renamingId, renameValue.trim());
-    if (ok) {
-      log(`Renamed item to "${renameValue.trim()}" on Google Drive`);
-      await refresh(driveConfig.root_folder_id);
+  const handleUploadFiles = async (fileList: FileList) => {
+    if (!selectedProjectId || !user || !uploadTargetFolderId || !canEdit) return;
+
+    setUploading(true);
+    const uploaded: ProjectFileItem[] = [];
+
+    for (let i = 0; i < fileList.length; i++) {
+      const f = fileList[i];
+      const result = await uploadFile(selectedProjectId, uploadTargetFolderId, f, user.id);
+      if (result) uploaded.push(result);
     }
-    setRenamingId(null);
+
+    if (uploaded.length > 0) {
+      setFiles((prev) => [...uploaded, ...prev]);
+      log(`Uploaded ${uploaded.length} file(s)`);
+      setNotice(`${uploaded.length} file(s) uploaded successfully.`);
+      openLinkModal(uploaded.filter((f) => f.storage_path).map((f) => ({ name: f.name, storagePath: f.storage_path! })));
+    }
+    setUploading(false);
+    setUploadTargetFolderId(null);
+  };
+
+  const handleDeleteFolder = async (folderId: string) => {
+    if (!canEdit) return;
+    const folder = folders.find((f) => f.id === folderId);
+    const ok = await deleteFolder(folderId);
+    if (!ok) return;
+
+    setFolders((prev) => prev.filter((f) => f.id !== folderId));
+    setFiles((prev) => prev.filter((f) => f.folder_id !== folderId));
+    setConfirmDeleteFolder(null);
+    log(`Deleted folder "${folder?.name ?? folderId}"`);
+  };
+
+  const handleRenameFolder = async () => {
+    if (!renamingFolderId || !renameValue.trim()) return;
+    const ok = await renameFolder(renamingFolderId, renameValue.trim());
+    if (ok) {
+      setFolders((prev) => prev.map((f) => f.id === renamingFolderId ? { ...f, name: renameValue.trim() } : f));
+      log(`Renamed folder to "${renameValue.trim()}"`);
+    }
+    setRenamingFolderId(null);
     setRenameValue('');
   };
 
-  const handleArchiveItem = async (itemId: string) => {
-    if (!canEdit || !selectedProjectId || !driveConfig) return;
-
-    // Find the item in the tree
-    const findItem = (nodes: FileTreeNode[]): DriveItem | null => {
-      for (const n of nodes) {
-        if (n.item.id === itemId) return n.item;
-        const found = findItem(n.children);
-        if (found) return found;
-      }
-      return null;
-    };
-    const item = findItem(tree);
-    if (!item || !item.parentId) return;
-
-    let archiveId = driveConfig.archive_folder_id;
-    if (!archiveId) {
-      archiveId = await ensureArchiveFolder(selectedProjectId, driveConfig.root_folder_id);
-      if (archiveId) {
-        await updateDriveConfigArchiveId(selectedProjectId, archiveId);
-        setDriveConfig((prev) => prev ? { ...prev, archive_folder_id: archiveId } : prev);
-      }
+  const handleDownloadFile = async (file: ProjectFileItem) => {
+    if (!file.storage_path) return;
+    // Permission gate: check file-level, fall back to folder-level
+    const filePerm = allFilePermissions.get(file.id);
+    const folderPerm = file.folder_id ? allPermissions.get(file.folder_id) : undefined;
+    if (!hasFileAccess(filePerm ?? folderPerm)) return;
+    const url = await downloadFileUrl(file.storage_path);
+    if (url) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.name;
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      log(`Downloaded file "${file.name}"`);
     }
+  };
 
-    if (!archiveId) {
-      setNotice('Failed to create ARCHIVE folder.');
-      return;
-    }
+  const handleDeleteFile = async (fileId: string) => {
+    if (!canEdit) return;
+    const file = files.find((f) => f.id === fileId);
+    const ok = await deleteFile(fileId);
+    if (!ok) return;
 
-    const ok = await archiveDriveItem(selectedProjectId, itemId, item.parentId, archiveId);
+    setFiles((prev) => prev.filter((f) => f.id !== fileId));
+    log(`Deleted file "${file?.name ?? fileId}"`);
+  };
+
+  const handleRenameFile = async () => {
+    if (!renamingFileId || !renameValue.trim()) return;
+    const ok = await renameFile(renamingFileId, renameValue.trim());
     if (ok) {
-      log(`Archived "${item.name}" on Google Drive`);
-      setNotice(`"${item.name}" moved to ARCHIVE.`);
-      if (selectedFile?.id === itemId) setSelectedFile(null);
-      await refresh(driveConfig.root_folder_id);
-    } else {
-      setNotice(`Failed to archive "${item.name}".`);
+      setFiles((prev) => prev.map((f) => f.id === renamingFileId ? { ...f, name: renameValue.trim() } : f));
+      log(`Renamed file to "${renameValue.trim()}"`);
     }
-    setConfirmArchiveId(null);
+    setRenamingFileId(null);
+    setRenameValue('');
   };
 
-  const handleOpenInDrive = (item: DriveItem) => {
-    if (item.webViewLink) {
-      window.open(item.webViewLink, '_blank', 'noopener,noreferrer');
-      log(`Opened "${item.name}" in Google Drive`);
-    }
-  };
+  const handleDownloadAll = async () => {
+    if (!selectedProjectId || !user) return;
+    if (monthlyDownloadsCount >= 1) return;
 
-  const loadArchiveItems = async () => {
-    if (!selectedProjectId || !driveConfig) return;
-    setArchiveLoading(true);
-    let archiveId = driveConfig.archive_folder_id;
-    if (!archiveId) {
-      archiveId = await ensureArchiveFolder(selectedProjectId, driveConfig.root_folder_id);
-      if (archiveId) {
-        await updateDriveConfigArchiveId(selectedProjectId, archiveId);
-        setDriveConfig((prev) => prev ? { ...prev, archive_folder_id: archiveId } : prev);
+    setDownloadingAll(true);
+    const logged = await logDownloadAll(selectedProjectId, user.id);
+    if (logged) {
+      setMonthlyDownloadsCount((prev) => prev + 1);
+      // Filter files through permission checks
+      const accessibleFiles = files.filter((file) => {
+        const filePerm = allFilePermissions.get(file.id);
+        const folderPerm = file.folder_id ? allPermissions.get(file.folder_id) : undefined;
+        return hasFileAccess(filePerm ?? folderPerm);
+      });
+      for (const file of accessibleFiles) {
+        if (file.storage_path) {
+          const url = await downloadFileUrl(file.storage_path);
+          if (url) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = file.name;
+            a.target = '_blank';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            await new Promise((r) => setTimeout(r, 300));
+          }
+        }
       }
+      setNotice('Download-all completed. Limit reached for this month.');
+      log('Downloaded all files');
     }
-    if (archiveId) {
-      const { items } = await listDriveFolderDirect(selectedProjectId, archiveId);
-      setArchiveItems(items);
-    }
-    setArchiveLoading(false);
-  };
-
-  const handleToggleArchive = async () => {
-    if (!showArchive) {
-      await loadArchiveItems();
-    }
-    setShowArchive((v) => !v);
-  };
-
-  const handleRestoreItem = async (item: DriveItem) => {
-    if (!selectedProjectId || !driveConfig?.archive_folder_id) return;
-    setRestoringId(item.id);
-    const ok = await restoreDriveItem(
-      selectedProjectId,
-      item.id,
-      driveConfig.archive_folder_id,
-      driveConfig.root_folder_id,
-    );
-    if (ok) {
-      log(`Restored "${item.name}" from archive`);
-      setNotice(`"${item.name}" restored.`);
-      setArchiveItems((prev) => prev.filter((i) => i.id !== item.id));
-      await refresh(driveConfig.root_folder_id);
-    } else {
-      setNotice(`Failed to restore "${item.name}".`);
-    }
-    setRestoringId(null);
+    setDownloadingAll(false);
   };
 
   const handleAddCustomField = async () => {
     if (!selectedProjectId || !user || !newCustomFieldName.trim() || !canEdit) return;
+
     const created = await createCustomField({
-      projectId: selectedProjectId, name: newCustomFieldName.trim(),
-      targetType: newCustomFieldTarget, warningMessage: newCustomFieldWarning.trim() || null,
+      projectId: selectedProjectId,
+      name: newCustomFieldName.trim(),
+      targetType: newCustomFieldTarget,
+      warningMessage: newCustomFieldWarning.trim() || null,
       ignoreWarningDays: newCustomFieldIgnoreDays.trim() ? Number(newCustomFieldIgnoreDays) : null,
-      required: newCustomFieldRequired, userId: user.id,
+      required: newCustomFieldRequired,
+      userId: user.id,
     });
+
     if (!created) return;
+
     setCustomFields((prev) => [...prev, created]);
     setNewCustomFieldName('');
     setShowAddCustomField(false);
     log(`Created custom field "${created.name}"`);
   };
 
-  // ── File upload handler ──────────────────────────────────────────
+  const handleRequestBackup = async () => {
+    if (!selectedProjectId || !user || !backupReason.trim()) return;
 
-  const getUploadTargetId = (): string | null => {
-    if (!driveConfig) return null;
-    // If a folder is selected, upload into it; otherwise upload to root
-    if (selectedFile?.isFolder) return selectedFile.id;
-    return driveConfig.root_folder_id;
+    const created = await createBackupRequest(selectedProjectId, user.id, backupReason.trim());
+    if (!created) return;
+
+    setBackupRequests((prev) => [created, ...prev]);
+    setShowBackupRequest(false);
+    setNotice('Backup request submitted. Admins/developers can fulfill it.');
+    log('Requested backup');
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0 || !selectedProjectId || !driveConfig) return;
+  // ── Build flat row list ──────────────────────────────────────────
 
-    const targetId = getUploadTargetId();
-    if (!targetId) return;
+  type TableRow =
+    | { type: 'folder'; folder: ProjectFileFolder; depth: number }
+    | { type: 'file'; file: ProjectFileItem; folderId: string; depth: number };
 
-    setUploading(true);
-    let uploaded = 0;
-    const total = files.length;
+  const buildRows = (parentId: string | null, depth: number): TableRow[] => {
+    const children = folderChildrenMap.get(parentId) ?? [];
+    const rows: TableRow[] = [];
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      setUploadProgress(`Uploading ${i + 1}/${total}: ${file.name}`);
-      const result = await uploadFileToDrive(selectedProjectId, file, targetId);
-      if (result.ok) {
-        uploaded++;
-        log(`Uploaded "${file.name}" to Google Drive`);
-      } else {
-        setNotice(`Failed to upload "${file.name}": ${result.error || 'unknown error'}`);
+    for (const folder of children) {
+      // Check folder-level permission
+      const folderPerm = allPermissions.get(folder.id);
+      if (!hasFileAccess(folderPerm)) continue; // skip folder + children
+
+      rows.push({ type: 'folder', folder, depth });
+
+      if (!collapsedFolders.has(folder.id)) {
+        const folderFiles = filesInFolderMap.get(folder.id) ?? [];
+        for (const file of folderFiles) {
+          // Check file-level permission, fall back to folder permission
+          const filePerm = allFilePermissions.get(file.id);
+          const effectivePerm = filePerm ?? folderPerm;
+          if (!hasFileAccess(effectivePerm)) continue;
+          rows.push({ type: 'file', file, folderId: folder.id, depth: depth + 1 });
+        }
+        rows.push(...buildRows(folder.id, depth + 1));
       }
     }
 
-    setUploading(false);
-    setUploadProgress('');
-    if (uploaded > 0) {
-      setNotice(`${uploaded} file(s) uploaded successfully.`);
-      await refresh(driveConfig.root_folder_id);
-    }
-
-    // Reset file input
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    return rows;
   };
 
-  // ── Resize handler ────────────────────────────────────────────────
+  const tableRows = useMemo(() => buildRows(null, 0), [folderChildrenMap, filesInFolderMap, collapsedFolders, allPermissions, allFilePermissions, hasFileAccess]);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsResizing(true);
-    const startX = e.clientX;
-    const startWidth = treeWidth;
-
-    function onMouseMove(e: MouseEvent) {
-      const delta = e.clientX - startX;
-      setTreeWidth(Math.max(240, Math.min(600, startWidth + delta)));
-    }
-
-    function onMouseUp() {
-      setIsResizing(false);
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    }
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }, [treeWidth]);
-
-  // ── Selected item details for permission panel ────────────────────
-
-  const selectedItemPerms = useMemo(() => {
-    if (!selectedFile) return null;
-    if (selectedFile.isFolder) {
-      return { type: 'folder' as const, perms: allPermissions.get(selectedFile.id) };
-    }
-    return { type: 'file' as const, perms: allFilePermissions.get(selectedFile.id) };
-  }, [selectedFile, allPermissions, allFilePermissions]);
-
-  const linkedInfo = useMemo(() => {
-    if (!selectedFile) return null;
-    return linkedMap.get(selectedFile.isFolder ? `folder:${selectedFile.id}` : selectedFile.id) || linkedMap.get(selectedFile.id) || null;
-  }, [selectedFile, linkedMap]);
-
-  // ── Render ────────────────────────────────────────────────────────
+  // ── Render ───────────────────────────────────────────────────────
 
   if (loading && selectedProjectId) {
     return (
@@ -670,461 +753,570 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
 
   return (
     <main className="bg-background text-foreground min-h-screen p-4 sm:p-6">
-      <div className="max-w-[1800px] mx-auto space-y-4">
-        {/* Google Connect Banner — only show to owner/admin */}
-        {isOwnerOrAdmin && (
-          <GoogleConnectBanner
-            connected={googleConnected}
-            googleEmail={googleEmail}
-            onStatusChange={checkGoogleStatus}
-          />
-        )}
-
-        {/* Setup prompt if not configured */}
-        {!driveConfig && (
-          <div className="text-center py-16 space-y-4">
-            <div className="p-4 rounded-full bg-muted/30 inline-block">
-              <Folder className="h-10 w-10 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-sm font-bold tracking-widest uppercase text-muted-foreground mb-1">
-                {isOwnerOrAdmin ? 'Google Drive not connected' : 'No files available'}
-              </p>
-              <p className="text-xs text-muted-foreground/60">
-                {isOwnerOrAdmin
-                  ? 'Connect a Google Drive folder to manage files for this project.'
-                  : 'The project owner has not configured Google Drive for this project yet.'}
-              </p>
-            </div>
-            {isOwnerOrAdmin && canEdit && (
-              <Button variant="primary" onClick={() => setShowSetupModal(true)}>
-                <Settings className="h-4 w-4 mr-1" />
-                Configure Google Drive
-              </Button>
-            )}
-          </div>
-        )}
-
-        {/* Main content when configured */}
-        {driveConfig && (
-          <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4">
-            {/* ── Left Sidebar ── */}
-            <aside className="space-y-4 p-4 glass-card backdrop-blur-md bg-background/80 border border-white/10 rounded-2xl shadow-xl self-start sticky top-20">
-              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-blue-500/5 border border-blue-500/20 text-blue-500">
-                <ShieldCheck className="h-4 w-4 shrink-0 mt-0.5" />
-                <p className="text-[11px] font-medium leading-relaxed">
-                  Files are managed via Google Drive. Changes sync automatically.
-                </p>
-              </div>
-
-              {/* Permissions toggle — owner/admin only */}
-              {isOwnerOrAdmin && (
-                <Button
-                  variant="ghost" size="sm"
-                  onClick={() => setShowPermissions((p) => !p)}
-                  className="text-[10px] font-bold tracking-widest uppercase text-primary hover:text-primary transition-all flex items-center gap-1.5 px-1 h-auto py-1 shadow-none"
-                >
-                  {showPermissions ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                  {showPermissions ? 'Hide Permissions' : 'Show Permissions'}
-                </Button>
-              )}
-
-              {/* Actions — owner/admin only */}
-              {isOwnerOrAdmin && (
-                <div className="space-y-3 pt-2">
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={handleRefresh}
-                    disabled={treeLoading || !googleConnected}
-                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
-                    leftIcon={treeLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                  >
-                    Refresh from Drive
-                  </Button>
-
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={!canEdit || !googleConnected || uploading}
-                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
-                    leftIcon={uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                  >
-                    {uploading ? 'Uploading...' : `Upload Files${selectedFile?.isFolder ? ` to ${selectedFile.name}` : ''}`}
-                  </Button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    onChange={handleFileUpload}
-                    className="hidden"
-                    accept="*/*"
-                  />
-                  {uploadProgress && (
-                    <p className="text-[10px] text-muted-foreground px-1 animate-pulse">{uploadProgress}</p>
-                  )}
-
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={() => setShowAddCustomField(true)}
-                    disabled={!canEdit}
-                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
-                    leftIcon={<Plus className="h-3.5 w-3.5" />}
-                  >
-                    Add Custom Field
-                  </Button>
-
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={() => { if (canEdit) setShowNewFolderInput((v) => !v); }}
-                    disabled={!canEdit || !googleConnected}
-                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
-                    leftIcon={<Plus className="h-3.5 w-3.5" />}
-                  >
-                    {`Add Folder${selectedFile?.isFolder ? ` in ${selectedFile.name}` : ''}`}
-                  </Button>
-                  {showNewFolderInput && (
-                    <div className="flex flex-col gap-2 px-1">
-                      <input
-                        autoFocus
-                        value={newFolderName}
-                        onChange={(e) => setNewFolderName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleCreateFolder();
-                          if (e.key === 'Escape') { setShowNewFolderInput(false); setNewFolderName(''); }
-                        }}
-                        placeholder="Folder name..."
-                        className="w-full px-3 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
-                      />
-                      <button
-                        onClick={handleCreateFolder}
-                        disabled={!newFolderName.trim()}
-                        className="px-3 py-1.5 text-[10px] font-bold tracking-wider uppercase bg-primary text-primary-foreground rounded-xl disabled:opacity-50 transition-all"
-                      >
-                        Create on Drive
-                      </button>
-                    </div>
-                  )}
-
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={() => setShowSetupModal(true)}
-                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all px-1 h-auto py-1 shadow-none"
-                    leftIcon={<Settings className="h-3.5 w-3.5" />}
-                  >
-                    Drive Settings
-                  </Button>
-
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={handleToggleArchive}
-                    disabled={!googleConnected}
-                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-amber-500 hover:text-amber-400 transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
-                    leftIcon={<Trash2 className="h-3.5 w-3.5" />}
-                  >
-                    {showArchive ? 'Hide Archive' : 'View Archive'}
-                  </Button>
-
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={() => setShowStorage((v) => !v)}
-                    disabled={!googleConnected}
-                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
-                    leftIcon={<HardDrive className="h-3.5 w-3.5" />}
-                  >
-                    {showStorage ? 'Hide Storage' : 'Storage Usage'}
-                  </Button>
-                </div>
-              )}
-
-              {/* Archive panel */}
-              {showArchive && isOwnerOrAdmin && (
-                <div className="space-y-2">
-                  <div className="h-px bg-white/5 mx-1" />
-                  <p className="text-[10px] font-bold tracking-widest uppercase text-amber-500 px-1 flex items-center gap-1.5">
-                    <Archive className="h-3.5 w-3.5" /> Archived Items
-                  </p>
-                  {archiveLoading ? (
-                    <div className="flex items-center gap-2 text-[10px] font-bold tracking-widest uppercase text-muted-foreground px-3">
-                      <Loader2 className="h-3 w-3 animate-spin" /> Loading...
-                    </div>
-                  ) : archiveItems.length === 0 ? (
-                    <p className="text-[10px] text-muted-foreground/60 px-3">No archived items.</p>
-                  ) : (
-                    <div className="space-y-1 max-h-[300px] overflow-y-auto">
-                      {archiveItems.map((item) => (
-                        <div
-                          key={item.id}
-                          className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg hover:bg-muted/30 transition-colors group"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className={`p-1 rounded shrink-0 ${item.isFolder ? 'bg-amber-500/10' : 'bg-muted/30'}`}>
-                              {item.isFolder ? <Folder className="h-3 w-3 text-amber-500" /> : <FileText className="h-3 w-3 text-muted-foreground" />}
-                            </div>
-                            <span className="text-[11px] font-medium truncate">{item.name}</span>
-                          </div>
-                          <button
-                            onClick={() => handleRestoreItem(item)}
-                            disabled={restoringId === item.id}
-                            className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-green-500/10 hover:bg-green-500/20 text-green-500 text-[9px] font-bold tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50"
-                          >
-                            {restoringId === item.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
-                            Restore
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="h-px bg-white/5 mx-1" />
-
-              {/* Drive folder link */}
-              <div className="glass-card bg-muted/20 border border-border/50 rounded-xl p-3 space-y-2">
-                <p className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground inline-flex items-center gap-1.5 px-1">
-                  <Folder className="h-3.5 w-3.5 text-amber-500" /> Drive Folder
-                </p>
-                <a
-                  href={driveConfig.root_folder_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[11px] text-blue-500 hover:text-blue-400 underline underline-offset-4 px-1 flex items-center gap-1"
-                >
-                  Open in Google Drive <ExternalLink className="h-3 w-3" />
-                </a>
-                {isOwnerOrAdmin && (
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={() => setShowSetupModal(true)}
-                    className="w-full justify-start items-center gap-2 text-[10px] font-bold tracking-wider uppercase text-muted-foreground hover:text-primary transition-all px-1 h-auto py-1 shadow-none"
-                    leftIcon={<Settings className="h-3 w-3" />}
-                  >
-                    Change Drive Folder
-                  </Button>
-                )}
-              </div>
-
-              {notice && (
-                <div className="p-2.5 rounded-xl bg-green-500/5 border border-green-500/20 text-green-600 dark:text-green-500 text-[10px] font-bold tracking-wide uppercase px-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  {notice}
-                </div>
-              )}
-
-              {treeLoading && (
-                <div className="flex items-center gap-2 text-[10px] font-bold tracking-widest uppercase text-primary px-3">
-                  <Loader2 className="h-3 w-3 animate-spin" /> Syncing...
-                </div>
-              )}
-
-              {/* ── Selected item details panel ── */}
-              {selectedFile && (
-                <>
-                  <div className="h-px bg-white/5 mx-1" />
-                  <div className="space-y-3">
-                    <p className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground px-1">Selected Item</p>
-                    <div className="flex items-center gap-2 px-1">
-                      <div className={`p-1.5 rounded-lg shrink-0 ${selectedFile.isFolder ? 'bg-amber-500/10' : 'bg-blue-500/10'}`}>
-                        {selectedFile.isFolder ? <Folder className="h-4 w-4 text-amber-500" /> : <FileText className="h-4 w-4 text-blue-500" />}
-                      </div>
-                      <span className="text-xs font-bold truncate">{selectedFile.name}</span>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="flex flex-wrap gap-1.5 px-1">
-                      {selectedFile.webViewLink && (
-                        <button
-                          onClick={() => handleOpenInDrive(selectedFile)}
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-muted/50 hover:bg-primary/10 text-[10px] font-bold tracking-wider uppercase transition-colors"
-                        >
-                          <ExternalLink className="h-3 w-3" /> Open
-                        </button>
-                      )}
-                      {isOwnerOrAdmin && canEdit && (
-                        <button
-                          onClick={() => { setRenamingId(selectedFile.id); setRenameValue(selectedFile.name); }}
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-muted/50 hover:bg-primary/10 text-[10px] font-bold tracking-wider uppercase transition-colors"
-                        >
-                          <Pencil className="h-3 w-3" /> Rename
-                        </button>
-                      )}
-                      {isOwnerOrAdmin && canEdit && (
-                        <button
-                          onClick={() => setConfirmArchiveId(selectedFile.id)}
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-muted/50 hover:bg-destructive/10 text-[10px] font-bold tracking-wider uppercase text-destructive transition-colors"
-                        >
-                          <Archive className="h-3 w-3" /> Archive
-                        </button>
-                      )}
-                      {isOwnerOrAdmin && canEdit && (
-                        <button
-                          onClick={() => openLinkModal([{
-                            name: selectedFile.name,
-                            driveId: selectedFile.isFolder ? `folder:${selectedFile.id}` : selectedFile.id,
-                          }])}
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-muted/50 hover:bg-blue-500/10 text-[10px] font-bold tracking-wider uppercase text-blue-500 transition-colors"
-                        >
-                          <LinkIcon className="h-3 w-3" /> Link
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Linked info */}
-                    {linkedInfo && (
-                      <div className="px-1">
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wider uppercase text-blue-500 bg-blue-500/5 px-2 py-0.5 rounded-full border border-blue-500/10">
-                          <LinkIcon className="h-3 w-3" />
-                          {linkedInfo.type === 'field' && linkedInfo.parentName ? `${linkedInfo.parentName} → ${linkedInfo.name}` : linkedInfo.name}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Rename input */}
-                    {renamingId === selectedFile.id && (
-                      <div className="flex flex-col gap-2 px-1">
-                        <input
-                          autoFocus
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleRename();
-                            if (e.key === 'Escape') { setRenamingId(null); setRenameValue(''); }
-                          }}
-                          className="w-full px-3 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
-                        />
-                        <button onClick={handleRename} className="px-3 py-1.5 text-[10px] font-bold tracking-wider uppercase bg-primary text-primary-foreground rounded-xl transition-all">
-                          Save
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Permission checkboxes */}
-                    {showPermissions && canManagePermissions && (
-                      <div className="space-y-2 px-1">
-                        <p className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground flex items-center gap-1">
-                          Permissions {savingPermission === selectedFile.id && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
-                        </p>
-                        {permissionColumns.map((col) => {
-                          const isFolder = selectedFile.isFolder;
-                          const perms = isFolder
-                            ? allPermissions.get(selectedFile.id)
-                            : allFilePermissions.get(selectedFile.id);
-                          const checked = Boolean(perms?.[col.key as keyof typeof perms]);
-                          return (
-                            <label key={col.key} className="flex items-center gap-2 text-xs cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => isFolder
-                                  ? togglePermission(selectedFile.id, col.key)
-                                  : toggleFilePermission(selectedFile.id, col.key)
-                                }
-                                className="rounded border-border h-3.5 w-3.5 text-primary focus:ring-primary/20"
-                              />
-                              <span className="font-medium text-foreground/80">{col.label}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </aside>
-
-            {/* ── Right: Split Panel (Tree + Viewer) ── */}
-            <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm" style={{ height: 'calc(100vh - 180px)' }}>
-              <div className="flex h-full">
-                {/* File Tree */}
-                <div className="flex-shrink-0 border-r border-border/40" style={{ width: `${treeWidth}px` }}>
-                  <FileTreePanel
-                    tree={accessFilteredTree}
-                    loading={treeLoading}
-                    error={treeError}
-                    selectedId={selectedFile?.id}
-                    loadingId={loadingFolderId}
-                    rootFolderId={driveConfig?.root_folder_id}
-                    onToggleFolder={handleToggleFolder}
-                    onSelectFile={handleSelectFile}
-                    onMoveItem={handleMoveItem}
-                    onReorderItem={reorderNode}
-                    showPermissions={showPermissions}
-                    canManagePermissions={canManagePermissions}
-                    folderPermissions={allPermissions}
-                    filePermissions={allFilePermissions}
-                    onToggleFolderPermission={togglePermission}
-                    onToggleFilePermission={toggleFilePermission}
-                  />
-                </div>
-
-                {/* Resize handle */}
-                <div
-                  className={`w-1 cursor-col-resize bg-transparent transition-colors hover:bg-primary/20 ${isResizing ? 'bg-primary/30' : ''}`}
-                  onMouseDown={handleMouseDown}
-                />
-
-                {/* File Viewer or Storage Breakdown */}
-                <div className="flex-1 overflow-hidden">
-                  {showStorage ? (
-                    <StorageBreakdown
-                      tree={tree}
-                      onSelectFile={(item) => { setSelectedFile(item); setShowStorage(false); }}
-                    />
-                  ) : (
-                    <FileViewerPanel file={selectedFile} projectId={selectedProjectId} ownerEmail={ownerEmail} />
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── Modals ── */}
-
-      <DriveSetupModal
-        isOpen={showSetupModal}
-        onClose={() => setShowSetupModal(false)}
-        projectId={selectedProjectId}
-        userId={user?.id ?? null}
-        isReconfigure={!!driveConfig}
-        onConfigured={async () => {
-          const config = await getDriveConfig(selectedProjectId);
-          setDriveConfig(config);
-          if (config && googleConnected) {
-            handleRefresh();
+      {/* Hidden file inputs */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            handleUploadFiles(e.target.files);
+            e.target.value = '';
+          }
+        }}
+      />
+      {/* Folder upload input — webkitdirectory lets user select a folder (root level) */}
+      <input
+        ref={(el) => {
+          folderInputRef.current = el;
+          if (el) {
+            el.setAttribute('webkitdirectory', '');
+            el.setAttribute('directory', '');
+          }
+        }}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            const filesArray = Array.from(e.target.files);
+            handleUploadFolder(filesArray);
+            e.target.value = '';
+          }
+        }}
+      />
+      {/* Subfolder upload input — uploads a folder into an existing folder */}
+      <input
+        ref={(el) => {
+          subfolderInputRef.current = el;
+          if (el) {
+            el.setAttribute('webkitdirectory', '');
+            el.setAttribute('directory', '');
+          }
+        }}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            const filesArray = Array.from(e.target.files);
+            handleUploadFolder(filesArray, uploadFolderTargetId);
+            e.target.value = '';
+            setUploadFolderTargetId(null);
           }
         }}
       />
 
-      {confirmArchiveId && (
+      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4">
+        {/* ── Left Pane ── */}
+        <aside className="space-y-4 p-4 glass-card backdrop-blur-md bg-background/80 border border-white/10 rounded-2xl shadow-xl self-start sticky top-20">
+          {/* Security notice */}
+          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-500/5 border border-amber-500/20 text-amber-600 dark:text-amber-500">
+            <ShieldCheck className="h-4 w-4 shrink-0 mt-0.5" />
+            <p className="text-[11px] font-medium leading-relaxed">
+              All files are highly secure and encrypted - only authorized users can access.
+            </p>
+          </div>
+
+          {/* Permissions toggle */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowPermissions((p) => !p)}
+            className="text-[10px] font-bold tracking-widest uppercase text-primary hover:text-primary transition-all flex items-center gap-1.5 px-1 h-auto py-1 shadow-none"
+          >
+            {showPermissions ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            {showPermissions ? 'Hide Permissions' : 'Show Permissions'}
+          </Button>
+
+          {/* Actions */}
+          <div className="space-y-3 pt-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCollapsedFolders(new Set())}
+              className="w-full justify-start text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all px-1 h-auto py-1 shadow-none"
+            >
+              Expand all Folders
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowAddCustomField(true)}
+              disabled={!canEdit}
+              className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
+              leftIcon={<Plus className="h-3.5 w-3.5" />}
+            >
+              Add Custom Field
+            </Button>
+
+            <div className="space-y-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleDownloadAll}
+                disabled={downloadingAll || monthlyDownloadsCount >= 1}
+                className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
+                leftIcon={downloadingAll ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              >
+                Download All Files
+              </Button>
+              {monthlyDownloadsCount >= 1 && (
+                <p className="text-[10px] text-muted-foreground/60 font-medium pl-6 font-mono uppercase tracking-tighter">Next: {nextMonthLabel(new Date())}</p>
+              )}
+            </div>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => canEdit && folderInputRef.current?.click()}
+              disabled={!canEdit || uploading}
+              className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
+              leftIcon={<Plus className="h-3.5 w-3.5" />}
+            >
+              Add New Folder
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowBackupRequest(true)}
+              className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all px-1 h-auto py-1 shadow-none"
+              leftIcon={<DatabaseBackup className="h-3.5 w-3.5" />}
+            >
+              Request Backup
+            </Button>
+          </div>
+
+          <div className="h-px bg-white/5 mx-1" />
+
+          {/* Backup info */}
+          <div className="glass-card bg-muted/20 border border-border/50 rounded-xl p-3 space-y-2">
+            <p className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground inline-flex items-center gap-1.5 px-1">
+              <ShieldCheck className="h-3.5 w-3.5 text-green-500" /> Backup History
+            </p>
+            <div className="space-y-1 px-1">
+              <p className="text-[11px] font-medium">Backups: <span className="text-primary">{backups.length}</span></p>
+              <p className="text-[11px] font-medium">Open requests: <span className="text-amber-500">{backupRequests.filter((r) => r.status === 'pending').length}</span></p>
+              {backupRequests[0] && (
+                <p className="text-[10px] text-muted-foreground/60 leading-tight">
+                  Latest: {new Date(backupRequests[0].created_at).toLocaleDateString()} <span className="uppercase tracking-tighter ml-1">[{backupRequests[0].status}]</span>
+                </p>
+              )}
+            </div>
+          </div>
+
+          {notice && (
+            <div className="p-2.5 rounded-xl bg-green-500/5 border border-green-500/20 text-green-600 dark:text-green-500 text-[10px] font-bold tracking-wide uppercase px-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              {notice}
+            </div>
+          )}
+
+          {uploading && (
+            <div className="flex items-center gap-2 text-[10px] font-bold tracking-widest uppercase text-primary px-3">
+              <Loader2 className="h-3 w-3 animate-spin" /> Uploading...
+            </div>
+          )}
+        </aside>
+
+        {/* ── Right: Main Table ── */}
+        <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm relative">
+          <table className="w-full text-xs sm:text-sm border-collapse">
+            <thead>
+              <tr className="bg-muted/30 border-b border-border/50">
+                {/* Expand/collapse column */}
+                <th className="w-8 px-2 py-2 border-r border-border/50" />
+
+                {/* Permission column headers — diagonal text */}
+                {showPermissions && permissionColumns.map((col) => (
+                  <th key={col.key} className="px-1 pb-3 border-r border-border/50 w-10 min-w-[40px]">
+                    <div className="flex items-end justify-center h-[140px]">
+                      <span
+                        className="text-[10px] font-bold tracking-wider uppercase text-foreground/80 whitespace-nowrap"
+                        style={{
+                          writingMode: 'vertical-rl',
+                          transform: 'rotate(180deg)',
+                        }}
+                      >
+                        {col.label}
+                      </span>
+                    </div>
+                  </th>
+                ))}
+
+                <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap border-r border-border/50">
+                  Name
+                </th>
+                <th className="px-4 py-4 text-right text-[10px] font-bold uppercase tracking-widest text-muted-foreground w-24 whitespace-nowrap">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {tableRows.length === 0 && (
+                <tr>
+                  <td colSpan={showPermissions ? permissionColumns.length + 3 : 3} className="px-4 py-12 text-center">
+                    <p className="text-sm font-bold tracking-widest text-muted-foreground uppercase mb-1">No folders yet</p>
+                    <p className="text-xs text-muted-foreground/60 uppercase tracking-tighter">Click "+ Add New Folder" to start.</p>
+                  </td>
+                </tr>
+              )}
+
+              {tableRows.map((row) => {
+                if (row.type === 'folder') {
+                  const folder = row.folder;
+                  const hasChildren = (folderChildrenMap.get(folder.id)?.length ?? 0) > 0;
+                  const hasFiles = (filesInFolderMap.get(folder.id)?.length ?? 0) > 0;
+                  const isCollapsed = collapsedFolders.has(folder.id);
+                  const isRenaming = renamingFolderId === folder.id;
+                  const perms = allPermissions.get(folder.id);
+                  const hasWarning = hasRequiredFolderFields;
+
+                  const isFolderHighlighted = highlightedId === folder.id;
+                  return (
+                    <tr
+                      key={`folder-${folder.id}`}
+                      ref={isFolderHighlighted ? highlightRowRef : undefined}
+                      className={`border-b border-border/50 hover:bg-muted/30 group transition-all duration-300 ${isFolderHighlighted ? 'bg-primary/10 ring-1 ring-primary/20' : ''}`}
+                    >
+                      {/* Collapse toggle */}
+                      <td className="px-2 py-3 border-r border-border/50 text-center">
+                        {(hasChildren || hasFiles) ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setCollapsedFolders((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(folder.id)) next.delete(folder.id);
+                                else next.add(folder.id);
+                                return next;
+                              });
+                            }}
+                            className="h-7 w-7 text-muted-foreground hover:text-primary transition-colors p-1 rounded-md hover:bg-primary/10 shadow-none"
+                          >
+                            {isCollapsed
+                              ? <ChevronRight className="h-3.5 w-3.5" />
+                              : <ChevronDown className="h-3.5 w-3.5" />}
+                          </Button>
+                        ) : null}
+                      </td>
+
+                      {/* Permission checkboxes */}
+                      {showPermissions && permissionColumns.map((col) => (
+                        <td key={col.key} className="text-center px-1 py-1 border-r border-border/50 bg-muted/10">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(perms?.[col.key])}
+                            disabled={!canManagePermissions}
+                            onChange={() => togglePermission(folder.id, col.key)}
+                            className="rounded border-border h-3.5 w-3.5 text-primary focus:ring-primary/20"
+                          />
+                        </td>
+                      ))}
+
+                      {/* Folder name — click to expand/collapse */}
+                      <td
+                        className="px-4 py-3 cursor-pointer select-none"
+                        onClick={() => {
+                          if (isRenaming) return;
+                          setCollapsedFolders((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(folder.id)) next.delete(folder.id);
+                            else next.add(folder.id);
+                            return next;
+                          });
+                        }}
+                      >
+                        <div className="flex items-center gap-3" style={{ paddingLeft: `${row.depth * 24}px` }}>
+                          {hasWarning && <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 animate-pulse" />}
+                          <div className="p-1.5 rounded-lg bg-amber-500/10 shrink-0">
+                            <Folder className="h-4 w-4 text-amber-500" />
+                          </div>
+                          {isRenaming ? (
+                            <input
+                              autoFocus
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onBlur={handleRenameFolder}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleRenameFolder();
+                                if (e.key === 'Escape') { setRenamingFolderId(null); setRenameValue(''); }
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-xs font-bold text-primary bg-background/50 border border-primary/20 rounded-lg px-2 py-1 w-64 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                            />
+                          ) : (
+                            <span className="font-bold text-[13px] tracking-tight text-foreground/90 group-hover:text-primary transition-colors">{folder.name}</span>
+                          )}
+                          {(() => {
+                            const linkInfo = linkedMap.get(`folder:${folder.id}`);
+                            if (!linkInfo) return null;
+                            const label = linkInfo.type === 'field' && linkInfo.parentName
+                              ? `${linkInfo.parentName} → ${linkInfo.name}`
+                              : linkInfo.name;
+                            return (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wider uppercase text-blue-500 bg-blue-500/5 px-2 py-0.5 rounded-full border border-blue-500/10 cursor-default"
+                                title={`Linked to ${linkInfo.type}: ${label}`}
+                              >
+                                <LinkIcon className="h-3 w-3" />
+                                {label}
+                              </span>
+                            );
+                          })()}
+                          {savingPermission === folder.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
+                        </div>
+                      </td>
+
+                      {/* Actions */}
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200">
+                          {canEdit && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => { setUploadTargetFolderId(folder.id); fileInputRef.current?.click(); }}
+                              className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all shadow-none"
+                              title="Upload files"
+                            >
+                              <Upload className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {canEdit && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => { setUploadFolderTargetId(folder.id); subfolderInputRef.current?.click(); }}
+                              className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all shadow-none"
+                              title="Upload folder"
+                            >
+                              <FolderUp className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {canEdit && !isRenaming && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => { setRenamingFolderId(folder.id); setRenameValue(folder.name); }}
+                              className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all shadow-none"
+                              title="Rename"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {canEdit && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setConfirmDeleteFolder(folder.id)}
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-all shadow-none"
+                              title="Delete"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {canEdit && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => openLinkModal([{ name: folder.name, storagePath: `folder:${folder.id}` }])}
+                              className="h-8 w-8 text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 rounded-lg transition-all shadow-none"
+                              title="Link to Unit Data"
+                            >
+                              <LinkIcon className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
+
+                // File row
+                const file = row.file;
+                const isRenaming = renamingFileId === file.id;
+                const filePerms = allFilePermissions.get(file.id);
+
+                const isFileHighlighted = highlightedId === file.id;
+                return (
+                  <tr
+                    key={`file-${file.id}`}
+                    ref={isFileHighlighted ? highlightRowRef : undefined}
+                    className={`border-b border-border/50 hover:bg-muted/30 group transition-all duration-300 ${isFileHighlighted ? 'bg-primary/10 ring-1 ring-primary/20' : ''}`}
+                  >
+                    {/* Empty collapse cell */}
+                    <td className="border-r border-border/50" />
+
+                    {/* File permission checkboxes */}
+                    {showPermissions && permissionColumns.map((col) => (
+                      <td key={col.key} className="text-center px-1 py-1 border-r border-border/50 bg-muted/5">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(filePerms?.[col.key])}
+                          disabled={!canManagePermissions}
+                          onChange={() => toggleFilePermission(file.id, col.key)}
+                          className="rounded border-border h-3.5 w-3.5 text-primary focus:ring-primary/20"
+                        />
+                      </td>
+                    ))}
+
+                    {/* File name */}
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-3" style={{ paddingLeft: `${row.depth * 24 + 12}px` }}>
+                        <div className="p-1.5 rounded-lg bg-blue-500/10 shrink-0">
+                          <FileText className="h-4 w-4 text-blue-500" />
+                        </div>
+                        {isRenaming ? (
+                          <input
+                            autoFocus
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onBlur={handleRenameFile}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleRenameFile();
+                              if (e.key === 'Escape') { setRenamingFileId(null); setRenameValue(''); }
+                            }}
+                            className="text-xs font-bold text-primary bg-background/50 border border-primary/20 rounded-lg px-2 py-1 w-64 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                          />
+                        ) : file.storage_path ? (
+                          <Button
+                            variant="ghost"
+                            onClick={() => handleDownloadFile(file)}
+                            className="h-auto p-0 text-[13px] font-medium text-blue-500 hover:text-blue-400 hover:bg-transparent underline underline-offset-4 transition-all text-left wrap-break-word shadow-none normal-case tracking-normal"
+                          >
+                            {file.name}
+                          </Button>
+                        ) : (
+                          <span className="text-[13px] font-medium text-foreground/80 wrap-break-word">{file.name}</span>
+                        )}
+                        {(() => {
+                          const linkInfo = file.storage_path ? linkedMap.get(file.storage_path) : null;
+                          if (!linkInfo) return null;
+                          const label = linkInfo.type === 'field' && linkInfo.parentName
+                            ? `${linkInfo.parentName} → ${linkInfo.name}`
+                            : linkInfo.name;
+                          return (
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wider uppercase text-blue-500 bg-blue-500/5 px-2 py-0.5 rounded-full border border-blue-500/10 cursor-default"
+                              title={`Linked to ${linkInfo.type}: ${label}`}
+                            >
+                              <LinkIcon className="h-3 w-3" />
+                              {label}
+                            </span>
+                          );
+                        })()}
+                        {savingPermission === file.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
+                      </div>
+                    </td>
+
+                    {/* Actions */}
+                    <td className="px-4 py-2.5 text-right">
+                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200">
+                        {file.storage_path && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDownloadFile(file)}
+                            className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all shadow-none"
+                            title="Download"
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {canEdit && !isRenaming && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => { setRenamingFileId(file.id); setRenameValue(file.name); }}
+                            className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all shadow-none"
+                            title="Rename"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {canEdit && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeleteFile(file.id)}
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-all shadow-none"
+                            title="Delete"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {canEdit && file.storage_path && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openLinkModal([{ name: file.name, storagePath: file.storage_path! }])}
+                            className="h-8 w-8 text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 rounded-lg transition-all shadow-none"
+                            title="Link to Unit Data"
+                          >
+                            <LinkIcon className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ── Modals ── */}
+
+      {confirmDeleteFolder && (
         <Modal
-          isOpen={!!confirmArchiveId}
-          onClose={() => setConfirmArchiveId(null)}
-          title="Archive Item?"
+          isOpen={!!confirmDeleteFolder}
+          onClose={() => setConfirmDeleteFolder(null)}
+          title="Delete Folder?"
           description={
             <>
-              This will move the item to the <span className="text-amber-500 font-bold">ARCHIVE</span> folder in Google Drive. You can restore it later from the ARCHIVE folder.
+              This will permanently delete the folder and all files inside it. This action <span className="text-destructive font-bold uppercase tracking-tighter">cannot be undone</span>.
             </>
           }
           maxWidth="sm"
         >
           <div className="flex flex-col gap-3">
-            <Button variant="danger" onClick={() => handleArchiveItem(confirmArchiveId)} className="w-full">
-              Move to Archive
+            <Button
+              variant="danger"
+              onClick={() => handleDeleteFolder(confirmDeleteFolder)}
+              className="w-full"
+            >
+              Delete Folder
             </Button>
-            <Button variant="outline" onClick={() => setConfirmArchiveId(null)} className="w-full">
+            <Button
+              variant="outline"
+              onClick={() => setConfirmDeleteFolder(null)}
+              className="w-full"
+            >
               Cancel
             </Button>
           </div>
         </Modal>
       )}
 
-      <Modal isOpen={showAddCustomField} onClose={() => setShowAddCustomField(false)} title="Add Custom Field" maxWidth="md">
+      <Modal
+        isOpen={showAddCustomField}
+        onClose={() => setShowAddCustomField(false)}
+        title="Add Custom Field"
+        maxWidth="md"
+      >
         <div className="space-y-4">
           <div>
             <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Field Name</label>
             <input
-              type="text" autoFocus value={newCustomFieldName} onChange={(e) => setNewCustomFieldName(e.target.value)}
+              type="text"
+              autoFocus
+              value={newCustomFieldName}
+              onChange={(e) => setNewCustomFieldName(e.target.value)}
               className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
               placeholder="Enter field name..."
             />
@@ -1133,7 +1325,8 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
             <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Target</label>
             <div className="relative">
               <select
-                value={newCustomFieldTarget} onChange={(e) => setNewCustomFieldTarget(e.target.value as 'folder' | 'file')}
+                value={newCustomFieldTarget}
+                onChange={(e) => setNewCustomFieldTarget(e.target.value as 'folder' | 'file')}
                 className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium appearance-none"
               >
                 <option value="file">File</option>
@@ -1145,7 +1338,8 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
           <div>
             <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Warning Message</label>
             <textarea
-              value={newCustomFieldWarning} onChange={(e) => setNewCustomFieldWarning(e.target.value)}
+              value={newCustomFieldWarning}
+              onChange={(e) => setNewCustomFieldWarning(e.target.value)}
               className="w-full min-h-[90px] px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
               placeholder="Critical alert message..."
             />
@@ -1153,22 +1347,78 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
           <div>
             <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2 ml-1">Ignore Warning Days</label>
             <input
-              type="number" min={0} value={newCustomFieldIgnoreDays} onChange={(e) => setNewCustomFieldIgnoreDays(e.target.value)}
+              type="number"
+              min={0}
+              value={newCustomFieldIgnoreDays}
+              onChange={(e) => setNewCustomFieldIgnoreDays(e.target.value)}
               className="w-full px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
             />
           </div>
           <label className="inline-flex items-center gap-3 text-xs font-bold tracking-wide uppercase text-muted-foreground cursor-pointer select-none px-1">
-            <input type="checkbox" checked={newCustomFieldRequired} onChange={(e) => setNewCustomFieldRequired(e.target.checked)}
-              className="rounded border-border h-4 w-4 text-primary focus:ring-primary/20" />
+            <input
+              type="checkbox"
+              checked={newCustomFieldRequired}
+              onChange={(e) => setNewCustomFieldRequired(e.target.checked)}
+              className="rounded border-border h-4 w-4 text-primary focus:ring-primary/20"
+            />
             Required field
           </label>
           <div className="flex flex-col gap-3 mt-6">
-            <Button onClick={handleAddCustomField} disabled={!newCustomFieldName.trim()} className="w-full">Create Field</Button>
-            <Button variant="outline" onClick={() => setShowAddCustomField(false)} className="w-full">Cancel</Button>
+            <Button
+              onClick={handleAddCustomField}
+              disabled={!newCustomFieldName.trim()}
+              className="w-full"
+            >
+              Create Field
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setShowAddCustomField(false)}
+              className="w-full"
+            >
+              Cancel
+            </Button>
           </div>
         </div>
       </Modal>
 
+      <Modal
+        isOpen={showBackupRequest}
+        onClose={() => setShowBackupRequest(false)}
+        title="Request Backup"
+        maxWidth="md"
+        description="Request a manual backup from admins/developers when you need a full restore point."
+      >
+        <div className="space-y-6">
+          <textarea
+            value={backupReason}
+            onChange={(e) => setBackupReason(e.target.value)}
+            className="w-full min-h-[120px] px-4 py-3 bg-background/50 border border-primary/20 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium placeholder:text-muted-foreground/50"
+            placeholder="Reason for backup request..."
+          />
+          <div className="flex flex-col gap-3">
+            <Button
+              onClick={handleRequestBackup}
+              disabled={!backupReason.trim()}
+              className="w-full"
+            >
+              Submit Request
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setShowBackupRequest(false)}
+              className="w-full"
+            >
+              Cancel
+            </Button>
+          </div>
+          {isAdmin && (
+            <p className="text-[10px] text-center font-bold tracking-widest uppercase text-primary/60 px-2 leading-tight">
+              Admin mode: Fulfill requests in the database management console.
+            </p>
+          )}
+        </div>
+      </Modal>
       <Modal
         isOpen={showLinkModal}
         onClose={() => setShowLinkModal(false)}
@@ -1237,10 +1487,19 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
         </div>
 
         <div className="flex flex-col gap-3 shrink-0">
-          <Button isLoading={linkingInProgress} disabled={linkSelections.size === 0} onClick={handleLinkFiles} className="w-full">
+          <Button
+            isLoading={linkingInProgress}
+            disabled={linkSelections.size === 0}
+            onClick={handleLinkFiles}
+            className="w-full"
+          >
             Link Selected
           </Button>
-          <Button variant="outline" onClick={() => setShowLinkModal(false)} className="w-full">
+          <Button
+            variant="outline"
+            onClick={() => setShowLinkModal(false)}
+            className="w-full"
+          >
             Skip / Cancel
           </Button>
         </div>

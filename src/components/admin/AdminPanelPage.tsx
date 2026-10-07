@@ -1,16 +1,18 @@
 'use client';
 
-import { Plus, Upload, Loader2, ShieldAlert, Check, Trash2, Save, X } from 'lucide-react';
+import { Plus, Upload, Loader2, ShieldAlert, Check, Trash2, Save } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase/client';
 import { Project } from '@/lib/types/project';
 import { logUserAction } from '@/lib/db/user-logs';
 import { AdminRequest, getAdminRequests, resolveAdminRequest, deleteAdminRequest } from '@/lib/db/admin-requests';
+import { getAllBackupRequests, updateBackupRequestStatus } from '@/lib/db/files';
+import { ProjectFileBackupRequest } from '@/lib/types/files';
 import { UnitDataRecoveryRequest, getRecoveryRequests, resolveRecoveryRequest } from '@/lib/db/unit-data-recovery';
 import { restoreField, restoreCategory } from '@/lib/db/unit-data';
 import { getProjectSettings, saveProjectSettings } from '@/lib/db/project-settings';
-import { getBankTypes, updateBankTypePrompt, createBankType, approveBankType, rejectBankType } from '@/lib/db/financial';
+import { getBankTypes, updateBankTypePrompt } from '@/lib/db/financial';
 import { FinancialBankType } from '@/lib/types/financial';
 
 const STATUS_OPTIONS = ['Critical', 'Problematic', 'Needs Attention', 'Good', 'Excellent'] as const;
@@ -53,11 +55,11 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
   const [bankTypes, setBankTypes] = useState<FinancialBankType[]>([]);
   const [savingPrompts, setSavingPrompts] = useState(false);
   const [promptSaveMsg, setPromptSaveMsg] = useState('');
-  const [showAddBankType, setShowAddBankType] = useState(false);
-  const [newBankTypeName, setNewBankTypeName] = useState('');
 
   const [requests, setRequests] = useState<AdminRequest[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
+  const [backupRequests, setBackupRequests] = useState<(ProjectFileBackupRequest & { project_name: string })[]>([]);
+  const [loadingBackupRequests, setLoadingBackupRequests] = useState(false);
   const [recoveryRequests, setRecoveryRequests] = useState<UnitDataRecoveryRequest[]>([]);
   const [loadingRecoveryRequests, setLoadingRecoveryRequests] = useState(false);
 
@@ -80,6 +82,8 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
     loadProjects();
     setLoadingRequests(true);
     getAdminRequests().then((data) => { setRequests(data); setLoadingRequests(false); });
+    setLoadingBackupRequests(true);
+    getAllBackupRequests().then((data) => { setBackupRequests(data); setLoadingBackupRequests(false); });
     setLoadingRecoveryRequests(true);
     getRecoveryRequests().then((data) => { setRecoveryRequests(data); setLoadingRecoveryRequests(false); });
   }, [isAdmin]);
@@ -181,29 +185,6 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
     await updateBankTypePrompt(bankTypeId, bt.ai_prompt);
   };
 
-  const handleAddBankType = async () => {
-    if (!selectedProjectId || !newBankTypeName.trim()) return;
-    const bt = await createBankType(selectedProjectId, newBankTypeName.trim(), 'approved');
-    if (bt) setBankTypes((prev) => [...prev, bt]);
-    setNewBankTypeName('');
-    setShowAddBankType(false);
-  };
-
-  const handleApproveBankType = async (id: string) => {
-    const ok = await approveBankType(id);
-    if (ok) setBankTypes((prev) => prev.map((b) => b.id === id ? { ...b, status: 'approved' } : b));
-  };
-
-  const handleRejectBankType = async (id: string) => {
-    const ok = await rejectBankType(id);
-    if (ok) setBankTypes((prev) => prev.filter((b) => b.id !== id));
-  };
-
-  const handleDeleteBankType = async (id: string) => {
-    const ok = await rejectBankType(id);
-    if (ok) setBankTypes((prev) => prev.filter((b) => b.id !== id));
-  };
-
   // Update project field
   const updateProjectField = async (projectId: string, field: string, value: string | number | null) => {
     const { error } = await supabase
@@ -229,7 +210,7 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
     // Log admin action
     if (user && project) {
       const fieldLabel = field.charAt(0).toUpperCase() + field.slice(1);
-      logUserAction({ projectId, userId: user.id, userName: 'AdminJon', userEmail: 'presaling@gmail.com', action: `Changed ${fieldLabel} to "${value}" for project "${project.name}"` });
+      logUserAction({ projectId, userId: user.id, userName: 'AdminJon', userEmail: 'admin@zhl.com', action: `Changed ${fieldLabel} to "${value}" for project "${project.name}"` });
     }
   };
 
@@ -241,6 +222,11 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
   const handleDeleteRequest = async (id: string) => {
     const ok = await deleteAdminRequest(id);
     if (ok) setRequests((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const handleBackupRequestStatus = async (id: string, status: ProjectFileBackupRequest['status']) => {
+    const ok = await updateBackupRequestStatus(id, status);
+    if (ok) setBackupRequests((prev) => prev.map((r) => r.id === id ? { ...r, status } : r));
   };
 
   const handleRecoveryRequest = async (req: UnitDataRecoveryRequest, action: 'approved' | 'rejected') => {
@@ -464,122 +450,52 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
 
         {/* REPORT TYPES SECTION */}
         <section className="mb-12">
-          <h2 className="text-lg font-bold mb-6 pb-3 border-b border-border">
-            REPORT TYPES
-            {bankTypes.filter((b) => b.status === 'pending').length > 0 && (
-              <span className="ml-2 text-xs bg-amber-500 text-white px-2 py-0.5 rounded-full font-semibold">
-                {bankTypes.filter((b) => b.status === 'pending').length} pending
-              </span>
-            )}
-          </h2>
+          <h2 className="text-lg font-bold mb-6 pb-3 border-b border-border">REPORT TYPES</h2>
 
           <div className="ml-6 space-y-4">
             {!selectedProjectId ? (
               <p className="text-sm text-muted-foreground py-4">Select a project above to manage report types.</p>
+            ) : bankTypes.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4">No bank types found for this project.</p>
             ) : (
-              <>
-                {/* Pending requests */}
-                {bankTypes.filter((b) => b.status === 'pending').length > 0 && (
-                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
-                    <h4 className="text-xs font-bold tracking-wider uppercase text-amber-500 mb-3">Pending Requests</h4>
-                    <div className="space-y-2">
-                      {bankTypes.filter((b) => b.status === 'pending').map((bt) => (
-                        <div key={bt.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-background/50 border border-border/50">
+              <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-muted/30 border-b border-border/50">
+                      <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Type</th>
+                      <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">AI Prompt</th>
+                      <th className="px-4 py-4 w-16"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bankTypes.map((bt) => (
+                      <tr key={bt.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
+                        <td className="px-4 py-3">
                           <span className="text-xs font-medium">{bt.name}</span>
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => handleApproveBankType(bt.id)}
-                              title="Approve"
-                              className="p-1.5 text-muted-foreground hover:text-green-500 transition-colors"
-                            >
-                              <Check className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => handleRejectBankType(bt.id)}
-                              title="Reject"
-                              className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Approved types table */}
-                {bankTypes.filter((b) => !b.status || b.status === 'approved').length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-4">No bank types found for this project.</p>
-                ) : (
-                  <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-muted/30 border-b border-border/50">
-                          <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Type</th>
-                          <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">AI Prompt</th>
-                          <th className="px-4 py-4 w-20"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {bankTypes.filter((b) => !b.status || b.status === 'approved').map((bt) => (
-                          <tr key={bt.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
-                            <td className="px-4 py-3">
-                              <span className="text-xs font-medium">{bt.name}</span>
-                            </td>
-                            <td className="px-4 py-3">
-                              <input
-                                type="text"
-                                className="border border-input rounded px-2 py-1 bg-background text-foreground text-xs w-full"
-                                placeholder="Enter AI prompt..."
-                                value={bt.ai_prompt}
-                                onChange={(e) => handleBankTypePromptChange(bt.id, e.target.value)}
-                              />
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-1">
-                                <button
-                                  onClick={() => handleSaveBankTypePrompt(bt.id)}
-                                  title="Save prompt"
-                                  className="p-1 text-muted-foreground hover:text-accent transition-colors"
-                                >
-                                  <Save className="h-3.5 w-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteBankType(bt.id)}
-                                  title="Delete type"
-                                  className="p-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {/* Add new type */}
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={newBankTypeName}
-                    onChange={(e) => setNewBankTypeName(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddBankType(); }}
-                    placeholder="New report type name..."
-                    className="px-3 py-2 bg-background/50 border border-input rounded-lg text-xs w-64 focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  />
-                  <button
-                    onClick={handleAddBankType}
-                    disabled={!newBankTypeName.trim()}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold tracking-wider uppercase bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-40 transition-all"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Add Type
-                  </button>
-                </div>
-              </>
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="text"
+                            className="border border-input rounded px-2 py-1 bg-background text-foreground text-xs w-full"
+                            placeholder="Enter AI prompt..."
+                            value={bt.ai_prompt}
+                            onChange={(e) => handleBankTypePromptChange(bt.id, e.target.value)}
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => handleSaveBankTypePrompt(bt.id)}
+                            title="Save prompt"
+                            className="p-1 text-muted-foreground hover:text-accent transition-colors"
+                          >
+                            <Save className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </section>
@@ -588,9 +504,9 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
         <section>
           <h2 className="text-lg font-bold mb-6 pb-3 border-b border-border">
             Requests
-            {(requests.filter((r) => r.status === 'pending').length + recoveryRequests.filter((r) => r.status === 'pending').length) > 0 && (
+            {(requests.filter((r) => r.status === 'pending').length + backupRequests.filter((r) => r.status === 'pending').length + recoveryRequests.filter((r) => r.status === 'pending').length) > 0 && (
               <span className="ml-2 text-xs bg-red-500 text-white px-2 py-0.5 rounded-full font-semibold">
-                {requests.filter((r) => r.status === 'pending').length + recoveryRequests.filter((r) => r.status === 'pending').length} new
+                {requests.filter((r) => r.status === 'pending').length + backupRequests.filter((r) => r.status === 'pending').length + recoveryRequests.filter((r) => r.status === 'pending').length} new
               </span>
             )}
           </h2>
@@ -654,6 +570,71 @@ export default function AdminPanelPage({ onProjectStatusChange }: AdminPanelPage
             )}
           </div>
 
+          {/* Backup Requests subsection */}
+          <div className="mt-8">
+            <h3 className="text-base font-semibold mb-4 pb-2 border-b border-border flex items-center gap-2">
+              Backup Requests
+              {backupRequests.filter((r) => r.status === 'pending').length > 0 && (
+                <span className="text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full font-semibold">
+                  {backupRequests.filter((r) => r.status === 'pending').length} pending
+                </span>
+              )}
+            </h3>
+            <div className="ml-6 space-y-3">
+              {loadingBackupRequests ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading backup requests...
+                </div>
+              ) : backupRequests.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4">No backup requests yet.</p>
+              ) : (
+                backupRequests.map((req) => {
+                  const statusColors: Record<string, string> = {
+                    pending:   'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+                    approved:  'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+                    fulfilled: 'bg-green-500/10 text-green-600 dark:text-green-400',
+                    rejected:  'bg-red-500/10 text-red-600 dark:text-red-400',
+                  };
+                  return (
+                    <div key={req.id} className={`border border-input rounded-lg p-4 ${req.status !== 'pending' ? 'opacity-60' : 'hover:bg-muted/30'} transition-colors`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="text-xs font-semibold text-foreground">{req.project_name}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${statusColors[req.status]}`}>
+                              {req.status}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mb-2">
+                            {new Date(req.created_at).toLocaleString()}
+                          </p>
+                          <p className="text-sm text-foreground">{req.reason ?? '(no reason provided)'}</p>
+                        </div>
+                        {req.status === 'pending' && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => handleBackupRequestStatus(req.id, 'fulfilled')}
+                              title="Mark as fulfilled"
+                              className="p-1.5 text-muted-foreground hover:text-green-600 dark:hover:text-green-400 transition-colors"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleBackupRequestStatus(req.id, 'rejected')}
+                              title="Reject"
+                              className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
           {/* Unit Data Recovery Requests subsection */}
           <div className="mt-8">
             <h3 className="text-base font-semibold mb-4 pb-2 border-b border-border flex items-center gap-2">

@@ -1,436 +1,84 @@
 import { supabase } from '@/lib/supabase/client';
 import {
+  ProjectFileBackup,
+  ProjectFileBackupRequest,
   ProjectFileCustomField,
   ProjectFileCustomFieldValue,
+  ProjectFileDownloadLog,
+  ProjectFileFolder,
   ProjectFileFolderPermissions,
+  ProjectFileItem,
   ProjectFileItemPermissions,
-  ProjectDriveConfig,
-  DriveItem,
 } from '@/lib/types/files';
 
-// ── Drive Configuration ─────────────────────────────────────────────────────
-
-export async function getDriveConfig(projectId: string): Promise<ProjectDriveConfig | null> {
+export async function getFileFolders(projectId: string): Promise<ProjectFileFolder[]> {
   const { data, error } = await supabase
-    .from('zhl_project_drive_config')
+    .from('zhl_project_file_folders')
     .select('*')
     .eq('project_id', projectId)
-    .maybeSingle();
+    .order('sort_order')
+    .order('created_at');
 
   if (error) {
-    console.error('Error fetching drive config:', error.message, error.code);
-    return null;
+    console.error('Error fetching file folders:', error.message, error.code);
+    return [];
   }
-  return data;
+  return data ?? [];
 }
 
-export async function upsertDriveConfig(config: {
-  projectId: string;
-  rootFolderId: string;
-  rootFolderUrl: string;
-  archiveFolderId?: string | null;
-  configuredBy: string | null;
-}): Promise<ProjectDriveConfig | null> {
+export async function createFileFolder(
+  projectId: string,
+  name: string,
+  parentFolderId: string | null,
+  sortOrder: number,
+  userId: string | null
+): Promise<ProjectFileFolder | null> {
   const { data, error } = await supabase
-    .from('zhl_project_drive_config')
-    .upsert(
-      {
-        project_id: config.projectId,
-        root_folder_id: config.rootFolderId,
-        root_folder_url: config.rootFolderUrl,
-        archive_folder_id: config.archiveFolderId ?? null,
-        configured_by: config.configuredBy,
-      },
-      { onConflict: 'project_id' }
-    )
+    .from('zhl_project_file_folders')
+    .insert({
+      project_id: projectId,
+      name,
+      parent_folder_id: parentFolderId,
+      sort_order: sortOrder,
+      created_by: userId,
+    })
     .select()
     .single();
 
   if (error) {
-    console.error('Error upserting drive config:', error.message, error.code);
+    console.error('Error creating file folder:', error.message, error.code);
     return null;
   }
   return data;
 }
 
-export async function updateDriveConfigArchiveId(
-  projectId: string,
-  archiveFolderId: string
-): Promise<boolean> {
-  const { error } = await supabase
-    .from('zhl_project_drive_config')
-    .update({ archive_folder_id: archiveFolderId })
-    .eq('project_id', projectId);
+export async function getFilesForProject(projectId: string): Promise<ProjectFileItem[]> {
+  const { data, error } = await supabase
+    .from('zhl_project_files')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false });
 
   if (error) {
-    console.error('Error updating archive folder ID:', error.message);
-    return false;
+    console.error('Error fetching files:', error.message, error.code);
+    return [];
   }
-  return true;
+  return data ?? [];
 }
 
-// ── Drive API Proxy (calls Next.js /api/drive which proxies to Apps Script) ──
+export async function getFolderPermissions(folderId: string): Promise<ProjectFileFolderPermissions | null> {
+  const { data, error } = await supabase
+    .from('zhl_project_file_folder_permissions')
+    .select('*')
+    .eq('folder_id', folderId)
+    .maybeSingle();
 
-export async function callDriveProxy(
-  projectId: string,
-  action: string,
-  params: Record<string, unknown> = {}
-): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-  try {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData?.session?.access_token;
-
-    if (!accessToken) {
-      return { ok: false, error: 'Not authenticated.' };
-    }
-
-    const res = await fetch('/api/drive', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ projectId, action, params }),
-    });
-
-    const json = await res.json();
-
-    if (!res.ok) {
-      return { ok: false, error: json.error || `HTTP ${res.status}` };
-    }
-
-    return { ok: true, data: json };
-  } catch (err) {
-    console.error('Drive proxy call failed:', err);
-    return { ok: false, error: 'Network error calling Drive API.' };
+  if (error) {
+    console.error('Error fetching folder permissions:', error.message, error.code);
+    return null;
   }
-}
-
-// ── Convenience wrappers for Drive operations ───────────────────────────────
-
-export async function listDriveFolder(
-  projectId: string,
-  folderId: string
-): Promise<DriveItem[]> {
-  const result = await callDriveProxy(projectId, 'listFolderRecursive', { folderId });
-  if (!result.ok || !result.data) return [];
-
-  const raw = (result.data as { files?: Array<Record<string, unknown>> }).files || [];
-  return raw.map((f) => mapDriveFile(f, (f.parentId as string) || null));
-}
-
-/** List direct children of a folder (non-recursive, for lazy-loading tree). */
-export async function listDriveFolderDirect(
-  projectId: string,
-  folderId: string
-): Promise<{ items: DriveItem[]; ownerEmail: string | null }> {
-  const result = await callDriveProxy(projectId, 'listFolder', { folderId });
-  if (!result.ok || !result.data) return { items: [], ownerEmail: null };
-
-  const data = result.data as { files?: Array<Record<string, unknown>>; ownerEmail?: string | null };
-  const raw = data.files || [];
-  return { items: raw.map((f) => mapDriveFile(f, folderId)), ownerEmail: data.ownerEmail || null };
-}
-
-function mapDriveFile(f: Record<string, unknown>, parentId: string | null): DriveItem {
-  return {
-    id: f.id as string,
-    parentId,
-    name: f.name as string,
-    mimeType: (f.mimeType as string) || null,
-    size: f.size ? Number(f.size) : null,
-    isFolder: f.mimeType === 'application/vnd.google-apps.folder',
-    webViewLink: (f.webViewLink as string) || null,
-    webContentLink: (f.webContentLink as string) || null,
-    modifiedTime: (f.modifiedTime as string) || null,
-    iconLink: (f.iconLink as string) || null,
-    thumbnailLink: (f.thumbnailLink as string) || null,
-  };
-}
-
-/** Get raw file content for text-preview (proxied through Drive API). */
-export async function getDriveFileContent(
-  projectId: string,
-  fileId: string
-): Promise<string | null> {
-  const result = await callDriveProxy(projectId, 'getFileContent', { fileId });
-  if (!result.ok || !result.data) return null;
-  return (result.data as { content?: string }).content ?? null;
-}
-
-/** Get raw binary file content as a blob URL (for videos, images, Office docs). */
-export async function getDriveFileBinary(
-  projectId: string,
-  fileId: string
-): Promise<{ blobUrl: string; contentType: string } | null> {
-  const result = await callDriveProxy(projectId, 'getFileBinary', { fileId });
-  if (!result.ok || !result.data) return null;
-  const { base64, contentType } = result.data as { base64: string; contentType: string };
-  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-  const blob = new Blob([bytes], { type: contentType });
-  return { blobUrl: URL.createObjectURL(blob), contentType };
-}
-
-/** Get a Drive file as an ArrayBuffer (for mammoth DOCX→HTML conversion). */
-export async function getDriveFileArrayBuffer(
-  projectId: string,
-  fileId: string
-): Promise<ArrayBuffer | null> {
-  const result = await callDriveProxy(projectId, 'getFileBinary', { fileId });
-  if (!result.ok || !result.data) return null;
-  const { base64 } = result.data as { base64: string };
-  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-  return bytes.buffer;
-}
-
-/** Export a Google Workspace file as HTML. */
-export async function exportGoogleDocAsHtml(
-  projectId: string,
-  fileId: string
-): Promise<string | null> {
-  const result = await callDriveProxy(projectId, 'exportGoogleDoc', { fileId, exportMime: 'text/html' });
-  if (!result.ok || !result.data) return null;
-  return (result.data as { content?: string }).content ?? null;
-}
-
-/** Convert Office file (.pptx/.xlsx/.ppt/.xls) to PDF and return as blob URL. */
-export async function convertOfficeToPdf(
-  projectId: string,
-  fileId: string,
-  mimeType: string
-): Promise<string | null> {
-  const result = await callDriveProxy(projectId, 'convertOfficeToPdf', { fileId, mimeType });
-  if (!result.ok || !result.data) return null;
-  const { base64, contentType } = result.data as { base64: string; contentType: string };
-  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-  const blob = new Blob([bytes], { type: contentType });
-  return URL.createObjectURL(blob);
-}
-
-/** Get a file's thumbnail as blob URL. */
-export async function getDriveFileThumbnail(
-  projectId: string,
-  fileId: string
-): Promise<string | null> {
-  const result = await callDriveProxy(projectId, 'getThumbnail', { fileId });
-  if (!result.ok || !result.data) return null;
-  const { base64, contentType } = result.data as { base64: string; contentType: string };
-  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-  const blob = new Blob([bytes], { type: contentType });
-  return URL.createObjectURL(blob);
-}
-
-export async function createDriveFolder(
-  projectId: string,
-  name: string,
-  parentId: string
-): Promise<{ ok: boolean; folderId?: string; error?: string }> {
-  const result = await callDriveProxy(projectId, 'createFolder', { name, parentId });
-  if (!result.ok) return { ok: false, error: result.error };
-  const data = result.data as { id?: string };
-  return { ok: true, folderId: data.id };
-}
-
-export async function renameDriveItem(
-  projectId: string,
-  fileId: string,
-  newName: string
-): Promise<boolean> {
-  const result = await callDriveProxy(projectId, 'renameFile', { fileId, newName });
-  return result.ok;
-}
-
-export async function moveDriveItem(
-  projectId: string,
-  fileId: string,
-  fromFolderId: string,
-  toFolderId: string
-): Promise<boolean> {
-  const result = await callDriveProxy(projectId, 'moveFile', { fileId, fromFolderId, toFolderId });
-  return result.ok;
-}
-
-export async function archiveDriveItem(
-  projectId: string,
-  fileId: string,
-  currentParentId: string,
-  archiveFolderId: string
-): Promise<boolean> {
-  const result = await callDriveProxy(projectId, 'deleteFile', {
-    fileId,
-    currentParentId,
-    archiveFolderId,
-  });
-  return result.ok;
-}
-
-export async function restoreDriveItem(
-  projectId: string,
-  fileId: string,
-  archiveFolderId: string,
-  targetFolderId: string
-): Promise<boolean> {
-  const result = await callDriveProxy(projectId, 'restoreFile', {
-    fileId,
-    archiveFolderId,
-    targetFolderId,
-  });
-  return result.ok;
-}
-
-export async function ensureArchiveFolder(
-  projectId: string,
-  rootFolderId: string
-): Promise<string | null> {
-  const result = await callDriveProxy(projectId, 'ensureArchive', { rootFolderId });
-  if (!result.ok) return null;
-  const data = result.data as { archiveFolderId?: string };
-  return data.archiveFolderId || null;
-}
-
-/** Upload a file to Google Drive. */
-export async function uploadFileToDrive(
-  projectId: string,
-  file: File,
-  parentId: string,
-  /** Override the file name on Drive (defaults to file.name). */
-  customName?: string
-): Promise<{ ok: boolean; error?: string; fileId?: string; fileName?: string }> {
-  // Convert file to base64
-  const arrayBuffer = await file.arrayBuffer();
-  const base64 = btoa(
-    new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-  );
-
-  const result = await callDriveProxy(projectId, 'uploadFile', {
-    fileName: customName || file.name,
-    parentId,
-    mimeType: file.type || 'application/octet-stream',
-    base64Content: base64,
-  });
-
-  if (!result.ok) return { ok: false, error: result.error };
-  const data = result.data as { id?: string; name?: string } | undefined;
-  return { ok: true, fileId: data?.id, fileName: data?.name ?? customName ?? file.name };
-}
-
-/** Import a non-native file (CSV, DOCX, etc.) as a native Google format for iframe editing. */
-export async function importToGoogleFormat(
-  projectId: string,
-  fileId: string,
-  mimeType: string,
-  fileName: string
-): Promise<{ googleFileId: string; editorUrl: string } | null> {
-  const result = await callDriveProxy(projectId, 'importToGoogle', { fileId, mimeType, fileName });
-  if (!result.ok || !result.data) return null;
-  const data = result.data as { googleFileId: string; editorUrl: string };
   return data;
 }
-
-/** Share a Drive file so anyone with the link can edit (needed for iframe embedding). */
-export async function shareDriveFile(
-  projectId: string,
-  fileId: string
-): Promise<boolean> {
-  const result = await callDriveProxy(projectId, 'shareFile', { fileId });
-  return result.ok;
-}
-
-/** Update the content of an existing file on Google Drive. */
-export async function updateDriveFileContent(
-  projectId: string,
-  fileId: string,
-  content: string,
-  mimeType: string = 'text/plain'
-): Promise<{ ok: boolean; error?: string }> {
-  const result = await callDriveProxy(projectId, 'updateFileContent', {
-    fileId,
-    content,
-    mimeType,
-  });
-  if (!result.ok) return { ok: false, error: result.error };
-  return { ok: true };
-}
-
-/** Sync PDF edit: export Google Doc copy back as PDF, overwrite original, delete copy. */
-export async function syncPdfEdit(
-  projectId: string,
-  originalFileId: string,
-  googleDocId: string
-): Promise<{ ok: boolean; blobUrl?: string; error?: string }> {
-  const result = await callDriveProxy(projectId, 'syncPdfEdit', { originalFileId, googleDocId });
-  if (!result.ok) return { ok: false, error: result.error };
-
-  // Build blob URL from the returned PDF data to avoid a second fetch
-  const { base64, contentType } = result.data as { base64?: string; contentType?: string };
-  if (base64) {
-    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-    const blob = new Blob([bytes], { type: contentType || 'application/pdf' });
-    return { ok: true, blobUrl: URL.createObjectURL(blob) };
-  }
-
-  return { ok: true };
-}
-
-/** Sync CSV edit: export Google Sheet back as CSV, overwrite original, delete copy. */
-export async function syncCsvEdit(
-  projectId: string,
-  originalFileId: string,
-  googleSheetId: string
-): Promise<{ ok: boolean; content?: string; error?: string }> {
-  const result = await callDriveProxy(projectId, 'syncCsvEdit', { originalFileId, googleSheetId });
-  if (!result.ok) return { ok: false, error: result.error };
-  const { content } = result.data as { content?: string };
-  return { ok: true, content };
-}
-
-/** Update a binary file on Drive (e.g. modified PDF). */
-export async function updateDriveFileBinary(
-  projectId: string,
-  fileId: string,
-  data: Uint8Array,
-  mimeType: string = 'application/pdf'
-): Promise<{ ok: boolean; error?: string }> {
-  // Convert Uint8Array to base64
-  let binary = '';
-  const bytes = data;
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  const base64 = btoa(binary);
-
-  const result = await callDriveProxy(projectId, 'updateFileContent', {
-    fileId,
-    content: base64,
-    mimeType,
-    isBase64: true,
-  });
-  if (!result.ok) return { ok: false, error: result.error };
-  return { ok: true };
-}
-
-/** Update a DOCX file on Drive from HTML (server-side HTML→DOCX conversion). */
-export async function updateDriveDocx(
-  projectId: string,
-  fileId: string,
-  html: string
-): Promise<{ ok: boolean; error?: string }> {
-  const result = await callDriveProxy(projectId, 'updateDocx', { fileId, html });
-  if (!result.ok) return { ok: false, error: result.error };
-  return { ok: true };
-}
-
-/** Remove all public "anyone with the link" permissions from all files in a folder. */
-export async function removePublicAccessFromAll(
-  projectId: string,
-  folderId: string
-): Promise<{ filesProcessed: number; permissionsRemoved: number } | null> {
-  const result = await callDriveProxy(projectId, 'removePublicAccess', { folderId });
-  if (!result.ok || !result.data) return null;
-  return result.data as { filesProcessed: number; permissionsRemoved: number };
-}
-
-// ── Permissions (unchanged — UI-only visibility controls) ───────────────────
 
 export async function getAllFolderPermissions(projectId: string): Promise<ProjectFileFolderPermissions[]> {
   const { data, error } = await supabase
@@ -531,8 +179,6 @@ export async function upsertFilePermissions(payload: {
   }
   return data;
 }
-
-// ── Custom Fields (unchanged) ───────────────────────────────────────────────
 
 export async function getCustomFields(projectId: string): Promise<ProjectFileCustomField[]> {
   const { data, error } = await supabase
@@ -638,9 +284,258 @@ export async function upsertCustomFieldValue(payload: {
   return data;
 }
 
-// ── Unit Data Linking (updated to use Drive file IDs) ───────────────────────
+export async function getMonthlyDownloadLog(projectId: string, monthStartIso: string): Promise<ProjectFileDownloadLog[]> {
+  const { data, error } = await supabase
+    .from('zhl_project_file_download_logs')
+    .select('*')
+    .eq('project_id', projectId)
+    .gte('created_at', monthStartIso)
+    .order('created_at', { ascending: false });
 
-/** Get a map of Drive file/folder ID -> linked target info for all linked items in a project. */
+  if (error) {
+    console.error('Error fetching monthly download log:', error.message, error.code);
+    return [];
+  }
+
+  return data ?? [];
+}
+
+export async function logDownloadAll(projectId: string, userId: string | null): Promise<ProjectFileDownloadLog | null> {
+  const { data, error } = await supabase
+    .from('zhl_project_file_download_logs')
+    .insert({
+      project_id: projectId,
+      requested_by: userId,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error logging download-all request:', error.message, error.code);
+    return null;
+  }
+
+  return data;
+}
+
+export async function getBackups(projectId: string): Promise<ProjectFileBackup[]> {
+  const { data, error } = await supabase
+    .from('zhl_project_file_backups')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching backups:', error.message, error.code);
+    return [];
+  }
+
+  return data ?? [];
+}
+
+export async function getBackupRequests(projectId: string): Promise<ProjectFileBackupRequest[]> {
+  const { data, error } = await supabase
+    .from('zhl_project_file_backup_requests')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching backup requests:', error.message, error.code);
+    return [];
+  }
+
+  return data ?? [];
+}
+
+/** Admin: fetch all backup requests across all projects, joined with project name. */
+export async function getAllBackupRequests(): Promise<(ProjectFileBackupRequest & { project_name: string })[]> {
+  const { data, error } = await supabase
+    .from('zhl_project_file_backup_requests')
+    .select('*, zhl_projects(name)')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching all backup requests:', error.message, error.code, error.details, error.hint);
+    return [];
+  }
+
+  return (data ?? []).map((r: ProjectFileBackupRequest & { zhl_projects: { name: string } | null }) => ({
+    ...r,
+    project_name: r.zhl_projects?.name ?? 'Unknown Project',
+  }));
+}
+
+/** Admin: update the status of a backup request. */
+export async function updateBackupRequestStatus(
+  requestId: string,
+  status: ProjectFileBackupRequest['status'],
+  responseNote?: string
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('zhl_project_file_backup_requests')
+    .update({ status, response_note: responseNote ?? null, responded_at: new Date().toISOString() })
+    .eq('id', requestId);
+
+  if (error) {
+    console.error('Error updating backup request status:', error.message, error.code);
+    return false;
+  }
+  return true;
+}
+
+export async function createBackupRequest(projectId: string, userId: string | null, reason: string): Promise<ProjectFileBackupRequest | null> {
+  const { data, error } = await supabase
+    .from('zhl_project_file_backup_requests')
+    .insert({
+      project_id: projectId,
+      requested_by: userId,
+      reason,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating backup request:', error.message, error.code);
+    return null;
+  }
+
+  return data;
+}
+
+// ── Storage operations ───────────────────────────────────────────────
+
+const BUCKET = 'project-files';
+
+export async function uploadFile(
+  projectId: string,
+  folderId: string | null,
+  file: File,
+  userId: string | null
+): Promise<ProjectFileItem | null> {
+  const ts = Date.now();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const storagePath = folderId
+    ? `${projectId}/${folderId}/${ts}_${safeName}`
+    : `${projectId}/${ts}_${safeName}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(BUCKET)
+    .upload(storagePath, file);
+
+  if (uploadError) {
+    console.error('Error uploading file:', uploadError);
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from('zhl_project_files')
+    .insert({
+      project_id: projectId,
+      folder_id: folderId,
+      name: file.name,
+      storage_path: storagePath,
+      mime_type: file.type || null,
+      size_bytes: file.size,
+      uploaded_by: userId,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error inserting file metadata:', error.message, error.code);
+    await supabase.storage.from(BUCKET).remove([storagePath]);
+    return null;
+  }
+
+  return data;
+}
+
+export async function downloadFileUrl(storagePath: string): Promise<string | null> {
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrl(storagePath, 60);
+
+  if (error) {
+    console.error('Error creating signed URL:', error.message);
+    return null;
+  }
+
+  return data.signedUrl;
+}
+
+export async function deleteFile(fileId: string): Promise<boolean> {
+  const { data: file, error: fetchError } = await supabase
+    .from('zhl_project_files')
+    .select('storage_path')
+    .eq('id', fileId)
+    .maybeSingle();
+
+  if (fetchError || !file) {
+    console.error('Error fetching file for deletion:', fetchError);
+    return false;
+  }
+
+  if (file.storage_path) {
+    await supabase.storage.from(BUCKET).remove([file.storage_path]);
+  }
+
+  const { error } = await supabase.from('zhl_project_files').delete().eq('id', fileId);
+  if (error) {
+    console.error('Error deleting file metadata:', error.message, error.code);
+    return false;
+  }
+
+  return true;
+}
+
+export async function deleteFolder(folderId: string): Promise<boolean> {
+  const { data: filesInFolder } = await supabase
+    .from('zhl_project_files')
+    .select('storage_path')
+    .eq('folder_id', folderId);
+
+  if (filesInFolder && filesInFolder.length > 0) {
+    const paths = filesInFolder.map((f) => f.storage_path).filter(Boolean) as string[];
+    if (paths.length > 0) {
+      await supabase.storage.from(BUCKET).remove(paths);
+    }
+  }
+
+  const { error } = await supabase.from('zhl_project_file_folders').delete().eq('id', folderId);
+  if (error) {
+    console.error('Error deleting folder:', error.message, error.code);
+    return false;
+  }
+
+  return true;
+}
+
+export async function renameFolder(folderId: string, newName: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('zhl_project_file_folders')
+    .update({ name: newName })
+    .eq('id', folderId);
+  if (error) {
+    console.error('Error renaming folder:', error.message, error.code);
+    return false;
+  }
+  return true;
+}
+
+export async function renameFile(fileId: string, newName: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('zhl_project_files')
+    .update({ name: newName })
+    .eq('id', fileId);
+  if (error) {
+    console.error('Error renaming file:', error.message, error.code);
+    return false;
+  }
+  return true;
+}
+
+/** Get a map of storagePath -> linked target info for all linked files/folders in a project. */
 export async function getLinkedUnitDataMap(projectId: string): Promise<Map<string, { type: 'field' | 'category'; name: string; parentName?: string }>> {
   const map = new Map<string, { type: 'field' | 'category'; name: string; parentName?: string }>();
 
@@ -671,17 +566,17 @@ export async function getLinkedUnitDataMap(projectId: string): Promise<Map<strin
   return map;
 }
 
-/** Link a Drive file/folder to a unit data field or category. Uses Drive file ID as the path. */
+/** Link a file/folder to a unit data field or category. */
 export async function linkFileToUnitData(
   targetType: 'field' | 'category',
   targetId: string,
   fileName: string,
-  driveFileId: string
+  storagePath: string
 ): Promise<boolean> {
   const table = targetType === 'field' ? 'zhl_unit_data_fields' : 'zhl_unit_data_categories';
   const { error } = await supabase
     .from(table)
-    .update({ linked_file_name: fileName, linked_file_path: driveFileId })
+    .update({ linked_file_name: fileName, linked_file_path: storagePath })
     .eq('id', targetId);
   if (error) {
     console.error(`Error linking file to ${targetType}:`, error.message);

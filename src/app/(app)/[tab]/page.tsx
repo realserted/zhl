@@ -48,10 +48,6 @@ const FilesPage = dynamic(
   () => import('@/components/features/files/FilesPage'),
   { ssr: false, loading: () => <TabSpinner /> }
 );
-const MeetingsPage = dynamic(
-  () => import('@/components/features/meetings/MeetingsPage'),
-  { ssr: false, loading: () => <TabSpinner /> }
-);
 
 // ── Page component ────────────────────────────────────────────────────────────
 
@@ -97,8 +93,6 @@ export default function TabPage({ params }: { params: Promise<{ tab: string }> }
         <FilesPage
           selectedProjectId={projectId}
           userPermission={userPermission}
-          projectOwnerId={selectedProject?.owner_id ?? null}
-          isAdmin={isAdmin}
         />
       );
 
@@ -130,17 +124,10 @@ export default function TabPage({ params }: { params: Promise<{ tab: string }> }
       return <AdminPanelPage onProjectStatusChange={handleProjectStatusChange} />;
 
     case 'logs':
-      return <UserLogsPage selectedProjectId={projectId} />;
-
-    case 'meetings':
-      return (
-        <MeetingsPage
-          selectedProjectId={projectId}
-          userPermission={userPermission}
-        />
-      );
+      return <UserLogsPage />;
 
     case 'templates':
+    case 'meetings':
     case 'issues':
       return (
         <main className="flex min-h-[60vh] items-center justify-center p-4">

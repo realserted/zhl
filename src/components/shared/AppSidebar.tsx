@@ -1,13 +1,9 @@
 'use client';
 
 import { useTheme } from 'next-themes';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { useAuth } from '@/lib/auth-context';
-import NavActions from './NavActions';
-import { ThemeToggle } from './ThemeToggle';
-import { Project } from '@/lib/types/project';
-import { Button } from '@/components/shared/Button';
 import {
   LayoutDashboard,
   ListTodo,
@@ -24,8 +20,6 @@ import {
   LogOut,
   ChevronsLeft,
   ChevronsRight,
-  ArrowLeft,
-  ChevronDown,
 } from 'lucide-react';
 
 interface Tab {
@@ -40,11 +34,6 @@ interface AppSidebarProps {
   onTabChange: (tabId: string) => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
-  projectStatus?: string;
-  selectedProjectId?: string | null;
-  projects: Project[];
-  selectedProject: Project | null;
-  onProjectChange: (project: Project) => void;
 }
 
 const TAB_ICONS: Record<string, typeof LayoutDashboard> = {
@@ -62,10 +51,8 @@ const TAB_ICONS: Record<string, typeof LayoutDashboard> = {
   settings: Settings,
 };
 
-const SIDEBAR_MIN_WIDTH = 200;
-const SIDEBAR_MAX_WIDTH = 400;
-const SIDEBAR_DEFAULT_WIDTH = 240; // w-60 = 15rem = 240px
-const SIDEBAR_COLLAPSED_WIDTH = 64; // w-16 = 4rem = 64px
+const SIDEBAR_WIDTH_EXPANDED = 'w-60';
+const SIDEBAR_WIDTH_COLLAPSED = 'w-16';
 
 export default function AppSidebar({
   tabs,
@@ -73,19 +60,10 @@ export default function AppSidebar({
   onTabChange,
   isCollapsed,
   onToggleCollapse,
-  projectStatus,
-  selectedProjectId,
-  projects,
-  selectedProject,
-  onProjectChange,
 }: AppSidebarProps) {
   const [mounted, setMounted] = useState(false);
   const { theme } = useTheme();
   const { user, signOut } = useAuth();
-  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
-  const isResizing = useRef(false);
-  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
-  const projectDropdownRef = useRef<HTMLDivElement>(null);
 
   const displayName = user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'User';
   const initial = displayName.charAt(0).toUpperCase();
@@ -93,18 +71,6 @@ export default function AppSidebar({
   useEffect(() => {
     setMounted(true);
   }, []);
-
-  // Close project dropdown on outside click
-  useEffect(() => {
-    if (!projectDropdownOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (projectDropdownRef.current && !projectDropdownRef.current.contains(e.target as Node)) {
-        setProjectDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [projectDropdownOpen]);
 
   const logoSrc = mounted
     ? theme === 'dark' ? '/zhl-logo-light.png' : '/zhl-logo-dark.png'
@@ -114,55 +80,14 @@ export default function AppSidebar({
     onTabChange(tabId);
   };
 
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    isResizing.current = true;
-    const startX = e.clientX;
-    const startWidth = sidebarWidth;
-
-    const onMouseMove = (ev: MouseEvent) => {
-      if (!isResizing.current) return;
-      const newWidth = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, startWidth + (ev.clientX - startX)));
-      setSidebarWidth(newWidth);
-    };
-
-    const onMouseUp = () => {
-      isResizing.current = false;
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }, [sidebarWidth]);
-
-  const width = isCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth;
-
   return (
     <aside
-      className="sticky top-0 h-screen bg-background border-r border-border z-40 flex flex-col flex-none shrink-0 relative"
-      style={{ width, transition: isResizing.current ? 'none' : 'width 300ms ease-in-out' }}
+      className={`sticky top-0 h-screen bg-background border-r border-border z-40 flex flex-col transition-[width,padding] duration-300 ease-in-out flex-none shrink-0 ${
+        isCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED
+      }`}
     >
-      {/* Back to PRESAILING */}
-      {!isCollapsed && (
-        <div className="px-3 py-2 border-b border-border">
-          <a
-            href="https://presaling.com"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 text-xs font-semibold text-foreground hover:text-accent transition-colors"
-          >
-            <ArrowLeft className="h-3 w-3" />
-            <span>Back to PRESAILING</span>
-          </a>
-        </div>
-      )}
-
       {/* Header — Logo + Collapse toggle */}
-      <div className={`flex items-center border-b border-border px-3 py-4 ${isCollapsed ? 'justify-center py-10' : 'justify-between'}`}>
+      <div className={`flex items-center border-b-2 border-border px-3 py-4 ${isCollapsed ? 'justify-center py-10' : 'justify-between'}`}>
         {!isCollapsed && (
           <Image
             src={logoSrc}
@@ -186,55 +111,6 @@ export default function AppSidebar({
         </button>
       </div>
 
-      {/* Project Selector */}
-      {!isCollapsed && (
-        <div className="px-3 py-3 border-b border-border" ref={projectDropdownRef}>
-          <div className="relative">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Project</span>
-            <Button
-              variant="ghost"
-              onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
-              className="w-full justify-between text-sm font-semibold text-foreground hover:bg-muted transition-colors flex items-center gap-2 h-auto py-2 px-2 shadow-none"
-            >
-              <span className="truncate">{selectedProject?.name ?? 'Select Project'}</span>
-              <ChevronDown
-                className={`h-4 w-4 shrink-0 transition-transform ${projectDropdownOpen ? 'rotate-180' : ''}`}
-              />
-            </Button>
-            {projectDropdownOpen && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-background border border-input rounded-lg shadow-lg z-50">
-                {projects.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-muted-foreground">No projects yet</div>
-                ) : (
-                  projects.map((project) => (
-                    <Button
-                      key={project.id}
-                      variant="ghost"
-                      onClick={() => {
-                        onProjectChange(project);
-                        setProjectDropdownOpen(false);
-                      }}
-                      className={`w-full justify-start rounded-none px-3 py-2 text-sm hover:bg-muted transition-colors h-auto shadow-none ${
-                        selectedProject?.id === project.id ? 'bg-muted font-semibold text-accent' : ''
-                      }`}
-                    >
-                      {project.name}
-                    </Button>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Status + Add Files (below project selector, above nav) */}
-      {!isCollapsed && (
-        <div className="px-3 py-3 border-b border-border">
-          <NavActions projectStatus={projectStatus} vertical selectedProjectId={selectedProjectId} projectName={selectedProject?.name} />
-        </div>
-      )}
-
       {/* Nav items */}
       <nav className="flex-1 overflow-y-auto py-2 px-2">
         {tabs.map((tab) => {
@@ -257,7 +133,7 @@ export default function AppSidebar({
                 <>
                   <span className="flex-1 text-left truncate">{tab.label}</span>
                   {tab.badge && (
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                       isActive
                         ? 'bg-primary/20 text-primary'
                         : 'bg-muted text-muted-foreground'
@@ -272,28 +148,32 @@ export default function AppSidebar({
         })}
       </nav>
 
-      {/* Footer — Dark Mode + Sign Out */}
-      <div className={`border-t border-border px-3 py-3 flex items-center ${isCollapsed ? 'flex-col gap-2' : 'gap-2'}`}>
+      {/* Footer — User Profile & Logout */}
+      <div className="border-t border-border px-3 py-4 flex flex-col gap-4">
+        <div className={`flex items-center gap-3 ${isCollapsed ? 'justify-center' : ''}`}>
+          {/* Avatar */}
+          <div className="w-8 h-8 rounded-full bg-primary text-accent-foreground flex items-center justify-center text-sm font-semibold shrink-0">
+            {initial}
+          </div>
+          {!isCollapsed && (
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-foreground truncate">{displayName}</p>
+              <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+            </div>
+          )}
+        </div>
+
         <button
           onClick={signOut}
           title={isCollapsed ? 'Sign Out' : undefined}
-          className={`flex items-center gap-2 px-2 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-primary hover:text-white transition-colors ${
-            isCollapsed ? 'justify-center' : 'flex-1'
+          className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-primary hover:text-white transition-colors ${
+            isCollapsed ? 'justify-center' : ''
           }`}
         >
           <LogOut className="h-4 w-4 shrink-0" />
           {!isCollapsed && <span>Sign Out</span>}
         </button>
-        <ThemeToggle />
       </div>
-
-      {/* Resize handle on right edge */}
-      {!isCollapsed && (
-        <div
-          onMouseDown={handleResizeStart}
-          className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-primary/30 transition-colors z-50"
-        />
-      )}
     </aside>
   );
 }

@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { useAuth } from '@/lib/auth-context';
+import { supabase } from '@/lib/supabase/client';
 import { ProjectPermission } from '@/lib/types/project';
 import { FinancialLoan } from '@/lib/types/financial';
 import { getLoans, createLoan, updateLoan, deleteLoan } from '@/lib/db/financial';
-import { usePermission } from '@/lib/hooks/usePermission';
-import { useUserLogger } from '@/lib/hooks/useUserLogger';
-import { computeMonthlyPayment } from '@/lib/financial-utils';
+import { logUserAction } from '@/lib/db/user-logs';
 import { Plus, Trash2 } from 'lucide-react';
 
 interface Props {
@@ -25,12 +25,29 @@ interface ScheduleRow {
 }
 
 export default function FinancialDebtSchedule({ selectedProjectId, userPermission }: Props) {
-  const { canEdit } = usePermission(userPermission, 'perm_reports');
-  const { log } = useUserLogger(selectedProjectId);
+  const { user } = useAuth();
   const [loans, setLoans] = useState<FinancialLoan[]>([]);
   const [selectedLoanId, setSelectedLoanId] = useState<string | null>(null);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
+  const displayNameRef = useRef('Unknown');
+  const userEmailRef = useRef('');
+
+  const permLevel = userPermission?.perm_reports ?? 'Admin';
+  const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
+
+  useEffect(() => {
+    if (!user) return;
+    userEmailRef.current = user.email || '';
+    supabase
+      .from('zhl_accounts')
+      .select('display_name')
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        displayNameRef.current = data?.display_name || user.email || 'Unknown';
+      });
+  }, [user]);
 
   useEffect(() => {
     getLoans(selectedProjectId).then((data) => {
@@ -38,6 +55,17 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
       if (data.length > 0) setSelectedLoanId(data[0].id);
     });
   }, [selectedProjectId]);
+
+  const log = (action: string) => {
+    if (!user) return;
+    logUserAction({
+      projectId: selectedProjectId,
+      userId: user.id,
+      userName: displayNameRef.current,
+      userEmail: userEmailRef.current,
+      action,
+    });
+  };
 
   const selectedLoan = loans.find((l) => l.id === selectedLoanId) ?? null;
 
@@ -94,7 +122,19 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
   // ── Auto-calculated monthly payment ──────────────────────────────────────
   const computedPayment = useMemo((): number | null => {
     if (!selectedLoan?.original_amount || !selectedLoan?.amortization) return null;
-    return Number(computeMonthlyPayment(selectedLoan).toFixed(2));
+    const P = Number(selectedLoan.original_amount);
+    const n = Number(selectedLoan.amortization);
+    const r = (selectedLoan.interest_rate ?? 0) / 100 / 12;
+
+    if (selectedLoan.interest_only) {
+      return Number((P * r).toFixed(2));
+    }
+    if (r === 0) {
+      return Number((P / n).toFixed(2));
+    }
+    // Standard amortization formula: M = P * [r(1+r)^n] / [(1+r)^n - 1]
+    const factor = Math.pow(1 + r, n);
+    return Number(((P * r * factor) / (factor - 1)).toFixed(2));
   }, [selectedLoan?.original_amount, selectedLoan?.amortization, selectedLoan?.interest_rate, selectedLoan?.interest_only]);
 
   // ── Amortization schedule ────────────────────────────────────────────────
@@ -350,33 +390,6 @@ export default function FinancialDebtSchedule({ selectedProjectId, userPermissio
                 })}
               </tbody>
             </table>
-
-            {/* Notes box */}
-            <div className="px-5 py-4 border-t border-border/50">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground block mb-2">
-                Notes
-              </label>
-              <textarea
-                value={selectedLoan.notes ?? ''}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setLoans((prev) =>
-                    prev.map((l) => (l.id === selectedLoan.id ? { ...l, notes: val } : l))
-                  );
-                }}
-                onBlur={async (e) => {
-                  // Save notes directly (bypass saveField which compares against already-updated local state)
-                  if (!selectedLoan || !canEdit) return;
-                  const val = e.target.value.trim() || null;
-                  const ok = await updateLoan(selectedLoan.id, 'notes', val);
-                  if (ok) log(`Updated loan notes`);
-                }}
-                readOnly={!canEdit}
-                placeholder={canEdit ? 'Add notes (e.g. PPP, SBA, refinance details...)' : 'No notes'}
-                className="w-full px-3 py-2 bg-muted/30 border border-border/50 rounded-lg text-sm font-medium text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring resize-y min-h-[80px]"
-                rows={3}
-              />
-            </div>
 
             {/* Quick stats footer */}
             {schedule.length > 1 && (

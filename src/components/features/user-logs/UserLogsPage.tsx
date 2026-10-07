@@ -1,9 +1,8 @@
 'use client';
 
-import { ArrowUpDown, X, ChevronDown, ChevronUp } from 'lucide-react';
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { ArrowUpDown, Filter, Loader2 } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { useAppState } from '@/app/(app)/AppStateContext';
 import { supabase } from '@/lib/supabase/client';
 
 interface UserLog {
@@ -16,367 +15,295 @@ interface UserLog {
   project_name?: string;
 }
 
-interface UserLogsPageProps {
-  selectedProjectId?: string | null;
-}
-
-const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const HOUR_LABELS = ['12am', '1am', '2am', '3am', '4am', '5am', '6am', '7am', '8am', '9am', '10am', '11am', '12pm', '1pm', '2pm', '3pm', '4pm', '5pm', '6pm', '7pm', '8pm', '9pm', '10pm', '11pm'];
-
-function getHeatmapColor(count: number, max: number): string {
-  if (count === 0) return 'bg-muted/30';
-  const ratio = count / max;
-  if (ratio <= 0.25) return 'bg-emerald-900/60';
-  if (ratio <= 0.5) return 'bg-emerald-700/70';
-  if (ratio <= 0.75) return 'bg-emerald-500/80';
-  return 'bg-emerald-400';
-}
-
-export default function UserLogsPage({ selectedProjectId }: UserLogsPageProps) {
+export default function UserLogsPage() {
   const { user } = useAuth();
-  const { isAdmin } = useAppState();
   const [logs, setLogs] = useState<UserLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
+  const [filterProject, setFilterProject] = useState<string>('');
   const [filterAction, setFilterAction] = useState<string>('');
-  const [filterUsers, setFilterUsers] = useState<string[]>([]);
-  const [showUserDropdown, setShowUserDropdown] = useState(false);
-  const [heatmapTimezone, setHeatmapTimezone] = useState<'local' | 'utc'>('local');
-  const [showHeatmap, setShowHeatmap] = useState(true);
-  const [hoveredCell, setHoveredCell] = useState<{ day: number; hour: number } | null>(null);
-  const userDropdownRef = useRef<HTMLDivElement>(null);
+  const [filterUser, setFilterUser] = useState<string>('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
+  // Check if user is admin
+  useEffect(() => {
+    if (!user) return;
+    const checkAdmin = async () => {
+      try {
+        const { data } = await supabase
+          .from('zhl_accounts')
+          .select('is_admin')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        setIsAdmin(data?.is_admin === true);
+      } catch (err) {
+        setIsAdmin(false);
+      }
+    };
+    checkAdmin();
+  }, [user]);
+
+  // Load user logs
   const loadLogs = useCallback(async () => {
     setLoading(true);
+
     try {
+      // Fetch all projects for project name mapping
       const { data: allProjects } = await supabase.from('zhl_projects').select('id, name');
       const projectMap = new Map(allProjects?.map((p: any) => [p.id, p.name]) ?? []);
 
-      // Fetch display names via SECURITY DEFINER RPC (bypasses RLS)
-      const { data: accountNames } = await supabase.rpc('get_account_display_names');
-      const displayNameMap = new Map((accountNames ?? []).map((a: any) => [a.user_id, a.display_name]));
-
-      // Fetch admin user IDs via SECURITY DEFINER RPC (bypasses RLS)
-      const { data: adminUserIds } = await supabase.rpc('get_admin_user_ids');
-      const adminIds = new Set((adminUserIds ?? []) as string[]);
-
-      let query = supabase
+      // Fetch logs - RLS will only return logs for current user
+      // (or all logs if user is admin)
+      const { data, error } = await supabase
         .from('zhl_user_logs')
         .select('*')
         .order('created_at', { ascending: sortOrder === 'asc' });
 
-      // Scope to selected project if provided
-      if (selectedProjectId) {
-        query = query.eq('project_id', selectedProjectId);
-      }
-
-      const { data, error } = await query;
-
       if (error) {
+        console.error('Error loading logs:', error);
         setLogs([]);
       } else {
-        const filtered = (data ?? [])
-          // Hide admin logs from non-admin viewers
-          .filter((log: any) => isAdmin || !adminIds.has(log.user_id))
-          .map((log: any) => {
-            const storedName = log.user_name ?? '';
-            const displayName = displayNameMap.get(log.user_id);
-            const resolvedName = (storedName.includes('@') && displayName) ? displayName : storedName;
-            return {
-              id: log.id,
-              project_id: log.project_id,
-              user_name: resolvedName || log.user_email,
-              user_email: log.user_email,
-              action: log.action,
-              created_at: log.created_at,
-              project_name: projectMap.get(log.project_id) || 'Unknown',
-            };
-          });
-        setLogs(filtered);
+        const formattedLogs = (data ?? []).map((log: any) => ({
+          id: log.id,
+          project_id: log.project_id,
+          user_name: log.user_name,
+          user_email: log.user_email,
+          action: log.action,
+          created_at: log.created_at,
+          project_name: projectMap.get(log.project_id) || 'Unknown Project',
+        }));
+        setLogs(formattedLogs);
       }
-    } catch {
+    } catch (err) {
+      console.error('Unexpected error loading logs:', err);
       setLogs([]);
     }
-    setLoading(false);
-  }, [sortOrder, selectedProjectId, isAdmin]);
 
+    setLoading(false);
+  }, [sortOrder]);
+
+  // Apply filters to logs
   const filteredLogs = logs.filter((log) => {
+    if (filterProject && log.project_name !== filterProject) return false;
     if (filterAction && !log.action.toLowerCase().includes(filterAction.toLowerCase())) return false;
-    if (filterUsers.length > 0 && !filterUsers.includes(log.user_email)) return false;
+    if (filterUser && !log.user_email.toLowerCase().includes(filterUser.toLowerCase())) return false;
     return true;
   });
 
+  // Get unique values for filter dropdowns
+  const uniqueProjects = Array.from(new Set(logs.map((l) => l.project_name))).sort();
   const uniqueUsers = Array.from(new Set(logs.map((l) => l.user_email))).sort();
 
-  // Build heatmap data: 7 days × 24 hours grid from filtered logs
-  const heatmapData = useMemo(() => {
-    const grid: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
-    const usersGrid: Set<string>[][] = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => new Set<string>()));
-    let max = 0;
-
-    for (const log of filteredLogs) {
-      const date = new Date(log.created_at);
-      const day = heatmapTimezone === 'utc' ? date.getUTCDay() : date.getDay();
-      const hour = heatmapTimezone === 'utc' ? date.getUTCHours() : date.getHours();
-      grid[day][hour]++;
-      usersGrid[day][hour].add(log.user_email);
-      if (grid[day][hour] > max) max = grid[day][hour];
-    }
-
-    return { grid, usersGrid, max };
-  }, [filteredLogs, heatmapTimezone]);
-
+  // Load user logs when user changes or sortOrder changes
   useEffect(() => {
     if (!user) return;
     loadLogs();
   }, [user, loadLogs]);
 
-  // Close user dropdown on outside click
-  useEffect(() => {
-    if (!showUserDropdown) return;
-    const handler = (e: MouseEvent) => {
-      if (userDropdownRef.current && !userDropdownRef.current.contains(e.target as Node)) {
-        setShowUserDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showUserDropdown]);
-
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleString('en-US', {
-      month: '2-digit', day: '2-digit', year: '2-digit',
-      hour: '2-digit', minute: '2-digit',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
     });
   };
 
-  const hasFilters = filterAction || filterUsers.length > 0;
-
-  const selectClass = 'px-2 py-1 bg-background/50 border border-border/50 rounded text-xs focus:outline-none focus:ring-1 focus:ring-primary/30';
-
-  const toggleUserFilter = (email: string) => {
-    setFilterUsers((prev) =>
-      prev.includes(email) ? prev.filter((u) => u !== email) : [...prev, email]
-    );
-  };
-
-  const localTzAbbr = Intl.DateTimeFormat('en-US', { timeZoneName: 'short' }).formatToParts(new Date()).find(p => p.type === 'timeZoneName')?.value || 'Local';
-
   return (
-    <div className="max-w-full px-4 sm:px-6 py-4 flex flex-col" style={{ height: 'calc(100vh - 80px)' }}>
-      {/* Header + inline filters */}
-      <div className="flex flex-wrap items-end gap-3 mb-3 shrink-0">
-        <h1 className="text-lg font-bold mr-4">User Logs</h1>
-
-        {/* Sort */}
-        <button
-          onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
-          className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors border border-border/50"
-        >
-          <ArrowUpDown className="h-3 w-3" />
-          {sortOrder === 'desc' ? 'Newest' : 'Oldest'}
-        </button>
-
-        {/* Action search */}
-        <input
-          type="text"
-          value={filterAction}
-          onChange={(e) => setFilterAction(e.target.value)}
-          placeholder="Search actions..."
-          className={`${selectClass} w-40`}
-        />
-
-        {/* User filter - multi-select dropdown */}
-        {uniqueUsers.length > 1 && (
-          <div className="relative" ref={userDropdownRef}>
-            <button
-              onClick={() => setShowUserDropdown(!showUserDropdown)}
-              className={`${selectClass} inline-flex items-center gap-1 cursor-pointer`}
-            >
-              {filterUsers.length === 0
-                ? 'All Users'
-                : `${filterUsers.length} user${filterUsers.length !== 1 ? 's' : ''} selected`}
-            </button>
-            {showUserDropdown && (
-              <div className="absolute top-full left-0 mt-1 w-56 max-h-48 overflow-y-auto bg-background border border-border rounded-lg shadow-lg z-50">
-                {uniqueUsers.map((email) => (
-                  <label
-                    key={email}
-                    className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50 cursor-pointer text-xs"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={filterUsers.includes(email)}
-                      onChange={() => toggleUserFilter(email)}
-                      className="rounded border-border"
-                    />
-                    <span className="truncate">{email}</span>
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Reset filters */}
-        {hasFilters && (
-          <button
-            onClick={() => { setFilterAction(''); setFilterUsers([]); }}
-            className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors px-2 py-1"
-          >
-            Reset Filters
-          </button>
-        )}
-      </div>
-
-      {/* Active filter chips */}
-      {filterUsers.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-2 shrink-0">
-          {filterUsers.map((email) => (
-            <span key={email} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium">
-              {email}
-              <button onClick={() => toggleUserFilter(email)} className="hover:text-destructive">
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
+    <main className="bg-background text-foreground min-h-screen">
+      <div className="max-w-full px-4 sm:px-6 py-6 sm:py-8">
+        {/* Title and Description */}
+        <div className="mb-6 sm:mb-8">
+          <h1 className="text-2xl sm:text-3xl font-bold mb-2">User Logs</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            Shows all your activity across projects. Admins can see all user activity.
+          </p>
         </div>
-      )}
 
-      {/* Activity Heatmap */}
-      <div className="glass-card rounded-xl border border-border/50 shadow-sm mb-3 shrink-0">
-        <button
-          onClick={() => setShowHeatmap(!showHeatmap)}
-          className="w-full flex items-center justify-between px-4 py-2.5"
-        >
-          <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Activity Heatmap</span>
-          {showHeatmap ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
-        </button>
-
-        {showHeatmap && (
-          <div className="px-4 pb-3">
-            {/* Timezone toggle */}
-            <div className="flex justify-end mb-2">
-              <div className="inline-flex rounded-md border border-border/50 overflow-hidden text-[10px] font-bold uppercase tracking-wider">
-                <button
-                  onClick={() => setHeatmapTimezone('utc')}
-                  className={`px-2.5 py-1 transition-colors ${heatmapTimezone === 'utc' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary hover:bg-primary/10'}`}
-                >
-                  UTC
-                </button>
-                <button
-                  onClick={() => setHeatmapTimezone('local')}
-                  className={`px-2.5 py-1 transition-colors ${heatmapTimezone === 'local' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary hover:bg-primary/10'}`}
-                >
-                  {localTzAbbr}
-                </button>
-              </div>
+        {/* Sort and Filter Section */}
+        <div className="glass-card rounded-2xl p-4 mb-6 sm:mb-8 flex flex-col sm:flex-row items-start sm:items-center gap-4 shadow-sm border border-border/50">
+          <div className="flex items-center gap-4 w-full sm:w-auto">
+            <span className="text-sm font-bold text-muted-foreground uppercase tracking-wider hidden sm:block">Actions:</span>
+            <div className="flex w-full sm:w-auto bg-muted/50 p-1 rounded-xl border border-input">
+              <button
+                onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
+                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-muted-foreground hover:text-primary hover:bg-primary/10"
+              >
+                <ArrowUpDown className="h-4 w-4" />
+                <span>SORT {sortOrder === 'desc' ? '(NEWEST)' : '(OLDEST)'}</span>
+              </button>
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  showFilters
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-primary hover:bg-primary/10'
+                }`}
+              >
+                <Filter className="h-4 w-4" />
+                <span>FILTER</span>
+              </button>
             </div>
+          </div>
+        </div>
 
-            {/* Heatmap grid */}
-            <div className="overflow-x-auto">
-              <div className="flex items-center gap-1">
-                <div className="shrink-0 space-y-[3px] pt-[16px]">
-                  {DAY_LABELS.map((day) => (
-                    <div key={day} className="h-[28px] flex items-center justify-end pr-1.5 text-[10px] text-muted-foreground font-medium">{day}</div>
+        {/* Filters Panel */}
+        {showFilters && (
+          <div className="glass-card mb-6 p-6 border border-border/50 rounded-2xl bg-muted/30 shadow-sm space-y-6 animate-in slide-in-from-top-2 fade-in duration-300">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+              {/* Project Filter */}
+              <div className="space-y-2">
+                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground">Project</label>
+                <select
+                  value={filterProject}
+                  onChange={(e) => setFilterProject(e.target.value)}
+                  className="w-full px-3 py-2 bg-background/50 border border-border/50 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                >
+                  <option value="">All Projects</option>
+                  {uniqueProjects.map((project) => (
+                    <option key={project} value={project}>
+                      {project}
+                    </option>
                   ))}
-                </div>
-                <div className="flex-1 min-w-0">
-                  {/* Hour labels */}
-                  <div className="flex mb-[2px]">
-                    {HOUR_LABELS.map((label, i) => (
-                      <div key={i} className="flex-1 text-center text-[9px] text-muted-foreground">
-                        {i % 3 === 0 ? label : ''}
-                      </div>
+                </select>
+              </div>
+
+              {/* Action Filter */}
+              <div className="space-y-2">
+                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground">Action</label>
+                <input
+                  type="text"
+                  value={filterAction}
+                  onChange={(e) => setFilterAction(e.target.value)}
+                  placeholder="Search actions..."
+                  className="w-full px-3 py-2 bg-background/50 border border-border/50 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/50"
+                />
+              </div>
+
+              {/* User Filter (Admin only) */}
+              {isAdmin && (
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground">User</label>
+                  <select
+                    value={filterUser}
+                    onChange={(e) => setFilterUser(e.target.value)}
+                    className="w-full px-3 py-2 bg-background/50 border border-border/50 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                  >
+                    <option value="">All Users</option>
+                    {uniqueUsers.map((userEmail) => (
+                      <option key={userEmail} value={userEmail}>
+                        {userEmail}
+                      </option>
                     ))}
-                  </div>
-                  {/* Grid rows */}
-                  {DAY_LABELS.map((day, dayIdx) => (
-                    <div key={day} className="flex gap-[3px] mb-[3px]">
-                      {Array.from({ length: 24 }, (_, hourIdx) => {
-                        const count = heatmapData.grid[dayIdx][hourIdx];
-                        const userCount = heatmapData.usersGrid[dayIdx][hourIdx].size;
-                        const isHovered = hoveredCell?.day === dayIdx && hoveredCell?.hour === hourIdx;
-                        return (
-                          <div
-                            key={hourIdx}
-                            className={`relative flex-1 h-[28px] rounded-sm ${getHeatmapColor(count, heatmapData.max)} transition-all duration-100 cursor-default ${isHovered ? 'ring-1 ring-primary z-10' : ''}`}
-                            onMouseEnter={() => setHoveredCell({ day: dayIdx, hour: hourIdx })}
-                            onMouseLeave={() => setHoveredCell(null)}
-                          >
-                            {isHovered && count > 0 && (
-                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 bg-popover border border-border rounded-md shadow-lg whitespace-nowrap z-50 pointer-events-none">
-                                <div className="text-[10px] font-semibold text-foreground">
-                                  {day} {HOUR_LABELS[hourIdx]} {heatmapTimezone === 'utc' ? 'UTC' : localTzAbbr}
-                                </div>
-                                <div className="text-[10px] text-muted-foreground">
-                                  {count} action{count !== 1 ? 's' : ''} · {userCount} user{userCount !== 1 ? 's' : ''}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ))}
+                  </select>
                 </div>
-              </div>
-              {/* Legend */}
-              <div className="flex items-center justify-end gap-1.5 mt-1.5">
-                <span className="text-[9px] text-muted-foreground">Less</span>
-                <div className="w-2.5 h-2.5 rounded-sm bg-muted/30" />
-                <div className="w-2.5 h-2.5 rounded-sm bg-emerald-900/60" />
-                <div className="w-2.5 h-2.5 rounded-sm bg-emerald-700/70" />
-                <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500/80" />
-                <div className="w-2.5 h-2.5 rounded-sm bg-emerald-400" />
-                <span className="text-[9px] text-muted-foreground">More</span>
-              </div>
+              )}
             </div>
+
+            {/* Reset Filters Button */}
+            {(filterProject || filterAction || filterUser) && (
+              <div className="flex justify-end pt-2">
+                <button
+                  onClick={() => {
+                    setFilterProject('');
+                    setFilterAction('');
+                    setFilterUser('');
+                  }}
+                  className="text-[11px] uppercase tracking-wider font-bold text-muted-foreground hover:text-primary transition-colors px-3 py-1.5 rounded-lg hover:bg-primary/10"
+                >
+                  Reset Filters
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* User Logs Table */}
+        {loading ? (
+          <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
+            <table className="w-full text-xs sm:text-sm">
+              <thead>
+                <tr className="bg-muted/30 border-b border-border/50">
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Timestamp</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">User</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Project</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...Array(5)].map((_, i) => (
+                  <tr key={i} className="border-b border-border/50">
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <div className="h-4 w-24 bg-muted/50 rounded animate-pulse" />
+                    </td>
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <div className="space-y-2">
+                        <div className="h-4 w-32 bg-muted/50 rounded animate-pulse" />
+                        <div className="h-3 w-40 bg-muted/30 rounded animate-pulse" />
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <div className="h-4 w-28 bg-muted/50 rounded animate-pulse" />
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="h-4 w-48 bg-muted/50 rounded animate-pulse" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : logs.length === 0 ? (
+          <div className="text-center py-12 text-sm border border-input rounded-lg bg-muted/30">
+            <p className="text-muted-foreground mb-2">No logs found</p>
+            <p className="text-xs text-muted-foreground">
+              Start performing actions to see your activity tracked here
+            </p>
+          </div>
+        ) : filteredLogs.length === 0 ? (
+          <div className="text-center py-12 text-sm border border-input rounded-lg bg-muted/30">
+            <p className="text-muted-foreground mb-2">No logs match your filters</p>
+            <p className="text-xs text-muted-foreground">
+              Try adjusting your filter criteria
+            </p>
+          </div>
+        ) : (
+          <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm overflow-x-auto">
+            <table className="w-full text-xs sm:text-sm">
+              <thead>
+                <tr className="bg-muted/30 border-b border-border/50">
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Timestamp</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">User</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Project</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredLogs.map((log) => (
+                  <tr
+                    key={log.id}
+                    className="border-b border-border/50 hover:bg-muted/30 transition-colors group"
+                  >
+                    <td className="px-4 py-4 whitespace-nowrap text-xs">{formatDate(log.created_at)}</td>
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <div>
+                        <p className="font-medium">{log.user_name}</p>
+                        <p className="text-xs text-muted-foreground">{log.user_email}</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 whitespace-nowrap">{log.project_name}</td>
+                    <td className="px-4 py-4">{log.action}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
-
-      {/* Scrollable table with sticky header */}
-      <div className="glass-card rounded-xl border border-border/50 shadow-sm flex-1 min-h-0 overflow-auto">
-        <table className="w-full text-xs">
-          <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm">
-            <tr className="border-b border-border/50">
-              <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Timestamp</th>
-              <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Username</th>
-              <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Email</th>
-              <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              [...Array(5)].map((_, i) => (
-                <tr key={i} className="border-b border-border/50">
-                  <td className="px-3 py-2"><div className="h-3 w-20 bg-muted/50 rounded animate-pulse" /></td>
-                  <td className="px-3 py-2"><div className="h-3 w-24 bg-muted/50 rounded animate-pulse" /></td>
-                  <td className="px-3 py-2"><div className="h-3 w-32 bg-muted/50 rounded animate-pulse" /></td>
-                  <td className="px-3 py-2"><div className="h-3 w-40 bg-muted/50 rounded animate-pulse" /></td>
-                </tr>
-              ))
-            ) : filteredLogs.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground text-xs">
-                  {logs.length === 0 ? 'No logs found.' : 'No logs match your filters.'}
-                </td>
-              </tr>
-            ) : (
-              filteredLogs.map((log) => (
-                <tr key={log.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                  <td className="px-3 py-1.5 whitespace-nowrap text-muted-foreground">{formatDate(log.created_at)}</td>
-                  <td className="px-3 py-1.5 whitespace-nowrap font-medium">{log.user_name}</td>
-                  <td className="px-3 py-1.5 whitespace-nowrap text-muted-foreground">{log.user_email}</td>
-                  <td className="px-3 py-1.5">{log.action}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    </main>
   );
 }

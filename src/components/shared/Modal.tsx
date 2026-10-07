@@ -10,8 +10,6 @@ interface ModalProps {
   children: ReactNode;
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | '6xl' | '7xl' | 'fit';
   className?: string;
-  /** When true, the modal content wrapper won't scroll — the children manage their own scrolling. */
-  noScroll?: boolean;
 }
 
 const maxWidthClasses = {
@@ -35,8 +33,7 @@ export function Modal({
   description,
   children,
   maxWidth = 'md',
-  className = '',
-  noScroll = false
+  className = ''
 }: ModalProps) {
   useEffect(() => {
     if (!isOpen) return;
@@ -90,7 +87,7 @@ export function Modal({
           </div>
         )}
         
-        <div className={`${noScroll ? 'overflow-hidden' : 'overflow-y-auto custom-scrollbar -mx-2 px-2'} flex-1`}>
+        <div className="overflow-y-auto custom-scrollbar -mx-2 px-2 flex-1">
           {children}
         </div>
       </div>
