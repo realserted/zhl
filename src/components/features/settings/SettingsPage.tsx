@@ -963,36 +963,6 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
             <p className="text-sm text-muted-foreground ml-4 mt-1">(do via Plaid)</p>
           </div>
 
-          {/* TIMEZONE SECTION */}
-          <div className="mb-8 ml-6">
-            <h3 className="text-lg font-bold mb-4 bg-muted px-3 py-2 rounded text-orange-600 dark:text-orange-400">GENERAL</h3>
-            <div className="ml-4 space-y-4">
-              <div>
-                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2">
-                  Project Timezone
-                </label>
-                <select
-                  value={projectSettings.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone}
-                  onChange={async (e) => {
-                    const val = e.target.value;
-                    if (selectedProjectId) {
-                      const ok = await saveProjectSettings(selectedProjectId, { timezone: val });
-                      if (ok) setProjectSettings((prev) => ({ ...prev, timezone: val }));
-                    }
-                  }}
-                  className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-                >
-                  {Intl.supportedValuesOf('timeZone').map((tz) => (
-                    <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
-                  ))}
-                </select>
-                <p className="text-[10px] text-muted-foreground mt-1.5">
-                  Defaults to your device timezone. Used for due dates, meetings, and scheduling.
-                </p>
-              </div>
-            </div>
-          </div>
-
           {/* STATUS THRESHOLDS SECTION */}
           <div className="mb-8 ml-6">
             <h3 className="text-lg font-bold mb-4 bg-muted px-3 py-2 rounded flex items-center gap-3">
@@ -1327,79 +1297,33 @@ export default function SettingsPage({ selectedProjectId, selectedProjectName, s
           <div className="mb-8 ml-6">
             <h3 className="text-lg font-bold mb-4 bg-muted px-3 py-2 rounded text-orange-600 dark:text-orange-400">MEETINGS</h3>
             <div className="ml-4 space-y-4">
-              {/* Default meeting location */}
-              <div>
-                <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2">
-                  Default Meeting Location
-                </label>
-                <input
-                  type="text"
-                  defaultValue={projectSettings.default_meeting_location ?? ''}
-                  key={`${selectedProjectId}-mtg-loc-${projectSettings.default_meeting_location ?? ''}`}
-                  onBlur={async (e) => {
-                    const val = e.target.value.trim();
-                    if (val !== (projectSettings.default_meeting_location ?? '') && selectedProjectId) {
-                      const ok = await saveProjectSettings(selectedProjectId, { default_meeting_location: val });
-                      if (ok) setProjectSettings((prev) => ({ ...prev, default_meeting_location: val }));
-                    }
-                  }}
-                  placeholder="e.g., Conference Room A, Zoom, Google Meet link..."
-                  className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-                />
-                <p className="text-[10px] text-muted-foreground mt-1.5">
-                  Pre-fills the location field when creating new meetings.
-                </p>
-              </div>
-
               {/* Google Calendar ID */}
               <div>
                 <label className="block text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2">
                   Google Calendar ID
                 </label>
-                <input
-                  type="text"
-                  defaultValue={projectSettings.google_calendar_id ?? ''}
-                  key={`${selectedProjectId}-gcal-id-${projectSettings.google_calendar_id ?? ''}`}
-                  onBlur={async (e) => {
-                    const val = e.target.value.trim();
-                    if (val !== (projectSettings.google_calendar_id ?? '') && selectedProjectId) {
-                      const ok = await saveProjectSettings(selectedProjectId, { google_calendar_id: val });
-                      if (ok) setProjectSettings((prev) => ({ ...prev, google_calendar_id: val }));
-                    }
-                  }}
-                  placeholder="e.g., primary or your-email@gmail.com"
-                  className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-                />
-                <p className="text-[10px] text-muted-foreground mt-1.5">
-                  Required for auto-generating Google Meet links. Use <strong>&quot;primary&quot;</strong> for your default calendar, or paste a specific calendar ID.
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    defaultValue={projectSettings.google_calendar_id}
+                    key={`${selectedProjectId}-gcal-${projectSettings.google_calendar_id}`}
+                    onBlur={async (e) => {
+                      const val = e.target.value.trim();
+                      if (val !== projectSettings.google_calendar_id && selectedProjectId) {
+                        const ok = await saveProjectSettings(selectedProjectId, { google_calendar_id: val });
+                        if (ok) setProjectSettings((prev) => ({ ...prev, google_calendar_id: val }));
+                      }
+                    }}
+                    placeholder="e.g., abc123@group.calendar.google.com"
+                    className="flex-1 px-3 py-2 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-1.5 leading-relaxed">
+                  To sync meetings to Google Calendar, enter your Calendar ID. Find it in Google Calendar &rarr; Settings &rarr; your calendar &rarr; &quot;Integrate calendar&quot; section.
                 </p>
               </div>
 
-              {/* How it works */}
-              <div className="mt-2 p-3 rounded-lg bg-muted/50 border border-border/50">
-                <p className="text-[10px] font-bold text-muted-foreground mb-1.5">HOW MEETINGS WORK:</p>
-                <ul className="text-[10px] text-muted-foreground space-y-1 list-disc list-inside leading-relaxed">
-                  <li>Editors and admins can <strong>create, edit, and delete</strong> meetings with a title, date, time, location, and meeting link</li>
-                  <li>All users can <strong>view</strong> meetings on the calendar and see meeting details</li>
-                  <li>Available time slots are shown from <strong>8:00 AM to 5:00 PM</strong> in 30-minute intervals</li>
-                  <li>If a <strong>Google Meet</strong> or video link is set, all users can click <strong>&quot;Join Meeting&quot;</strong> to join directly</li>
-                  <li>Email invitations are sent to attendees with an <strong>&quot;Add to Google Calendar&quot;</strong> button and the Meet link</li>
-                  <li>Timezone is <strong>automatically detected</strong> from the user&apos;s device</li>
-                </ul>
-              </div>
-
-              <div className="mt-2 p-3 rounded-lg bg-muted/50 border border-border/50">
-                <p className="text-[10px] font-bold text-muted-foreground mb-1.5">AUTO GOOGLE MEET SETUP:</p>
-                <ul className="text-[10px] text-muted-foreground space-y-1 list-disc list-inside leading-relaxed">
-                  <li>Make sure your <strong>Google Drive is connected</strong> on the Files page (this also enables Calendar access)</li>
-                  <li>Optionally set the <strong>Google Calendar ID</strong> above (defaults to <strong>&quot;primary&quot;</strong> if left empty)</li>
-                  <li>Set the <strong>Default Meeting Location</strong> to <strong>&quot;Google Meet&quot;</strong></li>
-                  <li>When creating a meeting, if the location contains <strong>&quot;Google Meet&quot;</strong> and a date is selected, a Google Meet link will be <strong>automatically generated</strong> on the Review step</li>
-                  <li>The generated Meet link is attached to the meeting and included in email invitations sent to attendees</li>
-                  <li>The meeting is also <strong>synced to the project owner&apos;s Google Calendar</strong> automatically</li>
-                </ul>
-              </div>
-
+              <Button variant="ghost" className="w-full justify-start text-sm hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">Google Meet settings</Button>
               <Button variant="ghost" className="w-full justify-start text-sm underline hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">Edit Transcription to Summary Prompt (for YOU)</Button>
               <Button variant="ghost" className="w-full justify-start text-sm underline hover:text-primary transition-colors h-auto py-2 px-4 shadow-none">Edit Transcription to Summary Prompt (for EVERYONE)</Button>
             </div>

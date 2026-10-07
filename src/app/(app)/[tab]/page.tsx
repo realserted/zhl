@@ -97,8 +97,6 @@ export default function TabPage({ params }: { params: Promise<{ tab: string }> }
         <FilesPage
           selectedProjectId={projectId}
           userPermission={userPermission}
-          projectOwnerId={selectedProject?.owner_id ?? null}
-          isAdmin={isAdmin}
         />
       );
 
@@ -130,7 +128,7 @@ export default function TabPage({ params }: { params: Promise<{ tab: string }> }
       return <AdminPanelPage onProjectStatusChange={handleProjectStatusChange} />;
 
     case 'logs':
-      return <UserLogsPage selectedProjectId={projectId} />;
+      return <UserLogsPage />;
 
     case 'meetings':
       return (

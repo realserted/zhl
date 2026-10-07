@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { useTheme } from 'next-themes';
 import Image from 'next/image';
-import Link from 'next/link';
-import { Eye, EyeOff, ShieldCheck, Mail, Building2 } from 'lucide-react';
+import { ThemeToggle } from '@/components/shared/ThemeToggle';
+import { Eye, EyeOff, ShieldCheck } from 'lucide-react';
 
 // Password must have: 8+ chars, 1 uppercase, 1 lowercase, 1 number, 1 special char
 const PASSWORD_RULES = [
@@ -26,10 +26,10 @@ interface LoginPageProps {
 }
 
 export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
-  const { signIn, signUp, signInWithGoogle, resendVerification } = useAuth();
+  const { signIn, signUp } = useAuth();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
-  const { resolvedTheme } = useTheme();
+  const { theme } = useTheme();
   const isSignUp = initialMode === 'signup';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -39,12 +39,11 @@ export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [signupCooldownNotice, setSignupCooldownNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
   const [signUpSuccess, setSignUpSuccess] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [resendStatus, setResendStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
-  const [resendError, setResendError] = useState<string | null>(null);
+
+  // Rate limiting
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
   const [lockoutCountdown, setLockoutCountdown] = useState(0);
@@ -53,6 +52,7 @@ export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
   const signUpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -60,8 +60,10 @@ export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
     };
   }, []);
 
+  // Countdown timer for lockout
   useEffect(() => {
     if (!lockoutUntil) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLockoutCountdown(0);
       return;
     }
@@ -78,6 +80,7 @@ export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [lockoutUntil]);
 
+  // Clear signup cooldown notice once the cooldown period expires
   useEffect(() => {
     if (!signUpCooldownUntil) {
       setSignupCooldownNotice(null);
@@ -91,6 +94,8 @@ export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
   }, [signUpCooldownUntil]);
 
   const isLocked = lockoutCountdown > 0;
+
+  // Password strength score (0-5)
   const strengthScore = PASSWORD_RULES.filter((r) => r.test(password)).length;
   const strengthLabel = strengthScore <= 1 ? 'Weak' : strengthScore <= 3 ? 'Fair' : strengthScore <= 4 ? 'Good' : 'Strong';
   const strengthColor = strengthScore <= 1 ? 'bg-red-500' : strengthScore <= 3 ? 'bg-yellow-500' : strengthScore <= 4 ? 'bg-blue-500' : 'bg-green-500';
@@ -101,39 +106,61 @@ export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
     e.preventDefault();
     setError(null);
 
-    if (!isSignUp && isLocked) {
-      setError(`Too many failed attempts. Try again in ${lockoutCountdown} seconds.`);
-      return;
+    // Check cooldown/lockout
+    if (!isSignUp) {
+      if (isLocked) {
+        setError(`Too many failed attempts. Try again in ${lockoutCountdown} seconds.`);
+        return;
+      }
     }
 
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedName = displayName.trim();
 
+    // Validate email format
     if (!validateEmail(trimmedEmail)) {
       setError('Please enter a valid email address.');
       return;
     }
 
     if (isSignUp) {
-      if (!trimmedName) { setError('Display name is required.'); return; }
-      if (trimmedName.length < 2) { setError('Display name must be at least 2 characters.'); return; }
+      // Validate display name
+      if (!trimmedName) {
+        setError('Display name is required.');
+        return;
+      }
+      if (trimmedName.length < 2) {
+        setError('Display name must be at least 2 characters.');
+        return;
+      }
 
+      // Validate password strength
       const failedRules = PASSWORD_RULES.filter((r) => !r.test(password));
       if (failedRules.length > 0) {
         setError(`Password requirements not met: ${failedRules.map((r) => r.label.toLowerCase()).join(', ')}.`);
         return;
       }
 
-      if (password !== confirmPassword) { setError('Passwords do not match.'); return; }
+      // Validate password confirmation
+      if (password !== confirmPassword) {
+        setError('Passwords do not match.');
+        return;
+      }
 
       setLoading(true);
       const { error } = await signUp(trimmedEmail, password, trimmedName, phone.trim());
       if (error) {
         const normalized = error.toLowerCase();
-        if (normalized.includes('email rate limit exceeded') || normalized.includes('security purposes')) {
+        const isRateLimitError =
+          normalized.includes('email rate limit exceeded') ||
+          normalized.includes('security purposes');
+
+        if (isRateLimitError) {
           setSignUpCooldownUntil(Date.now() + SIGNUP_COOLDOWN_SECONDS * 1000);
           setError(null);
-          setSignupCooldownNotice('Email sending is rate limited. Please wait a few minutes and try again.');
+          setSignupCooldownNotice(
+            `Email sending is rate limited by the server. Please wait a few minutes and try again, or ask an admin to disable email confirmation in Supabase → Authentication → Settings.`
+          );
         } else {
           setSignupCooldownNotice(null);
           setError(error);
@@ -159,12 +186,10 @@ export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
         setFailedAttempts(0);
       }
     }
+
     setLoading(false);
   };
 
-  const isDark = resolvedTheme === 'dark';
-
-  // ── Sign up success screen ──
   if (signUpSuccess) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background p-4">
@@ -174,36 +199,20 @@ export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
               <ShieldCheck className="h-6 w-6 text-green-600 dark:text-green-400" />
             </div>
             <h2 className="text-xl font-bold text-foreground mb-2">Check your email</h2>
-            <p className="text-muted-foreground text-sm mb-4">
+            <p className="text-muted-foreground text-sm mb-6">
               We sent a confirmation link to <strong>{email}</strong>. Please verify your email to continue.
             </p>
-            <div className="mb-6">
-              {resendStatus === 'sent' ? (
-                <p className="text-sm text-green-500 font-medium">Verification email resent!</p>
-              ) : resendStatus === 'error' ? (
-                <div>
-                  <p className="text-sm text-red-500 mb-1">{resendError}</p>
-                  <button onClick={() => setResendStatus('idle')} className="text-sm text-muted-foreground hover:underline">Try again</button>
-                </div>
-              ) : (
-                <button
-                  disabled={resendStatus === 'sending'}
-                  onClick={async () => {
-                    setResendStatus('sending');
-                    const { error } = await resendVerification(email.trim().toLowerCase(), password);
-                    if (error) { setResendError(error); setResendStatus('error'); }
-                    else setResendStatus('sent');
-                  }}
-                  className="text-sm text-muted-foreground hover:text-foreground hover:underline font-medium inline-flex items-center gap-1.5"
-                >
-                  <Mail className="h-3.5 w-3.5" />
-                  {resendStatus === 'sending' ? 'Sending...' : "Didn't receive it? Resend"}
-                </button>
-              )}
-            </div>
             <button
-              onClick={() => { setSignUpSuccess(false); setEmail(''); setPassword(''); setConfirmPassword(''); setDisplayName(''); setPhone(''); setResendStatus('idle'); router.push('/login'); }}
-              className="text-sm text-primary hover:underline font-medium"
+              onClick={() => {
+                setSignUpSuccess(false);
+                setEmail('');
+                setPassword('');
+                setConfirmPassword('');
+                setDisplayName('');
+                setPhone('');
+                router.push('/login');
+              }}
+              className="text-sm text-green-400 hover:underline font-medium"
             >
               Back to sign in
             </button>
@@ -213,131 +222,131 @@ export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
     );
   }
 
-  // ── Input class helper ──
-  const inputClass = 'w-full px-4 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent transition-all';
-
   return (
-    <main className="flex min-h-screen bg-background">
-      {/* ── Left Panel (branding) — hidden on mobile ── */}
-      <div className="hidden lg:flex w-1/2 bg-gradient-to-br from-neutral-950 via-green-950 to-neutral-950 relative overflow-hidden">
-        <div
-          className="absolute inset-0"
-          style={{
-            background: isSignUp
-              ? 'radial-gradient(ellipse 80% 80% at 80% 20%, hsl(145 50% 30% / 0.2), transparent)'
-              : 'radial-gradient(ellipse 80% 80% at 20% 80%, hsl(145 50% 30% / 0.2), transparent)',
-          }}
-        />
-        <div className="relative flex flex-col justify-between p-12 w-full">
-          {/* Logo */}
-          <Link href="/" className="flex items-center gap-2.5">
-            <Building2 className="h-6 w-6 text-green-400" />
-            <span className="text-xl font-bold">
-              <span className="text-white">Zero Hassle</span>{' '}
-              <span className="text-green-400">Landlord</span>
-            </span>
-          </Link>
-
-          {/* Quote */}
-          <div>
-            <blockquote className="text-2xl font-semibold text-white/90 leading-relaxed">
-              {isSignUp
-                ? '"Manage every property, every tenant, and every task — all from one dashboard."'
-                : '"Finally, a property management tool that doesn\'t get in the way of actually managing properties."'}
-            </blockquote>
-            <p className="mt-4 text-sm text-green-300/70">
-              {isSignUp
-                ? 'Join property managers who switched to ZHL.'
-                : '— What every landlord thinks'}
-            </p>
-          </div>
-
-          {/* Trust line */}
-          <div className="flex items-center gap-3 text-xs text-green-400/50">
-            <span>{isSignUp ? 'Free to start' : 'Secure access'}</span>
-            <span>&middot;</span>
-            <span>{isSignUp ? 'No credit card required' : 'Files stay on Google Drive'}</span>
-            <span>&middot;</span>
-            <span>{isSignUp ? 'Set up in minutes' : 'Cancel anytime'}</span>
-          </div>
-        </div>
+    <main className="flex min-h-screen items-center justify-center bg-background p-4">
+      {/* Theme Toggle */}
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
       </div>
 
-      {/* ── Right Panel (form) ── */}
-      <div className="flex-1 flex items-center justify-center px-4 py-12">
-        <div className="w-full max-w-sm">
-          {/* Mobile logo */}
-          <div className="lg:hidden text-center mb-8">
-            {mounted && (
-              <Link href="/">
-                <Image
-                  src={isDark ? '/zhl-logo-light.png' : '/zhl-logo-dark.png'}
-                  alt="Zero Hassle Landlord"
-                  width={200}
-                  height={80}
-                  priority
-                  className="h-16 w-auto mx-auto"
-                />
-              </Link>
-            )}
-          </div>
+      <div className="w-full max-w-md">
+        {/* Logo */}
+        <div className="text-center mb-8">
+          {mounted && (
+            <div className="mb-6">
+              <Image
+                src={theme === 'dark' ? '/zhl-logo-light.png' : '/zhl-logo-dark.png'}
+                alt="Zero Hassle Landlord"
+                width={300}
+                height={120}
+                priority
+                className="h-24 w-auto mx-auto"
+              />
+            </div>
+          )}
+          <p className="text-sm text-muted-foreground mt-4">Property management simplified</p>
+        </div>
 
-          {/* Heading */}
-          <div className="mb-8">
-            <h1 className="text-2xl font-bold text-foreground">
-              {isSignUp ? 'Create your account' : 'Welcome back'}
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              {isSignUp ? 'Start managing your properties today.' : 'Sign in to manage your properties.'}
-            </p>
-          </div>
+        {/* Form Card */}
+        <div className="bg-card border border-border rounded-xl p-8 shadow-sm">
+          <h2 className="text-lg font-semibold text-foreground mb-6">
+            {isSignUp ? 'Create your account' : 'Sign in to your account'}
+          </h2>
 
-          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
             {isSignUp && (
               <>
                 <div>
-                  <label htmlFor="displayName" className="block text-sm font-medium text-foreground mb-1.5">Display Name</label>
-                  <input id="displayName" type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="John Doe" required maxLength={100} className={inputClass} />
+                  <label htmlFor="displayName" className="block text-sm font-medium text-foreground mb-1.5">
+                    Display Name
+                  </label>
+                  <input
+                    id="displayName"
+                    type="text"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="John Doe"
+                    required
+                    maxLength={100}
+                    className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
                 </div>
                 <div>
                   <label htmlFor="phone" className="block text-sm font-medium text-foreground mb-1.5">
                     Phone Number <span className="text-muted-foreground font-normal">(optional)</span>
                   </label>
-                  <input id="phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 123-4567" maxLength={20} className={inputClass} />
+                  <input
+                    id="phone"
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="(555) 123-4567"
+                    maxLength={20}
+                    className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
                 </div>
               </>
             )}
 
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-foreground mb-1.5">Email address</label>
-              <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required maxLength={255} className={inputClass} />
+              <label htmlFor="email" className="block text-sm font-medium text-foreground mb-1.5">
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                required
+                maxLength={255}
+                className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label htmlFor="password" className="text-sm font-medium text-foreground">Password</label>
-                {!isSignUp && (
-                  <button type="button" onClick={() => router.push('/forgot-password')} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-                    Forgot password?
-                  </button>
-                )}
-              </div>
+              <label htmlFor="password" className="block text-sm font-medium text-foreground mb-1.5">
+                Password
+              </label>
               <div className="relative">
-                <input id="password" type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required maxLength={128} className={`${inputClass} pr-10`} />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors" tabIndex={-1}>
+                <input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  maxLength={128}
+                  className="w-full px-3 py-2.5 pr-10 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  tabIndex={-1}
+                >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
 
+              {/* Password strength indicator (signup only) */}
               {isSignUp && password.length > 0 && (
                 <div className="mt-2">
                   <div className="flex gap-1 mb-1">
                     {Array.from({ length: 5 }).map((_, i) => (
-                      <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${i < strengthScore ? strengthColor : 'bg-muted'}`} />
+                      <div
+                        key={i}
+                        className={`h-1 flex-1 rounded-full transition-colors ${
+                          i < strengthScore ? strengthColor : 'bg-muted'
+                        }`}
+                      />
                     ))}
                   </div>
-                  <p className={`text-xs ${strengthScore <= 1 ? 'text-red-500' : strengthScore <= 3 ? 'text-yellow-500' : strengthScore <= 4 ? 'text-blue-500' : 'text-green-500'}`}>
+                  <p className={`text-xs ${
+                    strengthScore <= 1 ? 'text-red-500' :
+                    strengthScore <= 3 ? 'text-yellow-500' :
+                    strengthScore <= 4 ? 'text-blue-500' : 'text-green-500'
+                  }`}>
                     {strengthLabel}
                   </p>
                   <ul className="mt-1 space-y-0.5">
@@ -352,9 +361,12 @@ export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
               )}
             </div>
 
+            {/* Confirm Password (signup only) */}
             {isSignUp && (
               <div>
-                <label htmlFor="confirmPassword" className="block text-sm font-medium text-foreground mb-1.5">Confirm password</label>
+                <label htmlFor="confirmPassword" className="block text-sm font-medium text-foreground mb-1.5">
+                  Confirm Password
+                </label>
                 <div className="relative">
                   <input
                     id="confirmPassword"
@@ -364,12 +376,20 @@ export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
                     placeholder="••••••••"
                     required
                     maxLength={128}
-                    className={`${inputClass} pr-10 ${
-                      confirmPassword && confirmPassword !== password ? 'border-red-500' :
-                      confirmPassword && confirmPassword === password ? 'border-green-500' : ''
+                    className={`w-full px-3 py-2.5 pr-10 bg-background border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring ${
+                      confirmPassword && confirmPassword !== password
+                        ? 'border-red-500'
+                        : confirmPassword && confirmPassword === password
+                        ? 'border-green-500'
+                        : 'border-input'
                     }`}
                   />
-                  <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors" tabIndex={-1}>
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    tabIndex={-1}
+                  >
                     {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
@@ -392,61 +412,41 @@ export default function LoginPage({ initialMode = 'login' }: LoginPageProps) {
 
             <button
               type="submit"
-              disabled={loading || isLocked || googleLoading}
-              className="w-full h-11 rounded-full bg-primary text-primary-foreground text-sm font-semibold hover:brightness-110 transition-all disabled:opacity-50"
+              disabled={loading || isLocked}
+              className="w-full py-2.5 bg-black text-green-400 rounded-lg text-sm font-semibold hover:bg-gray-900 transition-colors disabled:opacity-50 border border-green-400"
             >
-              {isLocked ? `Locked (${lockoutCountdown}s)` : loading ? 'Please wait...' : isSignUp ? 'Create account' : 'Sign in'}
+              {isLocked
+                ? `Locked (${lockoutCountdown}s)`
+                : loading
+                ? 'Please wait...'
+                : isSignUp
+                ? 'Create Account'
+                : 'Sign In'}
             </button>
           </form>
 
-          {/* Divider */}
-          <div className="flex items-center gap-3 my-6">
-            <div className="flex-1 h-px bg-border" />
-            <span className="text-xs text-muted-foreground uppercase tracking-wider">or</span>
-            <div className="flex-1 h-px bg-border" />
-          </div>
-
-          {/* Google SSO */}
-          <button
-            type="button"
-            disabled={loading || googleLoading}
-            onClick={async () => {
-              setGoogleLoading(true);
-              setError(null);
-              const { error } = await signInWithGoogle();
-              if (error) { setError(error); setGoogleLoading(false); }
-            }}
-            className="w-full h-11 rounded-full border border-input bg-background text-foreground text-sm font-semibold hover:bg-muted transition-all disabled:opacity-50 flex items-center justify-center gap-3"
-          >
-            <svg className="h-5 w-5" viewBox="0 0 24 24">
-              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
-              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
-              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A11.96 11.96 0 0 0 1 12c0 1.94.46 3.77 1.18 5.39l3.66-2.84z" fill="#FBBC05" />
-              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
-            </svg>
-            {googleLoading ? 'Redirecting...' : isSignUp ? 'Sign up with Google' : 'Sign in with Google'}
-          </button>
-
-          {/* Toggle link */}
           <div className="mt-6 text-center">
             <p className="text-sm text-muted-foreground">
               {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
               <button
-                onClick={() => { setError(null); setPassword(''); setConfirmPassword(''); router.push(isSignUp ? '/login' : '/signup'); }}
-                className="text-primary font-medium hover:underline"
+                onClick={() => {
+                  setError(null);
+                  setPassword('');
+                  setConfirmPassword('');
+                  router.push(isSignUp ? '/login' : '/signup');
+                }}
+                className="text-green-400 font-medium hover:underline"
               >
-                {isSignUp ? 'Sign in' : 'Create account'}
+                {isSignUp ? 'Sign in' : 'Sign up'}
               </button>
             </p>
           </div>
+        </div>
 
-          {/* Footer */}
-          <p className="mt-8 text-center text-xs text-muted-foreground">
-            By {isSignUp ? 'creating an account' : 'signing in'}, you agree to our{' '}
-            <a href="#" className="underline underline-offset-2 hover:text-foreground transition-colors">Terms of Service</a>
-            {' '}and{' '}
-            <a href="#" className="underline underline-offset-2 hover:text-foreground transition-colors">Privacy Policy</a>.
-          </p>
+        {/* Security badge */}
+        <div className="flex items-center justify-center gap-1.5 mt-4 text-muted-foreground">
+          <ShieldCheck className="h-3.5 w-3.5" />
+          <span className="text-xs">Secured with end-to-end encryption</span>
         </div>
       </div>
     </main>

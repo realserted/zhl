@@ -59,7 +59,7 @@ export async function updateDriveConfigArchiveId(
 ): Promise<boolean> {
   const { error } = await supabase
     .from('zhl_project_drive_config')
-    .update({ archive_folder_id: archiveFolderId })
+    .update({ archive_folder_id: archiveFolderId, updated_at: new Date().toISOString() })
     .eq('project_id', projectId);
 
   if (error) {
@@ -116,26 +116,9 @@ export async function listDriveFolder(
   if (!result.ok || !result.data) return [];
 
   const raw = (result.data as { files?: Array<Record<string, unknown>> }).files || [];
-  return raw.map((f) => mapDriveFile(f, (f.parentId as string) || null));
-}
-
-/** List direct children of a folder (non-recursive, for lazy-loading tree). */
-export async function listDriveFolderDirect(
-  projectId: string,
-  folderId: string
-): Promise<{ items: DriveItem[]; ownerEmail: string | null }> {
-  const result = await callDriveProxy(projectId, 'listFolder', { folderId });
-  if (!result.ok || !result.data) return { items: [], ownerEmail: null };
-
-  const data = result.data as { files?: Array<Record<string, unknown>>; ownerEmail?: string | null };
-  const raw = data.files || [];
-  return { items: raw.map((f) => mapDriveFile(f, folderId)), ownerEmail: data.ownerEmail || null };
-}
-
-function mapDriveFile(f: Record<string, unknown>, parentId: string | null): DriveItem {
-  return {
+  return raw.map((f) => ({
     id: f.id as string,
-    parentId,
+    parentId: (f.parentId as string) || null,
     name: f.name as string,
     mimeType: (f.mimeType as string) || null,
     size: f.size ? Number(f.size) : null,
@@ -144,80 +127,7 @@ function mapDriveFile(f: Record<string, unknown>, parentId: string | null): Driv
     webContentLink: (f.webContentLink as string) || null,
     modifiedTime: (f.modifiedTime as string) || null,
     iconLink: (f.iconLink as string) || null,
-    thumbnailLink: (f.thumbnailLink as string) || null,
-  };
-}
-
-/** Get raw file content for text-preview (proxied through Drive API). */
-export async function getDriveFileContent(
-  projectId: string,
-  fileId: string
-): Promise<string | null> {
-  const result = await callDriveProxy(projectId, 'getFileContent', { fileId });
-  if (!result.ok || !result.data) return null;
-  return (result.data as { content?: string }).content ?? null;
-}
-
-/** Get raw binary file content as a blob URL (for videos, images, Office docs). */
-export async function getDriveFileBinary(
-  projectId: string,
-  fileId: string
-): Promise<{ blobUrl: string; contentType: string } | null> {
-  const result = await callDriveProxy(projectId, 'getFileBinary', { fileId });
-  if (!result.ok || !result.data) return null;
-  const { base64, contentType } = result.data as { base64: string; contentType: string };
-  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-  const blob = new Blob([bytes], { type: contentType });
-  return { blobUrl: URL.createObjectURL(blob), contentType };
-}
-
-/** Get a Drive file as an ArrayBuffer (for mammoth DOCX→HTML conversion). */
-export async function getDriveFileArrayBuffer(
-  projectId: string,
-  fileId: string
-): Promise<ArrayBuffer | null> {
-  const result = await callDriveProxy(projectId, 'getFileBinary', { fileId });
-  if (!result.ok || !result.data) return null;
-  const { base64 } = result.data as { base64: string };
-  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-  return bytes.buffer;
-}
-
-/** Export a Google Workspace file as HTML. */
-export async function exportGoogleDocAsHtml(
-  projectId: string,
-  fileId: string
-): Promise<string | null> {
-  const result = await callDriveProxy(projectId, 'exportGoogleDoc', { fileId, exportMime: 'text/html' });
-  if (!result.ok || !result.data) return null;
-  return (result.data as { content?: string }).content ?? null;
-}
-
-/** Convert Office file (.pptx/.xlsx/.ppt/.xls) to PDF and return as blob URL. */
-export async function convertOfficeToPdf(
-  projectId: string,
-  fileId: string,
-  mimeType: string
-): Promise<string | null> {
-  const result = await callDriveProxy(projectId, 'convertOfficeToPdf', { fileId, mimeType });
-  if (!result.ok || !result.data) return null;
-  const { base64, contentType } = result.data as { base64: string; contentType: string };
-  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-  const blob = new Blob([bytes], { type: contentType });
-  return URL.createObjectURL(blob);
-}
-
-/** Get a file's thumbnail as blob URL. */
-export async function getDriveFileThumbnail(
-  projectId: string,
-  fileId: string
-): Promise<string | null> {
-  const result = await callDriveProxy(projectId, 'getThumbnail', { fileId });
-  if (!result.ok || !result.data) return null;
-  const { base64, contentType } = result.data as { base64: string; contentType: string };
-  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-  const blob = new Blob([bytes], { type: contentType });
-  return URL.createObjectURL(blob);
+  }));
 }
 
 export async function createDriveFolder(
@@ -286,148 +196,6 @@ export async function ensureArchiveFolder(
   if (!result.ok) return null;
   const data = result.data as { archiveFolderId?: string };
   return data.archiveFolderId || null;
-}
-
-/** Upload a file to Google Drive. */
-export async function uploadFileToDrive(
-  projectId: string,
-  file: File,
-  parentId: string,
-  /** Override the file name on Drive (defaults to file.name). */
-  customName?: string
-): Promise<{ ok: boolean; error?: string; fileId?: string; fileName?: string }> {
-  // Convert file to base64
-  const arrayBuffer = await file.arrayBuffer();
-  const base64 = btoa(
-    new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-  );
-
-  const result = await callDriveProxy(projectId, 'uploadFile', {
-    fileName: customName || file.name,
-    parentId,
-    mimeType: file.type || 'application/octet-stream',
-    base64Content: base64,
-  });
-
-  if (!result.ok) return { ok: false, error: result.error };
-  const data = result.data as { id?: string; name?: string } | undefined;
-  return { ok: true, fileId: data?.id, fileName: data?.name ?? customName ?? file.name };
-}
-
-/** Import a non-native file (CSV, DOCX, etc.) as a native Google format for iframe editing. */
-export async function importToGoogleFormat(
-  projectId: string,
-  fileId: string,
-  mimeType: string,
-  fileName: string
-): Promise<{ googleFileId: string; editorUrl: string } | null> {
-  const result = await callDriveProxy(projectId, 'importToGoogle', { fileId, mimeType, fileName });
-  if (!result.ok || !result.data) return null;
-  const data = result.data as { googleFileId: string; editorUrl: string };
-  return data;
-}
-
-/** Share a Drive file so anyone with the link can edit (needed for iframe embedding). */
-export async function shareDriveFile(
-  projectId: string,
-  fileId: string
-): Promise<boolean> {
-  const result = await callDriveProxy(projectId, 'shareFile', { fileId });
-  return result.ok;
-}
-
-/** Update the content of an existing file on Google Drive. */
-export async function updateDriveFileContent(
-  projectId: string,
-  fileId: string,
-  content: string,
-  mimeType: string = 'text/plain'
-): Promise<{ ok: boolean; error?: string }> {
-  const result = await callDriveProxy(projectId, 'updateFileContent', {
-    fileId,
-    content,
-    mimeType,
-  });
-  if (!result.ok) return { ok: false, error: result.error };
-  return { ok: true };
-}
-
-/** Sync PDF edit: export Google Doc copy back as PDF, overwrite original, delete copy. */
-export async function syncPdfEdit(
-  projectId: string,
-  originalFileId: string,
-  googleDocId: string
-): Promise<{ ok: boolean; blobUrl?: string; error?: string }> {
-  const result = await callDriveProxy(projectId, 'syncPdfEdit', { originalFileId, googleDocId });
-  if (!result.ok) return { ok: false, error: result.error };
-
-  // Build blob URL from the returned PDF data to avoid a second fetch
-  const { base64, contentType } = result.data as { base64?: string; contentType?: string };
-  if (base64) {
-    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-    const blob = new Blob([bytes], { type: contentType || 'application/pdf' });
-    return { ok: true, blobUrl: URL.createObjectURL(blob) };
-  }
-
-  return { ok: true };
-}
-
-/** Sync CSV edit: export Google Sheet back as CSV, overwrite original, delete copy. */
-export async function syncCsvEdit(
-  projectId: string,
-  originalFileId: string,
-  googleSheetId: string
-): Promise<{ ok: boolean; content?: string; error?: string }> {
-  const result = await callDriveProxy(projectId, 'syncCsvEdit', { originalFileId, googleSheetId });
-  if (!result.ok) return { ok: false, error: result.error };
-  const { content } = result.data as { content?: string };
-  return { ok: true, content };
-}
-
-/** Update a binary file on Drive (e.g. modified PDF). */
-export async function updateDriveFileBinary(
-  projectId: string,
-  fileId: string,
-  data: Uint8Array,
-  mimeType: string = 'application/pdf'
-): Promise<{ ok: boolean; error?: string }> {
-  // Convert Uint8Array to base64
-  let binary = '';
-  const bytes = data;
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  const base64 = btoa(binary);
-
-  const result = await callDriveProxy(projectId, 'updateFileContent', {
-    fileId,
-    content: base64,
-    mimeType,
-    isBase64: true,
-  });
-  if (!result.ok) return { ok: false, error: result.error };
-  return { ok: true };
-}
-
-/** Update a DOCX file on Drive from HTML (server-side HTML→DOCX conversion). */
-export async function updateDriveDocx(
-  projectId: string,
-  fileId: string,
-  html: string
-): Promise<{ ok: boolean; error?: string }> {
-  const result = await callDriveProxy(projectId, 'updateDocx', { fileId, html });
-  if (!result.ok) return { ok: false, error: result.error };
-  return { ok: true };
-}
-
-/** Remove all public "anyone with the link" permissions from all files in a folder. */
-export async function removePublicAccessFromAll(
-  projectId: string,
-  folderId: string
-): Promise<{ filesProcessed: number; permissionsRemoved: number } | null> {
-  const result = await callDriveProxy(projectId, 'removePublicAccess', { folderId });
-  if (!result.ok || !result.data) return null;
-  return result.data as { filesProcessed: number; permissionsRemoved: number };
 }
 
 // ── Permissions (unchanged — UI-only visibility controls) ───────────────────

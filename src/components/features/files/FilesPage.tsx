@@ -1,24 +1,19 @@
 'use client';
 
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import {
-  ChevronDown, ChevronRight, Folder, Plus, Loader2, ShieldCheck, FileText, Pencil,
-  Link as LinkIcon, RefreshCw, ExternalLink, Settings, Archive, RotateCcw, Trash2, HardDrive, Upload,
-} from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, Plus, Loader2, ShieldCheck, FileText, Pencil, AlertTriangle, Link as LinkIcon, RefreshCw, ExternalLink, Settings, Archive } from 'lucide-react';
 import { ProjectPermission } from '@/lib/types/project';
 import { useAuth } from '@/lib/auth-context';
 import {
   createCustomField,
   getDriveConfig,
+  listDriveFolder,
   createDriveFolder,
   renameDriveItem,
   archiveDriveItem,
-  restoreDriveItem,
   ensureArchiveFolder,
   updateDriveConfigArchiveId,
-  listDriveFolderDirect,
-  uploadFileToDrive,
   getAllFilePermissions,
   getAllFolderPermissions,
   getCustomFields,
@@ -26,7 +21,6 @@ import {
   linkFileToUnitData,
   upsertFilePermissions,
   upsertFolderPermissions,
-  moveDriveItem,
 } from '@/lib/db/files';
 import { getGoogleTokenStatus } from '@/lib/db/google-auth';
 import { getCategories } from '@/lib/db/unit-data';
@@ -37,24 +31,17 @@ import {
   ProjectFileItemPermissions,
   ProjectDriveConfig,
   DriveItem,
-  FileTreeNode,
 } from '@/lib/types/files';
-import { usePermission } from '@/lib/hooks/usePermission';
-import { useUserLogger } from '@/lib/hooks/useUserLogger';
+import { supabase } from '@/lib/supabase/client';
+import { logUserAction } from '@/lib/db/user-logs';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import DriveSetupModal from './DriveSetupModal';
 import GoogleConnectBanner from './GoogleConnectBanner';
-import { useFileTree } from './useFileTree';
-import { FileTreePanel } from './FileTreePanel';
-import { FileViewerPanel } from './FileViewerPanel';
-import { StorageBreakdown } from './StorageBreakdown';
 
 interface FilesPageProps {
   selectedProjectId: string | null;
   userPermission?: ProjectPermission | null;
-  projectOwnerId?: string | null;
-  isAdmin?: boolean;
 }
 
 type PermissionKey =
@@ -74,22 +61,27 @@ const permissionColumns: Array<{ key: PermissionKey; label: string }> = [
   { key: 'link_enabled', label: 'Link' },
 ];
 
-export default function FilesPage({ selectedProjectId, userPermission, projectOwnerId, isAdmin }: FilesPageProps) {
+function formatFileSize(bytes: number | null): string {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+export default function FilesPage({ selectedProjectId, userPermission }: FilesPageProps) {
   const { user } = useAuth();
   const searchParams = useSearchParams();
 
-  const { canEdit } = usePermission(userPermission, 'perm_files');
-  const isOwner = !!(user && projectOwnerId && user.id === projectOwnerId);
-  const isOwnerOrAdmin = isOwner || !!isAdmin;
-  const canManagePermissions = isOwnerOrAdmin;
+  const permLevel = userPermission?.perm_files ?? 'Admin';
+  const canEdit = permLevel === 'Edit' || permLevel === 'Admin' || !userPermission;
+  const canManagePermissions = !userPermission || (userPermission.project_role?.includes('Project Manager') ?? false);
 
   const hasFileAccess = useCallback(
     (permEntry: ProjectFileFolderPermissions | ProjectFileItemPermissions | undefined): boolean => {
-      // Owners/admins are already handled by filterTreeByAccess — this only runs for regular members.
-      // Deny by default: files are hidden unless the owner explicitly grants access via checkboxes.
-      if (!permEntry) return false;
+      if (!userPermission) return true;
+      if (!permEntry) return true;
       if (permEntry.allow_all_users) return true;
-      if (!userPermission) return false;
       const role = userPermission.project_role || '';
       if (permEntry.allow_project_manager && role.includes('Project Manager')) return true;
       if (permEntry.allow_property_manager && role.includes('Property Manager')) return true;
@@ -99,67 +91,28 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
     [userPermission],
   );
 
-  const { log } = useUserLogger(selectedProjectId);
+  const displayNameRef = useRef('Unknown');
+  const userEmailRef = useRef('');
 
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   // Drive state
   const [driveConfig, setDriveConfig] = useState<ProjectDriveConfig | null>(null);
+  const [driveItems, setDriveItems] = useState<DriveItem[]>([]);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleEmail, setGoogleEmail] = useState<string | null>(null);
   const [showSetupModal, setShowSetupModal] = useState(false);
 
-  // File tree (lazy-loading)
-  const { tree, loading: treeLoading, error: treeError, loadRoot, toggleFolder, reorderNode, refresh, ownerEmail } = useFileTree(selectedProjectId);
+  // UI state
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
-  // Selected file for viewer
-  const [selectedFile, setSelectedFile] = useState<DriveItem | null>(null);
-  const [loadingFolderId, setLoadingFolderId] = useState<string | undefined>();
-
-  // Sidebar panel width + resize
-  const [treeWidth, setTreeWidth] = useState(320);
-  const [isResizing, setIsResizing] = useState(false);
-
-  // Permissions
-  const [showPermissions, setShowPermissions] = useState(false);
+  const [showPermissions, setShowPermissions] = useState(true);
   const [allPermissions, setAllPermissions] = useState<Map<string, ProjectFileFolderPermissions>>(new Map());
   const [allFilePermissions, setAllFilePermissions] = useState<Map<string, ProjectFileItemPermissions>>(new Map());
   const [savingPermission, setSavingPermission] = useState<string | null>(null);
 
-  // Filter tree to only show items the current user has access to.
-  // Owners/admins always see everything so they can manage permissions.
-  const filterTreeByAccess = useCallback(
-    (nodes: FileTreeNode[]): FileTreeNode[] => {
-      if (isOwnerOrAdmin) return nodes;
-      return nodes.reduce<FileTreeNode[]>((acc, node) => {
-        const isFolder = node.item.mimeType === 'application/vnd.google-apps.folder';
-        const permEntry = isFolder
-          ? allPermissions.get(node.item.id)
-          : allFilePermissions.get(node.item.id);
-
-        if (isFolder) {
-          const filteredChildren = filterTreeByAccess(node.children);
-          // Show folder if user has access OR if any accessible children exist
-          if (hasFileAccess(permEntry) || filteredChildren.length > 0) {
-            acc.push({ ...node, children: filteredChildren });
-          }
-        } else {
-          if (hasFileAccess(permEntry)) {
-            acc.push(node);
-          }
-        }
-        return acc;
-      }, []);
-    },
-    [isOwnerOrAdmin, allPermissions, allFilePermissions, hasFileAccess],
-  );
-
-  const accessFilteredTree = useMemo(
-    () => filterTreeByAccess(tree),
-    [tree, filterTreeByAccess],
-  );
-
-  // Custom fields
   const [customFields, setCustomFields] = useState<ProjectFileCustomField[]>([]);
   const [showAddCustomField, setShowAddCustomField] = useState(false);
   const [newCustomFieldName, setNewCustomFieldName] = useState('');
@@ -170,28 +123,12 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
 
   const [notice, setNotice] = useState<string | null>(null);
 
-  // Rename
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
-  // Archive / folder creation
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
-
-  // Storage view
-  const [showStorage, setShowStorage] = useState(false);
-
-  // Archive viewer
-  const [showArchive, setShowArchive] = useState(false);
-  const [archiveItems, setArchiveItems] = useState<DriveItem[]>([]);
-  const [archiveLoading, setArchiveLoading] = useState(false);
-  const [restoringId, setRestoringId] = useState<string | null>(null);
-
-  // File upload
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState('');
 
   // Unit linking state
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -202,7 +139,16 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
   const [linkingInProgress, setLinkingInProgress] = useState(false);
   const [linkedMap, setLinkedMap] = useState<Map<string, { type: 'field' | 'category'; name: string; parentName?: string }>>(new Map());
 
-  // ── Unit linking handlers ─────────────────────────────────────────
+  const log = (action: string) => {
+    if (!user || !selectedProjectId) return;
+    logUserAction({
+      projectId: selectedProjectId,
+      userId: user.id,
+      userName: displayNameRef.current,
+      userEmail: userEmailRef.current,
+      action,
+    });
+  };
 
   const loadUnitDataForLinking = async () => {
     if (unitDataLoaded || !selectedProjectId) return;
@@ -237,52 +183,53 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
     loadUnitDataForLinking();
   };
 
-  // ── Google connection ─────────────────────────────────────────────
+  // Load user info
+  useEffect(() => {
+    if (!user) return;
+    userEmailRef.current = user.email || '';
+    supabase
+      .from('zhl_accounts')
+      .select('display_name')
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        displayNameRef.current = data?.display_name || user.email || 'Unknown';
+      });
+  }, [user]);
 
+  // Check Google connection status
   const checkGoogleStatus = useCallback(async () => {
-    const status = await getGoogleTokenStatus(selectedProjectId);
+    const status = await getGoogleTokenStatus();
     setGoogleConnected(status.connected);
     setGoogleEmail(status.google_email);
-  }, [selectedProjectId]);
+  }, []);
 
-  useEffect(() => { checkGoogleStatus(); }, [checkGoogleStatus]);
+  useEffect(() => {
+    checkGoogleStatus();
+  }, [checkGoogleStatus]);
 
+  // Handle OAuth callback params
   useEffect(() => {
     const authStatus = searchParams.get('google_auth');
     if (authStatus === 'success') {
       setNotice('Google Drive connected successfully!');
       checkGoogleStatus();
-    } else if (authStatus === 'finalize') {
-      const data = searchParams.get('data');
-      if (data) {
-        (async () => {
-          const { finalizeGoogleAuth } = await import('@/lib/db/google-auth');
-          const ok = await finalizeGoogleAuth(data);
-          if (ok) {
-            setNotice('Google Drive connected successfully!');
-            checkGoogleStatus();
-          } else {
-            setNotice('Google Drive connection failed: could not finalize authentication.');
-          }
-        })();
-      }
     } else if (authStatus === 'error') {
       const reason = searchParams.get('reason') || 'unknown';
       setNotice(`Google Drive connection failed: ${reason}`);
     }
   }, [searchParams, checkGoogleStatus]);
 
-  // ── Load config + permissions + tree ──────────────────────────────
-
+  // Load Drive config and items
   useEffect(() => {
     if (!selectedProjectId) {
       setDriveConfig(null);
+      setDriveItems([]);
       return;
     }
 
     setUnitDataLoaded(false);
     setUnitCategories([]);
-    setSelectedFile(null);
 
     const load = async () => {
       setLoading(true);
@@ -306,73 +253,119 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
 
       getLinkedUnitDataMap(selectedProjectId).then(setLinkedMap);
 
-      // Load file tree (lazy — only root level)
+      // If Drive is configured and Google is connected, fetch file tree
       if (config && googleConnected) {
-        await loadRoot(config.root_folder_id);
+        setSyncing(true);
+        const items = await listDriveFolder(selectedProjectId, config.root_folder_id);
+        setDriveItems(items);
+        // Start all folders collapsed
+        setCollapsedFolders(new Set(items.filter((i) => i.isFolder).map((i) => i.id)));
+        setSyncing(false);
       }
 
       setLoading(false);
     };
 
     load();
-  }, [selectedProjectId, googleConnected, loadRoot]);
+  }, [selectedProjectId, googleConnected]);
 
-  // ── Refresh ───────────────────────────────────────────────────────
-
+  // Refresh from Drive
   const handleRefresh = async () => {
     if (!selectedProjectId || !driveConfig || !googleConnected) return;
+    setSyncing(true);
     setNotice(null);
     try {
-      await refresh(driveConfig.root_folder_id);
-      setNotice('Refreshed file tree from Google Drive.');
+      const items = await listDriveFolder(selectedProjectId, driveConfig.root_folder_id);
+      setDriveItems(items);
+      setNotice(`Synced ${items.length} items from Google Drive.`);
       log('Refreshed file tree from Google Drive');
     } catch {
       setNotice('Failed to sync from Google Drive.');
     }
+    setSyncing(false);
   };
 
-  // ── Tree interaction handlers ─────────────────────────────────────
+  // ── Computed maps ─────────────────────────────────────────────────
 
-  const handleToggleFolder = useCallback(async (nodeId: string) => {
-    setLoadingFolderId(nodeId);
-    // Find the folder node and select/deselect it
-    const findNode = (nodes: FileTreeNode[]): FileTreeNode | null => {
-      for (const n of nodes) {
-        if (n.item.id === nodeId) return n;
-        const found = findNode(n.children);
-        if (found) return found;
+  const folders = useMemo(() => driveItems.filter((i) => i.isFolder && i.name !== 'ARCHIVE'), [driveItems]);
+  const files = useMemo(() => driveItems.filter((i) => !i.isFolder), [driveItems]);
+
+  const folderChildrenMap = useMemo(() => {
+    const map = new Map<string | null, DriveItem[]>();
+    folders.forEach((folder) => {
+      const key = folder.parentId;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)?.push(folder);
+    });
+    return map;
+  }, [folders]);
+
+  const filesInFolderMap = useMemo(() => {
+    const map = new Map<string, DriveItem[]>();
+    files.forEach((file) => {
+      if (!file.parentId) return;
+      if (!map.has(file.parentId)) map.set(file.parentId, []);
+      map.get(file.parentId)?.push(file);
+    });
+    return map;
+  }, [files]);
+
+  // Root folder files (files directly in the root Drive folder)
+  const rootFiles = useMemo(() => {
+    if (!driveConfig) return [];
+    return files.filter((f) => f.parentId === driveConfig.root_folder_id);
+  }, [files, driveConfig]);
+
+  const hasRequiredFolderFields = useMemo(() => {
+    return customFields.some((f) => f.required && f.target_type === 'folder');
+  }, [customFields]);
+
+  // ── Auto-expand & highlight ───────────────────────────────────────
+  const highlightProcessed = useRef(false);
+  useEffect(() => {
+    const highlightParam = searchParams.get('highlight');
+    if (!highlightParam || driveItems.length === 0 || highlightProcessed.current) return;
+    highlightProcessed.current = true;
+
+    const itemById = new Map(driveItems.map((i) => [i.id, i]));
+
+    const expandParentChain = (parentId: string | null) => {
+      const toExpand: string[] = [];
+      let current = parentId;
+      while (current) {
+        toExpand.push(current);
+        current = itemById.get(current)?.parentId ?? null;
       }
-      return null;
+      if (toExpand.length > 0) {
+        setCollapsedFolders((prev) => {
+          const next = new Set(prev);
+          toExpand.forEach((id) => next.delete(id));
+          return next;
+        });
+      }
     };
-    const node = findNode(tree);
-    if (node) {
-      // If clicking the same folder, deselect it (back to root)
-      if (selectedFile?.id === nodeId) {
-        setSelectedFile(null);
-      } else {
-        setSelectedFile(node.item);
-      }
-    }
-    await toggleFolder(nodeId);
-    setLoadingFolderId(undefined);
-  }, [toggleFolder, tree, selectedFile?.id]);
 
-  const handleSelectFile = useCallback((node: FileTreeNode) => {
-    setSelectedFile(node.item);
-    if (!node.item.isFolder) {
-      log(`Opened "${node.item.name}" preview`);
+    const item = driveItems.find((i) => i.id === highlightParam);
+    if (item) {
+      expandParentChain(item.parentId);
+      setHighlightedId(item.id);
     }
-  }, [log]);
 
-  const handleMoveItem = useCallback(async (fileId: string, fromFolderId: string, toFolderId: string) => {
-    if (!selectedProjectId || !driveConfig) return;
-    const ok = await moveDriveItem(selectedProjectId, fileId, fromFolderId, toFolderId);
-    if (ok) {
-      await refresh(driveConfig.root_folder_id);
+    setTimeout(() => setHighlightedId(null), 4000);
+  }, [searchParams, driveItems]);
+
+  useEffect(() => {
+    highlightProcessed.current = false;
+  }, [selectedProjectId]);
+
+  const highlightRowRef = useRef<HTMLTableRowElement>(null);
+  useEffect(() => {
+    if (highlightedId && highlightRowRef.current) {
+      highlightRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
-  }, [selectedProjectId, driveConfig, refresh]);
+  }, [highlightedId]);
 
-  // ── Permission toggles ────────────────────────────────────────────
+  // ── Handlers ──────────────────────────────────────────────────────
 
   const togglePermission = async (folderId: string, key: PermissionKey) => {
     if (!canManagePermissions || !selectedProjectId || !user) return;
@@ -430,17 +423,26 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
     setSavingPermission(null);
   };
 
-  // ── Folder / file actions ─────────────────────────────────────────
-
   const handleCreateFolder = async () => {
     if (!selectedProjectId || !user || !newFolderName.trim() || !driveConfig) return;
 
-    const targetParentId = selectedFile?.isFolder ? selectedFile.id : driveConfig.root_folder_id;
+    const targetParentId = driveConfig.root_folder_id;
     const result = await createDriveFolder(selectedProjectId, newFolderName.trim(), targetParentId);
-    if (result.ok) {
+    if (result.ok && result.folderId) {
+      setDriveItems((prev) => [...prev, {
+        id: result.folderId!,
+        parentId: targetParentId,
+        name: newFolderName.trim(),
+        mimeType: 'application/vnd.google-apps.folder',
+        size: null,
+        isFolder: true,
+        webViewLink: null,
+        webContentLink: null,
+        modifiedTime: new Date().toISOString(),
+        iconLink: null,
+      }]);
       log(`Created folder "${newFolderName.trim()}" on Google Drive`);
       setNotice(`Folder "${newFolderName.trim()}" created.`);
-      await refresh(driveConfig.root_folder_id);
     } else {
       setNotice(`Failed to create folder: ${result.error || 'unknown error'}`);
     }
@@ -449,11 +451,11 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
   };
 
   const handleRename = async () => {
-    if (!renamingId || !renameValue.trim() || !selectedProjectId || !driveConfig) return;
+    if (!renamingId || !renameValue.trim() || !selectedProjectId) return;
     const ok = await renameDriveItem(selectedProjectId, renamingId, renameValue.trim());
     if (ok) {
+      setDriveItems((prev) => prev.map((i) => i.id === renamingId ? { ...i, name: renameValue.trim() } : i));
       log(`Renamed item to "${renameValue.trim()}" on Google Drive`);
-      await refresh(driveConfig.root_folder_id);
     }
     setRenamingId(null);
     setRenameValue('');
@@ -462,18 +464,10 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
   const handleArchiveItem = async (itemId: string) => {
     if (!canEdit || !selectedProjectId || !driveConfig) return;
 
-    // Find the item in the tree
-    const findItem = (nodes: FileTreeNode[]): DriveItem | null => {
-      for (const n of nodes) {
-        if (n.item.id === itemId) return n.item;
-        const found = findItem(n.children);
-        if (found) return found;
-      }
-      return null;
-    };
-    const item = findItem(tree);
+    const item = driveItems.find((i) => i.id === itemId);
     if (!item || !item.parentId) return;
 
+    // Ensure ARCHIVE folder exists
     let archiveId = driveConfig.archive_folder_id;
     if (!archiveId) {
       archiveId = await ensureArchiveFolder(selectedProjectId, driveConfig.root_folder_id);
@@ -490,10 +484,9 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
 
     const ok = await archiveDriveItem(selectedProjectId, itemId, item.parentId, archiveId);
     if (ok) {
+      setDriveItems((prev) => prev.filter((i) => i.id !== itemId));
       log(`Archived "${item.name}" on Google Drive`);
       setNotice(`"${item.name}" moved to ARCHIVE.`);
-      if (selectedFile?.id === itemId) setSelectedFile(null);
-      await refresh(driveConfig.root_folder_id);
     } else {
       setNotice(`Failed to archive "${item.name}".`);
     }
@@ -505,51 +498,6 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
       window.open(item.webViewLink, '_blank', 'noopener,noreferrer');
       log(`Opened "${item.name}" in Google Drive`);
     }
-  };
-
-  const loadArchiveItems = async () => {
-    if (!selectedProjectId || !driveConfig) return;
-    setArchiveLoading(true);
-    let archiveId = driveConfig.archive_folder_id;
-    if (!archiveId) {
-      archiveId = await ensureArchiveFolder(selectedProjectId, driveConfig.root_folder_id);
-      if (archiveId) {
-        await updateDriveConfigArchiveId(selectedProjectId, archiveId);
-        setDriveConfig((prev) => prev ? { ...prev, archive_folder_id: archiveId } : prev);
-      }
-    }
-    if (archiveId) {
-      const { items } = await listDriveFolderDirect(selectedProjectId, archiveId);
-      setArchiveItems(items);
-    }
-    setArchiveLoading(false);
-  };
-
-  const handleToggleArchive = async () => {
-    if (!showArchive) {
-      await loadArchiveItems();
-    }
-    setShowArchive((v) => !v);
-  };
-
-  const handleRestoreItem = async (item: DriveItem) => {
-    if (!selectedProjectId || !driveConfig?.archive_folder_id) return;
-    setRestoringId(item.id);
-    const ok = await restoreDriveItem(
-      selectedProjectId,
-      item.id,
-      driveConfig.archive_folder_id,
-      driveConfig.root_folder_id,
-    );
-    if (ok) {
-      log(`Restored "${item.name}" from archive`);
-      setNotice(`"${item.name}" restored.`);
-      setArchiveItems((prev) => prev.filter((i) => i.id !== item.id));
-      await refresh(driveConfig.root_folder_id);
-    } else {
-      setNotice(`Failed to restore "${item.name}".`);
-    }
-    setRestoringId(null);
   };
 
   const handleAddCustomField = async () => {
@@ -567,86 +515,49 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
     log(`Created custom field "${created.name}"`);
   };
 
-  // ── File upload handler ──────────────────────────────────────────
+  // ── Build flat row list ───────────────────────────────────────────
 
-  const getUploadTargetId = (): string | null => {
-    if (!driveConfig) return null;
-    // If a folder is selected, upload into it; otherwise upload to root
-    if (selectedFile?.isFolder) return selectedFile.id;
-    return driveConfig.root_folder_id;
-  };
+  type TableRow =
+    | { type: 'folder'; item: DriveItem; depth: number }
+    | { type: 'file'; item: DriveItem; parentId: string; depth: number };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0 || !selectedProjectId || !driveConfig) return;
+  const buildRows = (parentId: string | null, depth: number): TableRow[] => {
+    const children = folderChildrenMap.get(parentId) ?? [];
+    const rows: TableRow[] = [];
 
-    const targetId = getUploadTargetId();
-    if (!targetId) return;
+    for (const folder of children) {
+      const folderPerm = allPermissions.get(folder.id);
+      if (!hasFileAccess(folderPerm)) continue;
 
-    setUploading(true);
-    let uploaded = 0;
-    const total = files.length;
+      rows.push({ type: 'folder', item: folder, depth });
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      setUploadProgress(`Uploading ${i + 1}/${total}: ${file.name}`);
-      const result = await uploadFileToDrive(selectedProjectId, file, targetId);
-      if (result.ok) {
-        uploaded++;
-        log(`Uploaded "${file.name}" to Google Drive`);
-      } else {
-        setNotice(`Failed to upload "${file.name}": ${result.error || 'unknown error'}`);
+      if (!collapsedFolders.has(folder.id)) {
+        const folderFiles = filesInFolderMap.get(folder.id) ?? [];
+        for (const file of folderFiles) {
+          const filePerm = allFilePermissions.get(file.id);
+          const effectivePerm = filePerm ?? folderPerm;
+          if (!hasFileAccess(effectivePerm)) continue;
+          rows.push({ type: 'file', item: file, parentId: folder.id, depth: depth + 1 });
+        }
+        rows.push(...buildRows(folder.id, depth + 1));
       }
     }
 
-    setUploading(false);
-    setUploadProgress('');
-    if (uploaded > 0) {
-      setNotice(`${uploaded} file(s) uploaded successfully.`);
-      await refresh(driveConfig.root_folder_id);
-    }
-
-    // Reset file input
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    return rows;
   };
 
-  // ── Resize handler ────────────────────────────────────────────────
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsResizing(true);
-    const startX = e.clientX;
-    const startWidth = treeWidth;
-
-    function onMouseMove(e: MouseEvent) {
-      const delta = e.clientX - startX;
-      setTreeWidth(Math.max(240, Math.min(600, startWidth + delta)));
+  const tableRows = useMemo(() => {
+    if (!driveConfig) return [];
+    const rows = buildRows(driveConfig.root_folder_id, 0);
+    // Add root-level files
+    for (const file of rootFiles) {
+      const filePerm = allFilePermissions.get(file.id);
+      if (!hasFileAccess(filePerm)) continue;
+      rows.push({ type: 'file', item: file, parentId: driveConfig.root_folder_id, depth: 0 });
     }
-
-    function onMouseUp() {
-      setIsResizing(false);
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    }
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }, [treeWidth]);
-
-  // ── Selected item details for permission panel ────────────────────
-
-  const selectedItemPerms = useMemo(() => {
-    if (!selectedFile) return null;
-    if (selectedFile.isFolder) {
-      return { type: 'folder' as const, perms: allPermissions.get(selectedFile.id) };
-    }
-    return { type: 'file' as const, perms: allFilePermissions.get(selectedFile.id) };
-  }, [selectedFile, allPermissions, allFilePermissions]);
-
-  const linkedInfo = useMemo(() => {
-    if (!selectedFile) return null;
-    return linkedMap.get(selectedFile.isFolder ? `folder:${selectedFile.id}` : selectedFile.id) || linkedMap.get(selectedFile.id) || null;
-  }, [selectedFile, linkedMap]);
+    return rows;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folderChildrenMap, filesInFolderMap, collapsedFolders, allPermissions, allFilePermissions, hasFileAccess, driveConfig, rootFiles]);
 
   // ── Render ────────────────────────────────────────────────────────
 
@@ -670,15 +581,13 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
 
   return (
     <main className="bg-background text-foreground min-h-screen p-4 sm:p-6">
-      <div className="max-w-[1800px] mx-auto space-y-4">
-        {/* Google Connect Banner — only show to owner/admin */}
-        {isOwnerOrAdmin && (
-          <GoogleConnectBanner
-            connected={googleConnected}
-            googleEmail={googleEmail}
-            onStatusChange={checkGoogleStatus}
-          />
-        )}
+      <div className="max-w-7xl mx-auto space-y-4">
+        {/* Google Connect Banner */}
+        <GoogleConnectBanner
+          connected={googleConnected}
+          googleEmail={googleEmail}
+          onStatusChange={checkGoogleStatus}
+        />
 
         {/* Setup prompt if not configured */}
         {!driveConfig && (
@@ -687,16 +596,10 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
               <Folder className="h-10 w-10 text-muted-foreground" />
             </div>
             <div>
-              <p className="text-sm font-bold tracking-widest uppercase text-muted-foreground mb-1">
-                {isOwnerOrAdmin ? 'Google Drive not connected' : 'No files available'}
-              </p>
-              <p className="text-xs text-muted-foreground/60">
-                {isOwnerOrAdmin
-                  ? 'Connect a Google Drive folder to manage files for this project.'
-                  : 'The project owner has not configured Google Drive for this project yet.'}
-              </p>
+              <p className="text-sm font-bold tracking-widest uppercase text-muted-foreground mb-1">Google Drive not connected</p>
+              <p className="text-xs text-muted-foreground/60">Connect a Google Drive folder to manage files for this project.</p>
             </div>
-            {isOwnerOrAdmin && canEdit && (
+            {canEdit && (
               <Button variant="primary" onClick={() => setShowSetupModal(true)}>
                 <Settings className="h-4 w-4 mr-1" />
                 Configure Google Drive
@@ -708,8 +611,9 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
         {/* Main content when configured */}
         {driveConfig && (
           <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4">
-            {/* ── Left Sidebar ── */}
+            {/* ── Left Pane ── */}
             <aside className="space-y-4 p-4 glass-card backdrop-blur-md bg-background/80 border border-white/10 rounded-2xl shadow-xl self-start sticky top-20">
+              {/* Google Drive info */}
               <div className="flex items-start gap-2.5 p-3 rounded-xl bg-blue-500/5 border border-blue-500/20 text-blue-500">
                 <ShieldCheck className="h-4 w-4 shrink-0 mt-0.5" />
                 <p className="text-[11px] font-medium leading-relaxed">
@@ -717,165 +621,93 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
                 </p>
               </div>
 
-              {/* Permissions toggle — owner/admin only */}
-              {isOwnerOrAdmin && (
+              {/* Permissions toggle */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowPermissions((p) => !p)}
+                className="text-[10px] font-bold tracking-widest uppercase text-primary hover:text-primary transition-all flex items-center gap-1.5 px-1 h-auto py-1 shadow-none"
+              >
+                {showPermissions ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                {showPermissions ? 'Hide Permissions' : 'Show Permissions'}
+              </Button>
+
+              {/* Actions */}
+              <div className="space-y-3 pt-2">
                 <Button
-                  variant="ghost" size="sm"
-                  onClick={() => setShowPermissions((p) => !p)}
-                  className="text-[10px] font-bold tracking-widest uppercase text-primary hover:text-primary transition-all flex items-center gap-1.5 px-1 h-auto py-1 shadow-none"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleRefresh}
+                  disabled={syncing || !googleConnected}
+                  className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
+                  leftIcon={syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                 >
-                  {showPermissions ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                  {showPermissions ? 'Hide Permissions' : 'Show Permissions'}
+                  Refresh from Drive
                 </Button>
-              )}
 
-              {/* Actions — owner/admin only */}
-              {isOwnerOrAdmin && (
-                <div className="space-y-3 pt-2">
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={handleRefresh}
-                    disabled={treeLoading || !googleConnected}
-                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
-                    leftIcon={treeLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                  >
-                    Refresh from Drive
-                  </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setCollapsedFolders(new Set())}
+                  className="w-full justify-start text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all px-1 h-auto py-1 shadow-none"
+                >
+                  Expand all Folders
+                </Button>
 
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={!canEdit || !googleConnected || uploading}
-                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
-                    leftIcon={uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                  >
-                    {uploading ? 'Uploading...' : `Upload Files${selectedFile?.isFolder ? ` to ${selectedFile.name}` : ''}`}
-                  </Button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    onChange={handleFileUpload}
-                    className="hidden"
-                    accept="*/*"
-                  />
-                  {uploadProgress && (
-                    <p className="text-[10px] text-muted-foreground px-1 animate-pulse">{uploadProgress}</p>
-                  )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowAddCustomField(true)}
+                  disabled={!canEdit}
+                  className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
+                  leftIcon={<Plus className="h-3.5 w-3.5" />}
+                >
+                  Add Custom Field
+                </Button>
 
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={() => setShowAddCustomField(true)}
-                    disabled={!canEdit}
-                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
-                    leftIcon={<Plus className="h-3.5 w-3.5" />}
-                  >
-                    Add Custom Field
-                  </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { if (canEdit) setShowNewFolderInput((v) => !v); }}
+                  disabled={!canEdit || !googleConnected}
+                  className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
+                  leftIcon={<Plus className="h-3.5 w-3.5" />}
+                >
+                  Add New Folder
+                </Button>
+                {showNewFolderInput && (
+                  <div className="flex flex-col gap-2 px-1">
+                    <input
+                      autoFocus
+                      value={newFolderName}
+                      onChange={(e) => setNewFolderName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleCreateFolder();
+                        if (e.key === 'Escape') { setShowNewFolderInput(false); setNewFolderName(''); }
+                      }}
+                      placeholder="Folder name..."
+                      className="w-full px-3 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
+                    />
+                    <button
+                      onClick={handleCreateFolder}
+                      disabled={!newFolderName.trim()}
+                      className="px-3 py-1.5 text-[10px] font-bold tracking-wider uppercase bg-primary text-primary-foreground rounded-xl disabled:opacity-50 transition-all"
+                    >
+                      Create on Drive
+                    </button>
+                  </div>
+                )}
 
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={() => { if (canEdit) setShowNewFolderInput((v) => !v); }}
-                    disabled={!canEdit || !googleConnected}
-                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
-                    leftIcon={<Plus className="h-3.5 w-3.5" />}
-                  >
-                    {`Add Folder${selectedFile?.isFolder ? ` in ${selectedFile.name}` : ''}`}
-                  </Button>
-                  {showNewFolderInput && (
-                    <div className="flex flex-col gap-2 px-1">
-                      <input
-                        autoFocus
-                        value={newFolderName}
-                        onChange={(e) => setNewFolderName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleCreateFolder();
-                          if (e.key === 'Escape') { setShowNewFolderInput(false); setNewFolderName(''); }
-                        }}
-                        placeholder="Folder name..."
-                        className="w-full px-3 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
-                      />
-                      <button
-                        onClick={handleCreateFolder}
-                        disabled={!newFolderName.trim()}
-                        className="px-3 py-1.5 text-[10px] font-bold tracking-wider uppercase bg-primary text-primary-foreground rounded-xl disabled:opacity-50 transition-all"
-                      >
-                        Create on Drive
-                      </button>
-                    </div>
-                  )}
-
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={() => setShowSetupModal(true)}
-                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all px-1 h-auto py-1 shadow-none"
-                    leftIcon={<Settings className="h-3.5 w-3.5" />}
-                  >
-                    Drive Settings
-                  </Button>
-
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={handleToggleArchive}
-                    disabled={!googleConnected}
-                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-amber-500 hover:text-amber-400 transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
-                    leftIcon={<Trash2 className="h-3.5 w-3.5" />}
-                  >
-                    {showArchive ? 'Hide Archive' : 'View Archive'}
-                  </Button>
-
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={() => setShowStorage((v) => !v)}
-                    disabled={!googleConnected}
-                    className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all disabled:opacity-50 px-1 h-auto py-1 shadow-none"
-                    leftIcon={<HardDrive className="h-3.5 w-3.5" />}
-                  >
-                    {showStorage ? 'Hide Storage' : 'Storage Usage'}
-                  </Button>
-                </div>
-              )}
-
-              {/* Archive panel */}
-              {showArchive && isOwnerOrAdmin && (
-                <div className="space-y-2">
-                  <div className="h-px bg-white/5 mx-1" />
-                  <p className="text-[10px] font-bold tracking-widest uppercase text-amber-500 px-1 flex items-center gap-1.5">
-                    <Archive className="h-3.5 w-3.5" /> Archived Items
-                  </p>
-                  {archiveLoading ? (
-                    <div className="flex items-center gap-2 text-[10px] font-bold tracking-widest uppercase text-muted-foreground px-3">
-                      <Loader2 className="h-3 w-3 animate-spin" /> Loading...
-                    </div>
-                  ) : archiveItems.length === 0 ? (
-                    <p className="text-[10px] text-muted-foreground/60 px-3">No archived items.</p>
-                  ) : (
-                    <div className="space-y-1 max-h-[300px] overflow-y-auto">
-                      {archiveItems.map((item) => (
-                        <div
-                          key={item.id}
-                          className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg hover:bg-muted/30 transition-colors group"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className={`p-1 rounded shrink-0 ${item.isFolder ? 'bg-amber-500/10' : 'bg-muted/30'}`}>
-                              {item.isFolder ? <Folder className="h-3 w-3 text-amber-500" /> : <FileText className="h-3 w-3 text-muted-foreground" />}
-                            </div>
-                            <span className="text-[11px] font-medium truncate">{item.name}</span>
-                          </div>
-                          <button
-                            onClick={() => handleRestoreItem(item)}
-                            disabled={restoringId === item.id}
-                            className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-green-500/10 hover:bg-green-500/20 text-green-500 text-[9px] font-bold tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50"
-                          >
-                            {restoringId === item.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
-                            Restore
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowSetupModal(true)}
+                  className="w-full justify-start items-center gap-2 text-[11px] font-bold tracking-wider uppercase text-primary hover:text-primary transition-all px-1 h-auto py-1 shadow-none"
+                  leftIcon={<Settings className="h-3.5 w-3.5" />}
+                >
+                  Drive Settings
+                </Button>
+              </div>
 
               <div className="h-px bg-white/5 mx-1" />
 
@@ -892,16 +724,6 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
                 >
                   Open in Google Drive <ExternalLink className="h-3 w-3" />
                 </a>
-                {isOwnerOrAdmin && (
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={() => setShowSetupModal(true)}
-                    className="w-full justify-start items-center gap-2 text-[10px] font-bold tracking-wider uppercase text-muted-foreground hover:text-primary transition-all px-1 h-auto py-1 shadow-none"
-                    leftIcon={<Settings className="h-3 w-3" />}
-                  >
-                    Change Drive Folder
-                  </Button>
-                )}
               </div>
 
               {notice && (
@@ -910,170 +732,293 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
                 </div>
               )}
 
-              {treeLoading && (
+              {syncing && (
                 <div className="flex items-center gap-2 text-[10px] font-bold tracking-widest uppercase text-primary px-3">
                   <Loader2 className="h-3 w-3 animate-spin" /> Syncing...
                 </div>
               )}
-
-              {/* ── Selected item details panel ── */}
-              {selectedFile && (
-                <>
-                  <div className="h-px bg-white/5 mx-1" />
-                  <div className="space-y-3">
-                    <p className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground px-1">Selected Item</p>
-                    <div className="flex items-center gap-2 px-1">
-                      <div className={`p-1.5 rounded-lg shrink-0 ${selectedFile.isFolder ? 'bg-amber-500/10' : 'bg-blue-500/10'}`}>
-                        {selectedFile.isFolder ? <Folder className="h-4 w-4 text-amber-500" /> : <FileText className="h-4 w-4 text-blue-500" />}
-                      </div>
-                      <span className="text-xs font-bold truncate">{selectedFile.name}</span>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="flex flex-wrap gap-1.5 px-1">
-                      {selectedFile.webViewLink && (
-                        <button
-                          onClick={() => handleOpenInDrive(selectedFile)}
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-muted/50 hover:bg-primary/10 text-[10px] font-bold tracking-wider uppercase transition-colors"
-                        >
-                          <ExternalLink className="h-3 w-3" /> Open
-                        </button>
-                      )}
-                      {isOwnerOrAdmin && canEdit && (
-                        <button
-                          onClick={() => { setRenamingId(selectedFile.id); setRenameValue(selectedFile.name); }}
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-muted/50 hover:bg-primary/10 text-[10px] font-bold tracking-wider uppercase transition-colors"
-                        >
-                          <Pencil className="h-3 w-3" /> Rename
-                        </button>
-                      )}
-                      {isOwnerOrAdmin && canEdit && (
-                        <button
-                          onClick={() => setConfirmArchiveId(selectedFile.id)}
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-muted/50 hover:bg-destructive/10 text-[10px] font-bold tracking-wider uppercase text-destructive transition-colors"
-                        >
-                          <Archive className="h-3 w-3" /> Archive
-                        </button>
-                      )}
-                      {isOwnerOrAdmin && canEdit && (
-                        <button
-                          onClick={() => openLinkModal([{
-                            name: selectedFile.name,
-                            driveId: selectedFile.isFolder ? `folder:${selectedFile.id}` : selectedFile.id,
-                          }])}
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-muted/50 hover:bg-blue-500/10 text-[10px] font-bold tracking-wider uppercase text-blue-500 transition-colors"
-                        >
-                          <LinkIcon className="h-3 w-3" /> Link
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Linked info */}
-                    {linkedInfo && (
-                      <div className="px-1">
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wider uppercase text-blue-500 bg-blue-500/5 px-2 py-0.5 rounded-full border border-blue-500/10">
-                          <LinkIcon className="h-3 w-3" />
-                          {linkedInfo.type === 'field' && linkedInfo.parentName ? `${linkedInfo.parentName} → ${linkedInfo.name}` : linkedInfo.name}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Rename input */}
-                    {renamingId === selectedFile.id && (
-                      <div className="flex flex-col gap-2 px-1">
-                        <input
-                          autoFocus
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleRename();
-                            if (e.key === 'Escape') { setRenamingId(null); setRenameValue(''); }
-                          }}
-                          className="w-full px-3 py-1.5 bg-background/50 border border-primary/20 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium"
-                        />
-                        <button onClick={handleRename} className="px-3 py-1.5 text-[10px] font-bold tracking-wider uppercase bg-primary text-primary-foreground rounded-xl transition-all">
-                          Save
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Permission checkboxes */}
-                    {showPermissions && canManagePermissions && (
-                      <div className="space-y-2 px-1">
-                        <p className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground flex items-center gap-1">
-                          Permissions {savingPermission === selectedFile.id && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
-                        </p>
-                        {permissionColumns.map((col) => {
-                          const isFolder = selectedFile.isFolder;
-                          const perms = isFolder
-                            ? allPermissions.get(selectedFile.id)
-                            : allFilePermissions.get(selectedFile.id);
-                          const checked = Boolean(perms?.[col.key as keyof typeof perms]);
-                          return (
-                            <label key={col.key} className="flex items-center gap-2 text-xs cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => isFolder
-                                  ? togglePermission(selectedFile.id, col.key)
-                                  : toggleFilePermission(selectedFile.id, col.key)
-                                }
-                                className="rounded border-border h-3.5 w-3.5 text-primary focus:ring-primary/20"
-                              />
-                              <span className="font-medium text-foreground/80">{col.label}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
             </aside>
 
-            {/* ── Right: Split Panel (Tree + Viewer) ── */}
-            <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm" style={{ height: 'calc(100vh - 180px)' }}>
-              <div className="flex h-full">
-                {/* File Tree */}
-                <div className="flex-shrink-0 border-r border-border/40" style={{ width: `${treeWidth}px` }}>
-                  <FileTreePanel
-                    tree={accessFilteredTree}
-                    loading={treeLoading}
-                    error={treeError}
-                    selectedId={selectedFile?.id}
-                    loadingId={loadingFolderId}
-                    rootFolderId={driveConfig?.root_folder_id}
-                    onToggleFolder={handleToggleFolder}
-                    onSelectFile={handleSelectFile}
-                    onMoveItem={handleMoveItem}
-                    onReorderItem={reorderNode}
-                    showPermissions={showPermissions}
-                    canManagePermissions={canManagePermissions}
-                    folderPermissions={allPermissions}
-                    filePermissions={allFilePermissions}
-                    onToggleFolderPermission={togglePermission}
-                    onToggleFilePermission={toggleFilePermission}
-                  />
-                </div>
+            {/* ── Right: Main Table ── */}
+            <div className="glass-card rounded-2xl overflow-hidden border border-border/50 shadow-sm relative">
+              <table className="w-full text-xs sm:text-sm border-collapse">
+                <thead>
+                  <tr className="bg-muted/30 border-b border-border/50">
+                    <th className="w-8 px-2 py-2 border-r border-border/50" />
 
-                {/* Resize handle */}
-                <div
-                  className={`w-1 cursor-col-resize bg-transparent transition-colors hover:bg-primary/20 ${isResizing ? 'bg-primary/30' : ''}`}
-                  onMouseDown={handleMouseDown}
-                />
+                    {showPermissions && permissionColumns.map((col) => (
+                      <th key={col.key} className="px-1 pb-3 border-r border-border/50 w-10 min-w-[40px]">
+                        <div className="flex items-end justify-center h-[140px]">
+                          <span
+                            className="text-[10px] font-bold tracking-wider uppercase text-foreground/80 whitespace-nowrap"
+                            style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+                          >
+                            {col.label}
+                          </span>
+                        </div>
+                      </th>
+                    ))}
 
-                {/* File Viewer or Storage Breakdown */}
-                <div className="flex-1 overflow-hidden">
-                  {showStorage ? (
-                    <StorageBreakdown
-                      tree={tree}
-                      onSelectFile={(item) => { setSelectedFile(item); setShowStorage(false); }}
-                    />
-                  ) : (
-                    <FileViewerPanel file={selectedFile} projectId={selectedProjectId} ownerEmail={ownerEmail} />
+                    <th className="px-4 py-4 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap border-r border-border/50">
+                      Name
+                    </th>
+                    <th className="px-4 py-4 text-right text-[10px] font-bold uppercase tracking-widest text-muted-foreground w-24 whitespace-nowrap">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {tableRows.length === 0 && !syncing && (
+                    <tr>
+                      <td colSpan={showPermissions ? permissionColumns.length + 3 : 3} className="px-4 py-12 text-center">
+                        <p className="text-sm font-bold tracking-widest text-muted-foreground uppercase mb-1">No files found</p>
+                        <p className="text-xs text-muted-foreground/60 uppercase tracking-tighter">Add files to your Google Drive folder, then click Refresh.</p>
+                      </td>
+                    </tr>
                   )}
-                </div>
-              </div>
+
+                  {tableRows.map((row) => {
+                    if (row.type === 'folder') {
+                      const item = row.item;
+                      const hasChildren = (folderChildrenMap.get(item.id)?.length ?? 0) > 0;
+                      const hasFiles = (filesInFolderMap.get(item.id)?.length ?? 0) > 0;
+                      const isCollapsed = collapsedFolders.has(item.id);
+                      const isRenaming = renamingId === item.id;
+                      const perms = allPermissions.get(item.id);
+                      const hasWarning = hasRequiredFolderFields;
+                      const isHighlighted = highlightedId === item.id;
+
+                      return (
+                        <tr
+                          key={`folder-${item.id}`}
+                          ref={isHighlighted ? highlightRowRef : undefined}
+                          className={`border-b border-border/50 hover:bg-muted/30 group transition-all duration-300 ${isHighlighted ? 'bg-primary/10 ring-1 ring-primary/20' : ''}`}
+                        >
+                          <td className="px-2 py-3 border-r border-border/50 text-center">
+                            {(hasChildren || hasFiles) ? (
+                              <Button
+                                variant="ghost" size="icon"
+                                onClick={() => {
+                                  setCollapsedFolders((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+                                    return next;
+                                  });
+                                }}
+                                className="h-7 w-7 text-muted-foreground hover:text-primary transition-colors p-1 rounded-md hover:bg-primary/10 shadow-none"
+                              >
+                                {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                              </Button>
+                            ) : null}
+                          </td>
+
+                          {showPermissions && permissionColumns.map((col) => (
+                            <td key={col.key} className="text-center px-1 py-1 border-r border-border/50 bg-muted/10">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(perms?.[col.key])}
+                                disabled={!canManagePermissions}
+                                onChange={() => togglePermission(item.id, col.key)}
+                                className="rounded border-border h-3.5 w-3.5 text-primary focus:ring-primary/20"
+                              />
+                            </td>
+                          ))}
+
+                          <td
+                            className="px-4 py-3 cursor-pointer select-none"
+                            onClick={() => {
+                              if (isRenaming) return;
+                              setCollapsedFolders((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+                                return next;
+                              });
+                            }}
+                          >
+                            <div className="flex items-center gap-3" style={{ paddingLeft: `${row.depth * 24}px` }}>
+                              {hasWarning && <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 animate-pulse" />}
+                              <div className="p-1.5 rounded-lg bg-amber-500/10 shrink-0">
+                                <Folder className="h-4 w-4 text-amber-500" />
+                              </div>
+                              {isRenaming ? (
+                                <input
+                                  autoFocus
+                                  value={renameValue}
+                                  onChange={(e) => setRenameValue(e.target.value)}
+                                  onBlur={handleRename}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleRename();
+                                    if (e.key === 'Escape') { setRenamingId(null); setRenameValue(''); }
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="text-xs font-bold text-primary bg-background/50 border border-primary/20 rounded-lg px-2 py-1 w-64 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                                />
+                              ) : (
+                                <span className="font-bold text-[13px] tracking-tight text-foreground/90 group-hover:text-primary transition-colors">{item.name}</span>
+                              )}
+                              {(() => {
+                                const linkInfo = linkedMap.get(`folder:${item.id}`) || linkedMap.get(item.id);
+                                if (!linkInfo) return null;
+                                const label = linkInfo.type === 'field' && linkInfo.parentName
+                                  ? `${linkInfo.parentName} → ${linkInfo.name}` : linkInfo.name;
+                                return (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wider uppercase text-blue-500 bg-blue-500/5 px-2 py-0.5 rounded-full border border-blue-500/10 cursor-default"
+                                    title={`Linked to ${linkInfo.type}: ${label}`}>
+                                    <LinkIcon className="h-3 w-3" />{label}
+                                  </span>
+                                );
+                              })()}
+                              {savingPermission === item.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
+                            </div>
+                          </td>
+
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200">
+                              {canEdit && !isRenaming && (
+                                <Button variant="ghost" size="icon"
+                                  onClick={() => { setRenamingId(item.id); setRenameValue(item.name); }}
+                                  className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all shadow-none"
+                                  title="Rename">
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {canEdit && (
+                                <Button variant="ghost" size="icon"
+                                  onClick={() => setConfirmArchiveId(item.id)}
+                                  className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-all shadow-none"
+                                  title="Archive">
+                                  <Archive className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {canEdit && (
+                                <Button variant="ghost" size="icon"
+                                  onClick={() => openLinkModal([{ name: item.name, driveId: `folder:${item.id}` }])}
+                                  className="h-8 w-8 text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 rounded-lg transition-all shadow-none"
+                                  title="Link to Unit Data">
+                                  <LinkIcon className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    // File row
+                    const item = row.item;
+                    const isRenaming = renamingId === item.id;
+                    const filePerms = allFilePermissions.get(item.id);
+                    const isHighlighted = highlightedId === item.id;
+
+                    return (
+                      <tr
+                        key={`file-${item.id}`}
+                        ref={isHighlighted ? highlightRowRef : undefined}
+                        className={`border-b border-border/50 hover:bg-muted/30 group transition-all duration-300 ${isHighlighted ? 'bg-primary/10 ring-1 ring-primary/20' : ''}`}
+                      >
+                        <td className="border-r border-border/50" />
+
+                        {showPermissions && permissionColumns.map((col) => (
+                          <td key={col.key} className="text-center px-1 py-1 border-r border-border/50 bg-muted/5">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(filePerms?.[col.key])}
+                              disabled={!canManagePermissions}
+                              onChange={() => toggleFilePermission(item.id, col.key)}
+                              className="rounded border-border h-3.5 w-3.5 text-primary focus:ring-primary/20"
+                            />
+                          </td>
+                        ))}
+
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-3" style={{ paddingLeft: `${row.depth * 24 + 12}px` }}>
+                            <div className="p-1.5 rounded-lg bg-blue-500/10 shrink-0">
+                              <FileText className="h-4 w-4 text-blue-500" />
+                            </div>
+                            {isRenaming ? (
+                              <input
+                                autoFocus
+                                value={renameValue}
+                                onChange={(e) => setRenameValue(e.target.value)}
+                                onBlur={handleRename}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleRename();
+                                  if (e.key === 'Escape') { setRenamingId(null); setRenameValue(''); }
+                                }}
+                                className="text-xs font-bold text-primary bg-background/50 border border-primary/20 rounded-lg px-2 py-1 w-64 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                              />
+                            ) : item.webViewLink ? (
+                              <Button
+                                variant="ghost"
+                                onClick={() => handleOpenInDrive(item)}
+                                className="h-auto p-0 text-[13px] font-medium text-blue-500 hover:text-blue-400 hover:bg-transparent underline underline-offset-4 transition-all text-left wrap-break-word shadow-none normal-case tracking-normal"
+                              >
+                                {item.name}
+                              </Button>
+                            ) : (
+                              <span className="text-[13px] font-medium text-foreground/80 wrap-break-word">{item.name}</span>
+                            )}
+                            {item.size && (
+                              <span className="text-[10px] text-muted-foreground/50 font-mono shrink-0">{formatFileSize(item.size)}</span>
+                            )}
+                            {(() => {
+                              const linkInfo = linkedMap.get(item.id);
+                              if (!linkInfo) return null;
+                              const label = linkInfo.type === 'field' && linkInfo.parentName
+                                ? `${linkInfo.parentName} → ${linkInfo.name}` : linkInfo.name;
+                              return (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wider uppercase text-blue-500 bg-blue-500/5 px-2 py-0.5 rounded-full border border-blue-500/10 cursor-default"
+                                  title={`Linked to ${linkInfo.type}: ${label}`}>
+                                  <LinkIcon className="h-3 w-3" />{label}
+                                </span>
+                              );
+                            })()}
+                            {savingPermission === item.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-2.5 text-right">
+                          <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200">
+                            {item.webViewLink && (
+                              <Button variant="ghost" size="icon"
+                                onClick={() => handleOpenInDrive(item)}
+                                className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all shadow-none"
+                                title="Open in Drive">
+                                <ExternalLink className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {canEdit && !isRenaming && (
+                              <Button variant="ghost" size="icon"
+                                onClick={() => { setRenamingId(item.id); setRenameValue(item.name); }}
+                                className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all shadow-none"
+                                title="Rename">
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {canEdit && (
+                              <Button variant="ghost" size="icon"
+                                onClick={() => setConfirmArchiveId(item.id)}
+                                className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-all shadow-none"
+                                title="Archive">
+                                <Archive className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {canEdit && (
+                              <Button variant="ghost" size="icon"
+                                onClick={() => openLinkModal([{ name: item.name, driveId: item.id }])}
+                                className="h-8 w-8 text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 rounded-lg transition-all shadow-none"
+                                title="Link to Unit Data">
+                                <LinkIcon className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
@@ -1086,7 +1031,6 @@ export default function FilesPage({ selectedProjectId, userPermission, projectOw
         onClose={() => setShowSetupModal(false)}
         projectId={selectedProjectId}
         userId={user?.id ?? null}
-        isReconfigure={!!driveConfig}
         onConfigured={async () => {
           const config = await getDriveConfig(selectedProjectId);
           setDriveConfig(config);
